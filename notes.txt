@@ -1,0 +1,33 @@
+the bacterium should have the following variables:
+
+enzyme
+efflux
+membrane
+repair
+speed
+type
+position (already present pos)
+max age/ max timestamp
+instead of resistance these are the formulas for survivability:
+
+A_eff = Antibiotic_concentration × ( 1 − efflux_weight ⋅ efflux ) × ( 1 − enzyme_weight ⋅ enzyme ) × ( 1 − membrane_weight ⋅ membrane )
+
+survival probability = e^( − Antibiotic_toxicity_constant , A eff , ( 1 − repair_weight ⋅ repair ) )
+
+the system should enable different types of antibiotcs each should have its own enzyme_weight, membrane_weight, efflux_weight, Antibiotic_toxicity_constant, repair_weight
+
+a subset of X antibiotics and Y bacterial type should either be generated at start up or, if provided, should be loaded from a file.
+Bacterial type should provide some ranges for :
+
+enzyme
+efflux
+membrane
+repair
+max age/ max timestamp
+so for example bacterial type A should be:
+enzyme = 0.4+-0.1
+efflux = 0.3+-0.2 etc
+
+When generating the first generation the process should spawn a number Z of bacterial for each type
+
+the bacteria should die of old age, starvation or from the antibiotics, for these try to revaualate the energy system or change it completly, lets discuss it

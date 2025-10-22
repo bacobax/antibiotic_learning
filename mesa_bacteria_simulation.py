@@ -40,9 +40,9 @@ GRID_RES = 200  # resolution for nutrient & antibiotic fields (square grid)
 INITIAL_BACTERIA = 20
 FOOD_DIFFUSION_SIGMA = 1.0  # for gaussian_filter diffusion approximation
 FOOD_DECAY = 0.0
-FOOD_CONSUMPTION_PER_STEP = 0.01
+FOOD_CONSUMPTION_PER_STEP = 0.1  # Increased from 0.01
 BACTERIA_SPEED = 0.8
-REPRODUCTION_ENERGY_THRESHOLD = 0.4
+REPRODUCTION_ENERGY_THRESHOLD = 3
 ENERGY_FROM_FOOD_SCALE = 1.0
 MUTATION_STD = 0.03
 HGT_RADIUS = 1.5  # horizontal gene transfer radius
@@ -58,20 +58,134 @@ MIN_ANIMATION_INTERVAL = 50      # minimum interval (maximum speed)
 MAX_ANIMATION_INTERVAL = 1000    # maximum interval (minimum speed)
 STEPS_PER_FRAME = 1              # number of simulation steps per animation frame
 
+# -----------------------
+# Bacterial Types and Antibiotic Definitions
+# -----------------------
+
+# Define bacterial types with resistance trait ranges
+BACTERIAL_TYPES = {
+    "E.coli": {
+        "enzyme": (0.2, 0.1),      # mean, std
+        "efflux": (0.3, 0.15),
+        "membrane": (0.25, 0.1),
+        "repair": (0.4, 0.2),
+        "max_age": (50, 10),       # timesteps
+        "base_speed": (0.8, 0.2),
+        "color": "blue"
+    },
+    "Staph": {
+        "enzyme": (0.4, 0.15),
+        "efflux": (0.2, 0.1),
+        "membrane": (0.5, 0.2),
+        "repair": (0.3, 0.15),
+        "max_age": (80, 15),
+        "base_speed": (0.6, 0.15),
+        "color": "red"
+    },
+    "Pseudomonas": {
+        "enzyme": (0.6, 0.2),
+        "efflux": (0.7, 0.25),
+        "membrane": (0.3, 0.1),
+        "repair": (0.5, 0.2),
+        "max_age": (60, 12),
+        "base_speed": (1.0, 0.3),
+        "color": "green"
+    }
+}
+
+# Define antibiotic types with their effectiveness weights
+ANTIBIOTIC_TYPES = {
+    "penicillin": {
+        "enzyme_weight": 0.8,      # β-lactamase effectiveness
+        "efflux_weight": 0.2,
+        "membrane_weight": 0.3,
+        "repair_weight": 0.4,
+        "toxicity_constant": 2.0,
+        "color": "red"
+    },
+    "tetracycline": {
+        "enzyme_weight": 0.1,
+        "efflux_weight": 0.9,      # efflux pumps very effective
+        "membrane_weight": 0.4,
+        "repair_weight": 0.3,
+        "toxicity_constant": 1.5,
+        "color": "orange"
+    },
+    "vancomycin": {
+        "enzyme_weight": 0.2,
+        "efflux_weight": 0.3,
+        "membrane_weight": 0.8,    # membrane changes very effective
+        "repair_weight": 0.6,
+        "toxicity_constant": 3.0,
+        "color": "purple"
+    }
+}
+
+# Number of bacteria per type at initialization
+BACTERIA_PER_TYPE = 7  # Will create ~21 total bacteria (3 types × 7 each)
 
 # -----------------------
 # Agent definition
 # -----------------------
 class Bacterium(Agent):
-    def __init__(self, model, pos, resistance=0.1):
+    def __init__(self, model, pos, bacterial_type="E.coli"):
         # Correct Agent initialization signature: Agent(unique_id, model)
         super().__init__(model)
+        self.unique_id = model.next_id()
         self.pos = pos
         self.energy = random.uniform(1.0, 2.0)
-        self.resistance = float(resistance)  # value in [0,1]
-        self.speed = BACTERIA_SPEED * random.uniform(0.8, 1.2)
+        self.bacterial_type = bacterial_type
+        self.age = 0
+        
+        # Generate resistance traits based on bacterial type
+        type_def = BACTERIAL_TYPES[bacterial_type]
+        self.enzyme = max(0.0, min(1.0, random.gauss(*type_def["enzyme"])))
+        self.efflux = max(0.0, min(1.0, random.gauss(*type_def["efflux"])))
+        self.membrane = max(0.0, min(1.0, random.gauss(*type_def["membrane"])))
+        self.repair = max(0.0, min(1.0, random.gauss(*type_def["repair"])))
+        self.max_age = max(10, int(random.gauss(*type_def["max_age"])))
+        self.speed = max(0.1, random.gauss(*type_def["base_speed"]))
+
+    def calculate_survival_probability(self, antibiotic_conc, antibiotic_type):
+        """Calculate survival probability using the new resistance formula"""
+        if antibiotic_conc <= 0:
+            return 1.0
+            
+        ab_def = ANTIBIOTIC_TYPES[antibiotic_type]
+        
+        # Calculate effective antibiotic concentration
+        A_eff = antibiotic_conc * \
+                (1 - ab_def["efflux_weight"] * self.efflux) * \
+                (1 - ab_def["enzyme_weight"] * self.enzyme) * \
+                (1 - ab_def["membrane_weight"] * self.membrane)
+        
+        A_eff = max(0.0, A_eff)  # Can't be negative
+        
+        # Calculate survival probability
+        damage_factor = A_eff * (1 - ab_def["repair_weight"] * self.repair)
+        survival_prob = math.exp(-ab_def["toxicity_constant"] * damage_factor)
+        
+        return min(1.0, max(0.0, survival_prob))
+
+    def mutate_offspring_traits(self):
+        """Create mutated traits for offspring"""
+        traits = {
+            "enzyme": max(0.0, min(1.0, self.enzyme + random.gauss(0, MUTATION_STD))),
+            "efflux": max(0.0, min(1.0, self.efflux + random.gauss(0, MUTATION_STD))),
+            "membrane": max(0.0, min(1.0, self.membrane + random.gauss(0, MUTATION_STD))),
+            "repair": max(0.0, min(1.0, self.repair + random.gauss(0, MUTATION_STD)))
+        }
+        return traits
 
     def step(self):
+        # Age the bacterium
+        self.age += 1
+        
+        # Check for death by old age
+        if self.age >= self.max_age:
+            self.model.to_remove.add(self)
+            return
+
         # Movement: biased random walk toward nutrient gradient
         nx, ny = self.model.nutrient_to_field_coords(self.pos)
         grad = self.model.compute_gradient_at_field(nx, ny)
@@ -97,11 +211,6 @@ class Bacterium(Agent):
         try:
             self.model.space.move_agent(self, self.pos)
         except Exception:
-            # # Some Mesa versions may not provide move_agent; try place_agent
-            # try:
-            #     self.model.space.place_agent(self, self.pos)
-            # except Exception:
-            #     pass
             raise Exception("Agent movement failed")
 
         # Consume food at location (sampled from field)
@@ -111,22 +220,45 @@ class Bacterium(Agent):
         self.model.subtract_from_field(self.model.food_field, fx, fy, consumed)
         self.energy += consumed * ENERGY_FROM_FOOD_SCALE
 
-        # Antibiotic effect: death probability depends on antibiotic concentration and resistance
-        a_conc = self.model.sample_field(self.model.antibiotic_field, fx, fy)
-        k_d = 2.0
-        effective = max(0.0, a_conc - self.resistance)
-        p_die = 1.0 - math.exp(-k_d * effective)
-        if random.random() < p_die:
-            # mark for removal
+        # Energy decay - bacteria need constant food to survive
+        self.energy -= 0.05  # Base metabolic cost
+        
+        # Death by starvation
+        if self.energy <= 0:
             self.model.to_remove.add(self)
             return
+
+        # Antibiotic effect using new survival formula
+        a_conc = self.model.sample_field(self.model.antibiotic_field, fx, fy)
+        # print(f"Antibiotic concentration at bacterium {self.unique_id}: {a_conc:.3f}")
+        if a_conc > 0:
+            survival_prob = self.calculate_survival_probability(a_conc, self.model.current_antibiotic)
+            if(survival_prob < 0.0):
+                print("Warning: negative survival probability computed.")
+            elif(survival_prob > 1.0):
+                print("Warning: survival probability greater than 1 computed.")
+            if random.random() > survival_prob:
+                self.model.to_remove.add(self)
+                return
 
         # Reproduction
         if self.energy >= REPRODUCTION_ENERGY_THRESHOLD:
             self.energy /= 2.0
-            new_res = self.resistance + random.gauss(0, MUTATION_STD)
-            new_res = float(min(max(new_res, 0.0), 1.0))
-            child = Bacterium(self.model, pos=self.pos, resistance=new_res)
+            mutated_traits = self.mutate_offspring_traits()
+            
+            # Give child a slightly offset position to avoid placing at same location as parent
+            offset_x = random.uniform(-0.5, 0.5)
+            offset_y = random.uniform(-0.5, 0.5)
+            child_x = max(0, min(self.model.width, self.pos[0] + offset_x))
+            child_y = max(0, min(self.model.height, self.pos[1] + offset_y))
+            child_pos = (child_x, child_y)
+            
+            child = Bacterium(self.model, pos=child_pos, bacterial_type=self.bacterial_type)
+            # Apply mutations
+            child.enzyme = mutated_traits["enzyme"]
+            child.efflux = mutated_traits["efflux"]
+            child.membrane = mutated_traits["membrane"]
+            child.repair = mutated_traits["repair"]
             # Defer adding to model until after stepping through all agents
             self.model.new_agents.append(child)
 
@@ -139,9 +271,8 @@ class Bacterium(Agent):
 # Model definition
 # -----------------------
 class BacteriaModel(Model):
-    def __init__(self, N=INITIAL_BACTERIA, width=WIDTH, height=HEIGHT, enable_hgt=True):
+    def __init__(self, N=None, width=WIDTH, height=HEIGHT, enable_hgt=True):
         super().__init__()  # explicit model init to avoid FutureWarning
-        self.num_agents = N
         self.width = width
         self.height = height
         self.space = ContinuousSpace(width, height, torus=False)
@@ -150,6 +281,10 @@ class BacteriaModel(Model):
         # agent container instead of deprecated scheduler
         self.agent_set = set()
         self._next_id = 0
+
+        # Antibiotic management
+        self.current_antibiotic = "penicillin"  # Default antibiotic type
+        self.available_antibiotics = list(ANTIBIOTIC_TYPES.keys())
 
         # fields
         self.field_w = GRID_RES
@@ -168,18 +303,26 @@ class BacteriaModel(Model):
         self.to_remove = set()
         self.new_agents = []
 
-        # create agents
-        for _ in range(self.num_agents):
-            x, y = random.uniform(0, width), random.uniform(0, height)
-            resistance = random.uniform(0.0, 0.2)
-            a = Bacterium(self, (x, y), resistance=resistance)
-            # # place and register
-            # try:
-            #     self.space.place_agent(a, (x, y))
-            # except Exception:
-            #     # fallback
-            #     pass
-            self.agent_set.add(a)
+        # Create agents based on bacterial types
+        if N is None:
+            # Create Z bacteria per type
+            total_bacteria = len(BACTERIAL_TYPES) * BACTERIA_PER_TYPE
+        else:
+            total_bacteria = N
+            
+        bacteria_per_type = total_bacteria // len(BACTERIAL_TYPES)
+        remainder = total_bacteria % len(BACTERIAL_TYPES)
+        
+        for i, bacterial_type in enumerate(BACTERIAL_TYPES.keys()):
+            # Distribute remainder among first types
+            count = bacteria_per_type + (1 if i < remainder else 0)
+            
+            for _ in range(count):
+                x, y = random.uniform(0, width), random.uniform(0, height)
+                bacterium = Bacterium(self, (x, y), bacterial_type=bacterial_type)
+                self.agent_set.add(bacterium)
+                # Place agent in the space
+                self.space.place_agent(bacterium, (x, y))
 
         self.running = True
         self.step_count = 0
@@ -191,6 +334,50 @@ class BacteriaModel(Model):
         nid = self._next_id
         self._next_id += 1
         return nid
+
+    def set_antibiotic_type(self, antibiotic_type):
+        """Change the current antibiotic being used"""
+        if antibiotic_type in ANTIBIOTIC_TYPES:
+            self.current_antibiotic = antibiotic_type
+            print(f"Switched to {antibiotic_type}")
+        else:
+            print(f"Unknown antibiotic type: {antibiotic_type}")
+
+    def get_population_stats(self):
+        """Get statistics about the current population"""
+        stats = {
+            "total": len(self.agent_set),
+            "by_type": {},
+            "avg_traits": {},
+            "avg_age": 0
+        }
+        
+        if len(self.agent_set) == 0:
+            return stats
+            
+        # Count by type and collect traits
+        trait_sums = {"enzyme": 0, "efflux": 0, "membrane": 0, "repair": 0}
+        age_sum = 0
+        
+        for bacterium in self.agent_set:
+            btype = bacterium.bacterial_type
+            if btype not in stats["by_type"]:
+                stats["by_type"][btype] = 0
+            stats["by_type"][btype] += 1
+            
+            trait_sums["enzyme"] += bacterium.enzyme
+            trait_sums["efflux"] += bacterium.efflux
+            trait_sums["membrane"] += bacterium.membrane
+            trait_sums["repair"] += bacterium.repair
+            age_sum += bacterium.age
+        
+        # Calculate averages
+        total = len(self.agent_set)
+        for trait in trait_sums:
+            stats["avg_traits"][trait] = trait_sums[trait] / total
+        stats["avg_age"] = age_sum / total
+        
+        return stats
 
     # ---------------------
     # Field utilities
@@ -255,7 +442,7 @@ class BacteriaModel(Model):
         self.antibiotic_field += float(amount)
 
     # ---------------------
-    # HGT: simple averaging of resistance when close
+    # HGT: exchange resistance traits when bacteria are close
     # ---------------------
     def horizontal_gene_transfer(self):
         agents = list(self.agent_set)
@@ -275,11 +462,16 @@ class BacteriaModel(Model):
                 ]
             for nb in neighbors:
                 if random.random() < HGT_PROB:
-                    mix = 0.5
-                    new_res_a = a.resistance * (1 - mix) + nb.resistance * mix
-                    new_res_b = nb.resistance * (1 - mix) + a.resistance * mix
-                    a.resistance = float(min(max(new_res_a, 0.0), 1.0))
-                    nb.resistance = float(min(max(new_res_b, 0.0), 1.0))
+                    mix = 0.3  # How much to exchange
+                    # Exchange each resistance trait
+                    traits = ['enzyme', 'efflux', 'membrane', 'repair']
+                    for trait in traits:
+                        a_val = getattr(a, trait)
+                        nb_val = getattr(nb, trait)
+                        new_a_val = a_val * (1 - mix) + nb_val * mix
+                        new_nb_val = nb_val * (1 - mix) + a_val * mix
+                        setattr(a, trait, float(min(max(new_a_val, 0.0), 1.0)))
+                        setattr(nb, trait, float(min(max(new_nb_val, 0.0), 1.0)))
 
     # ---------------------
     # Step
@@ -295,11 +487,15 @@ class BacteriaModel(Model):
 
         # Step each agent
         for a in list(self.agent_set):
+            # print(f"Stepping bacterium {a.unique_id}, age: {a.age}, energy: {a.energy:.3f}")
             try:
                 a.step()
-            except Exception:
+            except Exception as e:
+                print(f"Exception during step for bacterium {a.unique_id}: {e}")
                 # Avoid one agent failing stopping the sim
                 pass
+        # print(f"Agents to remove this step: {len(self.to_remove)}")
+        # print(f"New agents this step: {len(self.new_agents)}")
 
         # Remove dead agents
         for a in list(self.to_remove):
@@ -316,10 +512,10 @@ class BacteriaModel(Model):
 
         # Add newborns
         for child in self.new_agents:
-            # try:
-            #     self.space.place_agent(child, child.pos)
-            # except Exception:
-            #     pass
+            try:
+                self.space.place_agent(child, child.pos)
+            except Exception:
+                pass
             self.agent_set.add(child)
 
         # Horizontal gene transfer (toggleable)
@@ -340,6 +536,10 @@ class SimulatorUI:
         self.model = model
         self.paused = False
         self.latest_dose = 0.0
+        
+        # Create dynamic color mapping for bacterial types
+        self.bacterial_type_names = list(BACTERIAL_TYPES.keys())
+        self.color_map = {name: i for i, name in enumerate(self.bacterial_type_names)}
         
         # Speed control variables
         self.animation_interval = DEFAULT_ANIMATION_INTERVAL
@@ -367,6 +567,10 @@ class SimulatorUI:
         else:
             self.root = None
 
+    def get_bacterial_colors(self, agents):
+        """Get numerical colors for bacterial types"""
+        return [self.color_map.get(a.bacterial_type, 0) for a in agents]
+
     def build_controls(self):
         frm = ttk.Frame(self.root, padding=8)
         frm.grid()
@@ -389,25 +593,98 @@ class SimulatorUI:
         self.speed_label = ttk.Label(frm, text=f"Interval: {self.animation_interval}ms")
         self.speed_label.grid(column=0, row=4, columnspan=2)
 
-        ttk.Label(frm, text="Antibiotic dose:").grid(column=0, row=5)
+        # Antibiotic type selection
+        ttk.Label(frm, text="Antibiotic Type:").grid(column=0, row=5, pady=(10,5))
+        self.antibiotic_var = tk.StringVar(value=self.model.current_antibiotic)
+        self.antibiotic_combo = ttk.Combobox(frm, textvariable=self.antibiotic_var, 
+                                           values=self.model.available_antibiotics, 
+                                           state="readonly", width=12)
+        self.antibiotic_combo.grid(column=1, row=5, pady=(10,5))
+        self.antibiotic_combo.bind('<<ComboboxSelected>>', self.change_antibiotic)
+
+        ttk.Label(frm, text="Antibiotic dose:").grid(column=0, row=6)
         self.dose_var = tk.DoubleVar(value=0.5)
         self.dose_entry = ttk.Entry(frm, textvariable=self.dose_var, width=8)
-        self.dose_entry.grid(column=1, row=5)
+        self.dose_entry.grid(column=1, row=6)
 
         ttk.Button(frm, text="Apply antibiotic", command=self.apply_antibiotic_ui).grid(
-            column=0, row=6, columnspan=2, pady=(4, 4)
+            column=0, row=7, columnspan=2, pady=(4, 4)
         )
 
-        ttk.Label(frm, text="Latest dose applied:").grid(column=0, row=7)
+        ttk.Label(frm, text="Latest dose applied:").grid(column=0, row=8)
         self.latest_label = ttk.Label(frm, text="0.0")
-        self.latest_label.grid(column=1, row=7)
+        self.latest_label.grid(column=1, row=8)
 
         # HGT toggle
         self.hgt_var = tk.BooleanVar(value=self.model.enable_hgt)
         self.hgt_check = ttk.Checkbutton(
             frm, text="Enable HGT", variable=self.hgt_var, command=self.toggle_hgt
         )
-        self.hgt_check.grid(column=0, row=8, columnspan=2)
+        self.hgt_check.grid(column=0, row=9, columnspan=2)
+
+        # Population stats display
+        ttk.Label(frm, text="Population Stats", font=("TkDefaultFont", 9, "bold")).grid(
+            column=0, row=10, columnspan=2, pady=(10,5))
+        
+        self.stats_frame = ttk.Frame(frm)
+        self.stats_frame.grid(column=0, row=11, columnspan=2, sticky="ew")
+        
+        self.stats_labels = {}
+
+    def change_antibiotic(self, event=None):
+        """Change the antibiotic type when user selects from dropdown"""
+        try:
+            new_antibiotic = self.antibiotic_var.get()
+            self.model.set_antibiotic_type(new_antibiotic)
+        except Exception as e:
+            print(f"Error changing antibiotic: {e}")
+
+    def update_stats_display(self):
+        """Update the population statistics display"""
+        if self.root is None:
+            return
+            
+        try:
+            stats = self.model.get_population_stats()
+            
+            # Clear old labels
+            for label in self.stats_labels.values():
+                label.destroy()
+            self.stats_labels.clear()
+            
+            row = 0
+            # Total population
+            self.stats_labels["total"] = ttk.Label(self.stats_frame, 
+                                                  text=f"Total: {stats['total']}")
+            self.stats_labels["total"].grid(column=0, row=row, columnspan=2, sticky="w")
+            row += 1
+            
+            # Population by type
+            for btype, count in stats["by_type"].items():
+                color = BACTERIAL_TYPES[btype]["color"]
+                self.stats_labels[f"type_{btype}"] = ttk.Label(self.stats_frame, 
+                                                              text=f"{btype}: {count}")
+                self.stats_labels[f"type_{btype}"].grid(column=0, row=row, columnspan=2, sticky="w")
+                row += 1
+            
+            # Average traits (if population exists)
+            if stats["total"] > 0:
+                ttk.Label(self.stats_frame, text="Avg Traits:", 
+                         font=("TkDefaultFont", 8, "bold")).grid(column=0, row=row, columnspan=2, sticky="w")
+                row += 1
+                
+                for trait, value in stats["avg_traits"].items():
+                    self.stats_labels[f"trait_{trait}"] = ttk.Label(self.stats_frame, 
+                                                                   text=f"  {trait}: {value:.3f}")
+                    self.stats_labels[f"trait_{trait}"].grid(column=0, row=row, columnspan=2, sticky="w")
+                    row += 1
+                
+                self.stats_labels["age"] = ttk.Label(self.stats_frame, 
+                                                    text=f"  avg age: {stats['avg_age']:.1f}")
+                self.stats_labels["age"].grid(column=0, row=row, columnspan=2, sticky="w")
+                
+        except Exception as e:
+            print(f"Error updating stats: {e}")
 
     def toggle_pause(self):
         self.paused = not self.paused
@@ -495,8 +772,9 @@ class SimulatorUI:
         )
         xs = [a.pos[0] for a in self.model.agent_set]
         ys = [a.pos[1] for a in self.model.agent_set]
-        colors = [a.resistance for a in self.model.agent_set]
-        self.scat = self.ax.scatter(xs, ys, c=colors, vmin=0, vmax=1, s=20)
+        # Use numerical color mapping
+        colors = self.get_bacterial_colors(self.model.agent_set)
+        self.scat = self.ax.scatter(xs, ys, c=colors, s=20, cmap="tab10")
         return (self.scat,)
 
     def pump_tk(self):
@@ -546,15 +824,20 @@ class SimulatorUI:
 
         xs = [a.pos[0] for a in self.model.agent_set]
         ys = [a.pos[1] for a in self.model.agent_set]
-        colors = [a.resistance for a in self.model.agent_set]
+        
         if len(xs) == 0:
             self.scat.set_offsets(np.empty((0, 2)))
+            self.scat.set_array(np.array([]))
         else:
+            # Use numerical color mapping
+            colors = self.get_bacterial_colors(self.model.agent_set)
             self.scat.set_offsets(np.c_[xs, ys])
             self.scat.set_array(np.array(colors))
+        
         self.ax.set_title(
-            f"Step: {self.model.step_count}  Agents: {len(self.model.agent_set)}"
+            f"Step: {self.model.step_count}  Agents: {len(self.model.agent_set)}  Antibiotic: {self.model.current_antibiotic}"
         )
+        self.update_stats_display()
         return (self.scat,)
 
     def run(self):
