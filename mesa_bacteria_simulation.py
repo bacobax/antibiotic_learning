@@ -40,9 +40,9 @@ GRID_RES = 200  # resolution for nutrient & antibiotic fields (square grid)
 INITIAL_BACTERIA = 20
 FOOD_DIFFUSION_SIGMA = 1.0  # for gaussian_filter diffusion approximation
 FOOD_DECAY = 0.0
-FOOD_CONSUMPTION_PER_STEP = 0.2
+FOOD_CONSUMPTION_PER_STEP = 0.01
 BACTERIA_SPEED = 0.8
-REPRODUCTION_ENERGY_THRESHOLD = 5.0
+REPRODUCTION_ENERGY_THRESHOLD = 0.4
 ENERGY_FROM_FOOD_SCALE = 1.0
 MUTATION_STD = 0.03
 HGT_RADIUS = 1.5  # horizontal gene transfer radius
@@ -51,6 +51,12 @@ HGT_PROB = 0.001
 ANTIBIOTIC_DECAY = 0.05  # per sim step
 
 CONTROL_INTERVAL = 20  # timesteps between control checks (UI applies when pressed)
+
+# Simulation speed settings
+DEFAULT_ANIMATION_INTERVAL = 200  # milliseconds between frames (lower = faster)
+MIN_ANIMATION_INTERVAL = 50      # minimum interval (maximum speed)
+MAX_ANIMATION_INTERVAL = 1000    # maximum interval (minimum speed)
+STEPS_PER_FRAME = 1              # number of simulation steps per animation frame
 
 
 # -----------------------
@@ -334,6 +340,12 @@ class SimulatorUI:
         self.model = model
         self.paused = False
         self.latest_dose = 0.0
+        
+        # Speed control variables
+        self.animation_interval = DEFAULT_ANIMATION_INTERVAL
+        self.steps_per_frame = STEPS_PER_FRAME
+        self.animation = None  # Store reference to animation
+        self.step_counter = 0  # Counter to skip frames for slower speeds
 
         # Setup matplotlib figure
         self.fig, self.ax = plt.subplots(figsize=(6, 6))
@@ -364,24 +376,38 @@ class SimulatorUI:
         self.pause_btn.grid(column=0, row=1)
         ttk.Button(frm, text="Reset", command=self.reset_sim).grid(column=1, row=1)
 
-        ttk.Label(frm, text="Antibiotic dose:").grid(column=0, row=2)
+        # Speed controls
+        ttk.Label(frm, text="Speed Control").grid(column=0, row=2, columnspan=2, pady=(10,5))
+        
+        speed_frame = ttk.Frame(frm)
+        speed_frame.grid(column=0, row=3, columnspan=2, pady=5)
+        
+        ttk.Button(speed_frame, text="<<", command=self.speed_slower, width=3).grid(column=0, row=0)
+        ttk.Button(speed_frame, text=">>", command=self.speed_faster, width=3).grid(column=1, row=0)
+        ttk.Button(speed_frame, text="Reset Speed", command=self.speed_reset).grid(column=2, row=0, padx=(5,0))
+        
+        self.speed_label = ttk.Label(frm, text=f"Interval: {self.animation_interval}ms")
+        self.speed_label.grid(column=0, row=4, columnspan=2)
+
+        ttk.Label(frm, text="Antibiotic dose:").grid(column=0, row=5)
         self.dose_var = tk.DoubleVar(value=0.5)
-        ttk.Entry(frm, textvariable=self.dose_var, width=8).grid(column=1, row=2)
+        self.dose_entry = ttk.Entry(frm, textvariable=self.dose_var, width=8)
+        self.dose_entry.grid(column=1, row=5)
 
         ttk.Button(frm, text="Apply antibiotic", command=self.apply_antibiotic_ui).grid(
-            column=0, row=3, columnspan=2, pady=(4, 4)
+            column=0, row=6, columnspan=2, pady=(4, 4)
         )
 
-        ttk.Label(frm, text="Latest dose applied:").grid(column=0, row=4)
+        ttk.Label(frm, text="Latest dose applied:").grid(column=0, row=7)
         self.latest_label = ttk.Label(frm, text="0.0")
-        self.latest_label.grid(column=1, row=4)
+        self.latest_label.grid(column=1, row=7)
 
         # HGT toggle
         self.hgt_var = tk.BooleanVar(value=self.model.enable_hgt)
         self.hgt_check = ttk.Checkbutton(
             frm, text="Enable HGT", variable=self.hgt_var, command=self.toggle_hgt
         )
-        self.hgt_check.grid(column=0, row=5, columnspan=2)
+        self.hgt_check.grid(column=0, row=8, columnspan=2)
 
     def toggle_pause(self):
         self.paused = not self.paused
@@ -396,7 +422,8 @@ class SimulatorUI:
 
     def apply_antibiotic_ui(self):
         try:
-            val = float(self.dose_var.get())
+            # Get value directly from the entry widget instead of relying on textvariable
+            val = float(self.dose_entry.get())
         except Exception:
             val = 0.0
         self.model.apply_antibiotic(val)
@@ -413,6 +440,40 @@ class SimulatorUI:
         except Exception:
             new_val = not self.model.enable_hgt
         self.model.enable_hgt = new_val
+
+    def speed_faster(self):
+        """Decrease interval to make animation faster"""
+        self.animation_interval = max(MIN_ANIMATION_INTERVAL, self.animation_interval - 50)
+        self.update_speed_display()
+        self.update_animation_speed()
+
+    def speed_slower(self):
+        """Increase interval to make animation slower"""
+        self.animation_interval = min(MAX_ANIMATION_INTERVAL, self.animation_interval + 50)
+        self.update_speed_display()
+        self.update_animation_speed()
+
+    def speed_reset(self):
+        """Reset speed to default"""
+        self.animation_interval = DEFAULT_ANIMATION_INTERVAL
+        self.update_speed_display()
+        self.update_animation_speed()
+
+    def update_speed_display(self):
+        """Update the speed label"""
+        if self.root is not None:
+            try:
+                self.speed_label.config(text=f"Interval: {self.animation_interval}ms")
+            except Exception:
+                pass
+
+    def update_animation_speed(self):
+        """Update the animation interval if animation is running"""
+        if self.animation is not None:
+            try:
+                self.animation.event_source.interval = self.animation_interval
+            except Exception:
+                pass
 
     def init_plot(self):
         self.ax.set_xlim(0, self.model.width)
@@ -432,9 +493,9 @@ class SimulatorUI:
             alpha=0.35,
             cmap="Reds",
         )
-        xs = [a.pos[0] for a in self.model.agents]
-        ys = [a.pos[1] for a in self.model.agents]
-        colors = [a.resistance for a in self.model.agents]
+        xs = [a.pos[0] for a in self.model.agent_set]
+        ys = [a.pos[1] for a in self.model.agent_set]
+        colors = [a.resistance for a in self.model.agent_set]
         self.scat = self.ax.scatter(xs, ys, c=colors, vmin=0, vmax=1, s=20)
         return (self.scat,)
 
@@ -455,11 +516,24 @@ class SimulatorUI:
         self.pump_tk()
 
         if not self.paused:
-            # run one model step per frame (or more, if desired)
-            try:
-                self.model.step()
-            except Exception:
-                pass
+            if self.animation_interval <= DEFAULT_ANIMATION_INTERVAL:
+                # Faster than default: run multiple steps per frame
+                steps_to_run = max(1, int(DEFAULT_ANIMATION_INTERVAL / self.animation_interval))
+                for _ in range(steps_to_run):
+                    try:
+                        self.model.step()
+                    except Exception:
+                        pass
+            else:
+                # Slower than default: skip frames to run fewer steps
+                frames_per_step = int(self.animation_interval / DEFAULT_ANIMATION_INTERVAL)
+                self.step_counter += 1
+                if self.step_counter >= frames_per_step:
+                    self.step_counter = 0
+                    try:
+                        self.model.step()
+                    except Exception:
+                        pass
 
         # update images and scatter
         try:
@@ -470,25 +544,25 @@ class SimulatorUI:
         except Exception:
             pass
 
-        xs = [a.pos[0] for a in self.model.agents]
-        ys = [a.pos[1] for a in self.model.agents]
-        colors = [a.resistance for a in self.model.agents]
+        xs = [a.pos[0] for a in self.model.agent_set]
+        ys = [a.pos[1] for a in self.model.agent_set]
+        colors = [a.resistance for a in self.model.agent_set]
         if len(xs) == 0:
             self.scat.set_offsets(np.empty((0, 2)))
         else:
             self.scat.set_offsets(np.c_[xs, ys])
             self.scat.set_array(np.array(colors))
         self.ax.set_title(
-            f"Step: {self.model.step_count}  Agents: {len(self.model.agents)}"
+            f"Step: {self.model.step_count}  Agents: {len(self.model.agent_set)}"
         )
         return (self.scat,)
 
     def run(self):
-        ani = animation.FuncAnimation(
+        self.animation = animation.FuncAnimation(
             self.fig,
             self.update_plot,
             init_func=self.init_plot,
-            interval=200,
+            interval=self.animation_interval,  # Use configurable interval
             blit=False,
             cache_frame_data=False,  # avoid unbounded cache warning
         )
