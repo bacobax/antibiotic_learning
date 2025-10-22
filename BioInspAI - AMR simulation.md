@@ -5,87 +5,76 @@
 
 ---
 
-## Environment Layer – _Bacterial Evolution & Ecology_
+## Environment Overview
 
-The environment is a **stochastic, spatially or well-mixed simulation** of bacterial species and antibiotics.
+The **environment** simulates a Petri dish or liquid culture with:
 
-### Entities
+- A population of bacteria (each with its genome)
+    
+- A given **antibiotic concentration** (A(t))
+    
+- Optional **nutrient level** (N(t))
+    
+- A schedule for antibiotic exposure (constant, pulsed, or gradient)
+    
 
-#### **Bacteria**
+The environment defines the **selection pressure**: which genomes survive and reproduce.
 
-Each bacterium has a _genome vector_:  
-$$ 
-G = [g_\text{membrane}, g_\text{efflux}, g_\text{enzyme}, g_\text{repair}]  
-$$  
-Each value ∈ [0, 1] represents **resistance gene expression or strength**.
+---
 
-#### **Genome Parameters Meaning**
+## Environment Variables
 
-|Gene|Function|Biological analogue|
+|Symbol|Meaning|Example|
 |---|---|---|
-|`membrane`|Reduces drug uptake|Outer membrane permeability|
-|`efflux`|Pumps drug out|Efflux pump proteins|
-|`enzyme`|Degrades drug|β-lactamases, etc.|
-|`repair`|Repairs damage|SOS repair response, stress resistance|
+|($A(t)$)|Antibiotic concentration|Constant 0.6 or time-dependent pulse|
+|($N(t)$)|Nutrient availability|1.0 (full) → 0.5 (limited)|
+|($k_d$)|Antibiotic toxicity constant|2.0|
+|($k_g$)|Max growth rate (different per bacteria type)|1.0|
+|($C_r$)|Cost of resistance mechanisms|0.2–0.5 penalty factor|
 
----
+### Survival component
 
-### Evolutionary Dynamics (EA)
+We model the _effective antibiotic concentration_ the cell experiences as reduced by its defenses:
 
-The bacterial population evolves via:
+$$
+A_{\text{eff}} = A(t) \times (1 - \text{efflux weight} \cdot \text{efflux}) \times (1 - \text{enzyme weight} \cdot \text{enzyme}) \times (1 - \text{membrane weight} \cdot \text{membrane})  
+$$
 
-- **Asexual reproduction** (binary fission)
-    
-- **Mutation** per gene:  
-    $$ 
-    g_i' = g_i + \mathcal{N}(0, \sigma_i) \quad \text{with prob } \mu_{\text{eff}}  
-    $$
-    
-- **Death rate** depending on antibiotic stress and resistance level:  
-    $$ 
-    p_\text{death} = f(\text{drug conc.}, G, \text{drug type})  
-    $$
-    
-- **Horizontal Gene Transfer (optional)**: plasmid-like gene swaps between nearby cells. Could be seen as a form of crossover.
-    
-
-#### Mutation rate
+The **survival probability** decreases exponentially with damage, but is improved by **repair**:
 
 $$ 
-\mu_\text{eff} = \mu_\text{base} \cdot M_\text{drug}  
-$$  
-where $M_\text{drug}$ = drug-specific mutagenicity factor.
+S = e^{-k_d , A_{\text{eff}} , (1 - \text{repair weight} \cdot \text{repair})}  
+$$
 
-Example:
+Each weight for each resistance system will differ for each antibiotic.
 
-|Antibiotic|Mutagenicity factor|
-|---|--:|
-|Ciprofloxacin|×10|
-|Ampicillin|×2|
-|Colistin|×1|
+Interpretation:
 
-Mutation rates can also be varied also for different bacteria types (e.g. E.coli has a different mutation rate vs ampicillin compared to  Salmonella)
-
----
-
-### Environmental Fields
-
-|Field|Description|
-|---|---|
-|`drug_concentration`|For each antibiotic type; diffuses over time|
-|`nutrients`|Optional logistic growth control|
-|`environmental stress`|Optional variables affecting growth rate (temperature, lack of liquid medium)|
+- Efflux pumps reduce internal concentration.
+    
+- Enzymes degrade antibiotics.
+    
+- Membrane changes lower permeability.
+    
+- Repair systems reduce damage impact.
+    
 
 ---
 
-### Fitness
+### Growth component
 
-$$ 
-\text{Fitness}(G, A) = r_0 \cdot (1 - \text{drug effect}(G, A)) - c(G)  
-$$  
-where `c(G)` is metabolic cost of maintaining resistance (trade-off mechanism).
+Resistance has a **metabolic cost**, so growth slows as defenses strengthen:
 
----
+$$
+G = k_g , (1 - C_r \cdot (\text{membrane} + \text{efflux} + \text{enzyme} + 0.5 \cdot \text{repair}))  
+$$
+
+(Repair is weighted lower because it’s less costly than maintaining enzymes or pumps.)
+
+You can also add **nutrient limitation** if desired:  
+$$
+G = G \times N(t)  
+$$
 
 ## Agent Layer – _Adaptive Control via RL and Neural Inference_
 
@@ -114,14 +103,15 @@ while learning to:
 The agent does **not** see the true genomes.  
 Instead, it can obtain information through **sampling actions**:
 
-|Observation|Normally available|Requires sequencing|
-|---|---|---|
-|Total bacteria count|✅|✅|
-|Growth rate|✅|✅|
-|Drug concentrations|✅|✅|
-|Mean resistance|❌|✅ (meta)|
-|Genotype distribution|❌|✅ (single-cell)|
-|Mutation rates|❌|✅ (inferred or single-cell)|
+| Observation           | Normally available | Requires sequencing          |
+| --------------------- | ------------------ | ---------------------------- |
+| Total bacteria count  | ✅                 | ✅                           |
+| Growth rate           | ✅ (inferred)                | ✅ (inferred)      |
+| Drug concentrations   | ✅                 | ✅                           |
+| Mean resistance       | ❌                 | ✅ (meta)                    |
+| Genotype distribution | ❌                 | ✅ (single-cell)             |
+| Mutation rates        | ❌                 | ✅ (inferred or single-cell) |
+| Per type density| ❌| ✅ (meta) |
 
 ---
 
@@ -289,3 +279,16 @@ where:
         │     Updated environment (new gen. of bacteria)   │
         └──────────────────────────────────────────────────┘
 ```
+
+# Baseline work division
+- Bacteria has its genome
+	- membrane, efflux, enzyme, repair
+	- different types of bacteria with different starting resistances
+	- 
+
+
+## Bacteria
+- Has [[#**Genome Parameters Meaning**]]
+
+## Environment
+### Food
