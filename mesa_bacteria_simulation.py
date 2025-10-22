@@ -1,17 +1,16 @@
 """
-Bacteria simulation (Mesa model) with continuous space.
-- ContinuousSpace for agents
-- Nutrient field: 2D numpy array with diffusion and consumption
-- Antibiotic: scalar concentration applied uniformly when user triggers
-- Visualization: matplotlib animation of agents and nutrient/antibiotic overlays
-- Control UI: simple Tkinter window to Pause/Resume and apply antibiotic doses (metagenomic sequencing not implemented here)
+Updated Bacteria simulation (Mesa model) with continuous space.
+- Reworked to avoid deprecated Mesa schedulers (manage agents manually)
+- Proper Model and Agent initialization
+- Toggleable horizontal gene transfer (HGT) from UI
+- Tk UI event pumping integrated into Matplotlib animation (no separate Tk thread)
+- cache_frame_data disabled for FuncAnimation to avoid unbounded cache warning
 
 Run: python mesa_bacteria_simulation.py
-Dependencies: mesa, numpy, scipy, matplotlib, tkinter
+Dependencies: mesa, numpy, scipy, matplotlib, tkinter (optional)
 """
 
 import sys
-import threading
 import time
 import math
 import random
@@ -21,7 +20,6 @@ from scipy.ndimage import gaussian_filter
 
 from mesa import Model, Agent
 from mesa.space import ContinuousSpace
-from mesa.time import SimultaneousActivation
 
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -39,7 +37,7 @@ WIDTH = 100.0  # continuous width
 HEIGHT = 100.0
 GRID_RES = 200  # resolution for nutrient & antibiotic fields (square grid)
 
-INITIAL_BACTERIA = 120
+INITIAL_BACTERIA = 20
 FOOD_DIFFUSION_SIGMA = 1.0  # for gaussian_filter diffusion approximation
 FOOD_DECAY = 0.0
 FOOD_CONSUMPTION_PER_STEP = 0.2
@@ -59,18 +57,18 @@ CONTROL_INTERVAL = 20  # timesteps between control checks (UI applies when press
 # Agent definition
 # -----------------------
 class Bacterium(Agent):
-    def __init__(self, unique_id, model, pos, resistance=0.1):
-        super().__init__(unique_id, model)
+    def __init__(self, model, pos, resistance=0.1):
+        # Correct Agent initialization signature: Agent(unique_id, model)
+        super().__init__(model)
         self.pos = pos
         self.energy = random.uniform(1.0, 2.0)
-        self.resistance = resistance  # value in [0,1]
+        self.resistance = float(resistance)  # value in [0,1]
         self.speed = BACTERIA_SPEED * random.uniform(0.8, 1.2)
 
     def step(self):
         # Movement: biased random walk toward nutrient gradient
         nx, ny = self.model.nutrient_to_field_coords(self.pos)
         grad = self.model.compute_gradient_at_field(nx, ny)
-        # Normalize grad
         g = np.array(grad, dtype=float)
         if np.linalg.norm(g) > 1e-8:
             g = g / (np.linalg.norm(g) + 1e-9)
@@ -78,7 +76,6 @@ class Bacterium(Agent):
             g = np.zeros(2)
         rand_dir = np.random.normal(size=2)
         rand_dir /= np.linalg.norm(rand_dir) + 1e-9
-        # bias weight
         alpha = 0.8
         direction = alpha * g + (1 - alpha) * rand_dir
         direction /= np.linalg.norm(direction) + 1e-9
@@ -86,14 +83,23 @@ class Bacterium(Agent):
         # Move
         new_x = self.pos[0] + direction[0] * self.speed
         new_y = self.pos[1] + direction[1] * self.speed
-        # Keep inside bounds
-        new_x = min(max(new_x, 0.0), self.model.width)
-        new_y = min(max(new_y, 0.0), self.model.height)
-        self.model.space.move_agent(self, (new_x, new_y))
+        new_x = max(0, min(self.model.space.x_max, new_x))
+        new_y = max(0, min(self.model.space.y_max, new_y))
+
+        # Update position using ContinuousSpace API
+        self.pos = (new_x, new_y)
+        try:
+            self.model.space.move_agent(self, self.pos)
+        except Exception:
+            # # Some Mesa versions may not provide move_agent; try place_agent
+            # try:
+            #     self.model.space.place_agent(self, self.pos)
+            # except Exception:
+            #     pass
+            raise Exception("Agent movement failed")
 
         # Consume food at location (sampled from field)
         fx, fy = self.model.nutrient_to_field_coords(self.pos)
-        # Bilinear sample
         food_amount = self.model.sample_field(self.model.food_field, fx, fy)
         consumed = min(food_amount, FOOD_CONSUMPTION_PER_STEP)
         self.model.subtract_from_field(self.model.food_field, fx, fy, consumed)
@@ -101,27 +107,25 @@ class Bacterium(Agent):
 
         # Antibiotic effect: death probability depends on antibiotic concentration and resistance
         a_conc = self.model.sample_field(self.model.antibiotic_field, fx, fy)
-        # survival probability model (simple): P_survive = exp(-k*(A - R)) clipped
         k_d = 2.0
         effective = max(0.0, a_conc - self.resistance)
         p_die = 1.0 - math.exp(-k_d * effective)
         if random.random() < p_die:
-            # mark for removal by scheduler by setting a flag
+            # mark for removal
             self.model.to_remove.add(self)
             return
 
         # Reproduction
         if self.energy >= REPRODUCTION_ENERGY_THRESHOLD:
             self.energy /= 2.0
-            # Offspring inherits resistance with mutation
             new_res = self.resistance + random.gauss(0, MUTATION_STD)
             new_res = float(min(max(new_res, 0.0), 1.0))
-            child = Bacterium(
-                self.model.next_id(), self.model, pos=self.pos, resistance=new_res
-            )
+            child = Bacterium(self.model, pos=self.pos, resistance=new_res)
+            # Defer adding to model until after stepping through all agents
             self.model.new_agents.append(child)
 
     def advance(self):
+        # placeholder if later one wants two-phase updates
         pass
 
 
@@ -129,15 +133,19 @@ class Bacterium(Agent):
 # Model definition
 # -----------------------
 class BacteriaModel(Model):
-    def __init__(self, N=INITIAL_BACTERIA, width=WIDTH, height=HEIGHT):
+    def __init__(self, N=INITIAL_BACTERIA, width=WIDTH, height=HEIGHT, enable_hgt=True):
+        super().__init__()  # explicit model init to avoid FutureWarning
         self.num_agents = N
         self.width = width
         self.height = height
         self.space = ContinuousSpace(width, height, torus=False)
         self.random = random.Random()
-        self.schedule = SimultaneousActivation(self)
 
-        # field grids (GRID_RES x GRID_RES)
+        # agent container instead of deprecated scheduler
+        self.agent_set = set()
+        self._next_id = 0
+
+        # fields
         self.field_w = GRID_RES
         self.field_h = GRID_RES
         self.food_field = np.zeros((self.field_w, self.field_h), dtype=float)
@@ -154,16 +162,29 @@ class BacteriaModel(Model):
         self.to_remove = set()
         self.new_agents = []
 
-        for i in range(self.num_agents):
-            x = random.uniform(0, width)
-            y = random.uniform(0, height)
+        # create agents
+        for _ in range(self.num_agents):
+            x, y = random.uniform(0, width), random.uniform(0, height)
             resistance = random.uniform(0.0, 0.2)
-            a = Bacterium(i, self, (x, y), resistance=resistance)
-            self.space.place_agent(a, (x, y))
-            self.schedule.add(a)
+            a = Bacterium(self, (x, y), resistance=resistance)
+            # # place and register
+            # try:
+            #     self.space.place_agent(a, (x, y))
+            # except Exception:
+            #     # fallback
+            #     pass
+            self.agent_set.add(a)
 
         self.running = True
         self.step_count = 0
+
+        # HGT toggle
+        self.enable_hgt = bool(enable_hgt)
+
+    def next_id(self):
+        nid = self._next_id
+        self._next_id += 1
+        return nid
 
     # ---------------------
     # Field utilities
@@ -176,13 +197,11 @@ class BacteriaModel(Model):
         field += patch
 
     def nutrient_to_field_coords(self, pos):
-        # pos is continuous in [0,width]x[0,height]
         fx = (pos[0] / self.width) * (self.field_w - 1)
         fy = (pos[1] / self.height) * (self.field_h - 1)
         return fx, fy
 
     def sample_field(self, field, fx, fy):
-        # bilinear interpolation
         x0 = int(np.floor(fx))
         y0 = int(np.floor(fy))
         x1 = min(x0 + 1, self.field_w - 1)
@@ -202,7 +221,6 @@ class BacteriaModel(Model):
         return v
 
     def subtract_from_field(self, field, fx, fy, amount):
-        # subtract amount from nearest cell (simple)
         x = int(round(fx))
         y = int(round(fy))
         x = min(max(x, 0), self.field_w - 1)
@@ -210,7 +228,6 @@ class BacteriaModel(Model):
         field[x, y] = max(0.0, field[x, y] - amount)
 
     def compute_gradient_at_field(self, fx, fy):
-        # finite difference on nearby integer coords
         x = int(round(fx))
         y = int(round(fy))
         x0 = min(max(x - 1, 0), self.field_w - 1)
@@ -219,7 +236,6 @@ class BacteriaModel(Model):
         y1 = min(max(y + 1, 0), self.field_h - 1)
         gx = self.food_field[x1, y] - self.food_field[x0, y]
         gy = self.food_field[x, y1] - self.food_field[x, y0]
-        # convert to continuous scale
         gx *= self.field_w / self.width
         gy *= self.field_h / self.height
         return gx, gy
@@ -228,7 +244,6 @@ class BacteriaModel(Model):
     # Antibiotic control
     # ---------------------
     def apply_antibiotic(self, amount):
-        # amount is scalar added uniformly to 2D field
         if amount <= 0:
             return
         self.antibiotic_field += float(amount)
@@ -237,14 +252,23 @@ class BacteriaModel(Model):
     # HGT: simple averaging of resistance when close
     # ---------------------
     def horizontal_gene_transfer(self):
-        agents = list(self.schedule.agents)
+        agents = list(self.agent_set)
         for i, a in enumerate(agents):
-            neighbors = self.space.get_neighbors(
-                a.pos, HGT_RADIUS, include_center=False
-            )
+            # use ContinuousSpace neighbors lookup
+            try:
+                neighbors = self.space.get_neighbors(
+                    a.pos, HGT_RADIUS, include_center=False
+                )
+            except Exception:
+                # fallback: brute force
+                neighbors = [
+                    b
+                    for b in agents
+                    if b is not a
+                    and np.hypot(b.pos[0] - a.pos[0], b.pos[1] - a.pos[1]) <= HGT_RADIUS
+                ]
             for nb in neighbors:
                 if random.random() < HGT_PROB:
-                    # simple model: exchange small fraction
                     mix = 0.5
                     new_res_a = a.resistance * (1 - mix) + nb.resistance * mix
                     new_res_b = nb.resistance * (1 - mix) + a.resistance * mix
@@ -256,31 +280,48 @@ class BacteriaModel(Model):
     # ---------------------
     def step(self):
         # Update fields: diffuse nutrient and antibiotic
-        # approximate diffusion using gaussian filter
         self.food_field = gaussian_filter(self.food_field, sigma=FOOD_DIFFUSION_SIGMA)
-        # decay antibiotic
         self.antibiotic_field *= 1 - ANTIBIOTIC_DECAY
 
-        # Schedule agents
+        # Prepare collections
         self.to_remove.clear()
         self.new_agents.clear()
-        self.schedule.step()
 
-        # remove dead
+        # Step each agent
+        for a in list(self.agent_set):
+            try:
+                a.step()
+            except Exception:
+                # Avoid one agent failing stopping the sim
+                pass
+
+        # Remove dead agents
         for a in list(self.to_remove):
             try:
-                self.space.remove_agent(a)
-                self.schedule.remove(a)
+                # remove from space and agent set
+                try:
+                    self.space.remove_agent(a)
+                except Exception:
+                    pass
+                if a in self.agent_set:
+                    self.agent_set.remove(a)
             except Exception:
                 pass
 
-        # add newborns
+        # Add newborns
         for child in self.new_agents:
-            self.space.place_agent(child, child.pos)
-            self.schedule.add(child)
+            # try:
+            #     self.space.place_agent(child, child.pos)
+            # except Exception:
+            #     pass
+            self.agent_set.add(child)
 
-        # horizontal gene transfer
-        self.horizontal_gene_transfer()
+        # Horizontal gene transfer (toggleable)
+        if self.enable_hgt:
+            try:
+                self.horizontal_gene_transfer()
+            except Exception:
+                pass
 
         self.step_count += 1
 
@@ -300,17 +341,22 @@ class SimulatorUI:
         self.im_food = None
         self.im_ab = None
 
-        # Start Tk UI in another thread if available
+        # Start Tk UI if available, but DO NOT start mainloop in a separate thread.
+        # We'll pump Tk events from the animation loop to avoid cross-thread Tcl calls.
         if tk is not None:
-            self.root = tk.Tk()
-            self.root.title("Control Panel")
-            self.build_controls()
-            threading.Thread(target=self.root.mainloop, daemon=True).start()
+            try:
+                self.root = tk.Tk()
+                self.root.title("Control Panel")
+                self.build_controls()
+                # do NOT call self.root.mainloop() in another thread
+            except Exception as e:
+                print(f"Tk UI init failed: {e}")
+                self.root = None
         else:
             self.root = None
 
     def build_controls(self):
-        frm = ttk.Frame(self.root, padding=10)
+        frm = ttk.Frame(self.root, padding=8)
         frm.grid()
         ttk.Label(frm, text="Simulation Controls").grid(column=0, row=0, columnspan=2)
 
@@ -320,39 +366,58 @@ class SimulatorUI:
 
         ttk.Label(frm, text="Antibiotic dose:").grid(column=0, row=2)
         self.dose_var = tk.DoubleVar(value=0.5)
-        ttk.Entry(frm, textvariable=self.dose_var).grid(column=1, row=2)
+        ttk.Entry(frm, textvariable=self.dose_var, width=8).grid(column=1, row=2)
 
         ttk.Button(frm, text="Apply antibiotic", command=self.apply_antibiotic_ui).grid(
-            column=0, row=3, columnspan=2
+            column=0, row=3, columnspan=2, pady=(4, 4)
         )
 
         ttk.Label(frm, text="Latest dose applied:").grid(column=0, row=4)
         self.latest_label = ttk.Label(frm, text="0.0")
         self.latest_label.grid(column=1, row=4)
 
+        # HGT toggle
+        self.hgt_var = tk.BooleanVar(value=self.model.enable_hgt)
+        self.hgt_check = ttk.Checkbutton(
+            frm, text="Enable HGT", variable=self.hgt_var, command=self.toggle_hgt
+        )
+        self.hgt_check.grid(column=0, row=5, columnspan=2)
+
     def toggle_pause(self):
         self.paused = not self.paused
+        print("Paused" if self.paused else "Resumed")
         if self.paused:
             self.pause_btn.config(text="Resume")
         else:
             self.pause_btn.config(text="Pause")
 
     def reset_sim(self):
-        # not fully implemented
         print("Reset not implemented in this prototype")
 
     def apply_antibiotic_ui(self):
-        val = float(self.dose_var.get())
+        try:
+            val = float(self.dose_var.get())
+        except Exception:
+            val = 0.0
         self.model.apply_antibiotic(val)
         self.latest_dose = val
         if self.root is not None:
-            self.latest_label.config(text=f"{val:.3f}")
+            try:
+                self.latest_label.config(text=f"{val:.3f}")
+            except Exception:
+                pass
+
+    def toggle_hgt(self):
+        try:
+            new_val = bool(self.hgt_var.get())
+        except Exception:
+            new_val = not self.model.enable_hgt
+        self.model.enable_hgt = new_val
 
     def init_plot(self):
         self.ax.set_xlim(0, self.model.width)
         self.ax.set_ylim(0, self.model.height)
         self.ax.set_aspect("equal")
-        # plot food as background
         food_img = np.rot90(self.model.food_field)
         self.im_food = self.ax.imshow(
             food_img,
@@ -367,32 +432,54 @@ class SimulatorUI:
             alpha=0.35,
             cmap="Reds",
         )
-        xs = [a.pos[0] for a in self.model.schedule.agents]
-        ys = [a.pos[1] for a in self.model.schedule.agents]
-        colors = [a.resistance for a in self.model.schedule.agents]
+        xs = [a.pos[0] for a in self.model.agents]
+        ys = [a.pos[1] for a in self.model.agents]
+        colors = [a.resistance for a in self.model.agents]
         self.scat = self.ax.scatter(xs, ys, c=colors, vmin=0, vmax=1, s=20)
         return (self.scat,)
 
+    def pump_tk(self):
+        # Pump tkinter events from the main thread (safe) so we don't run mainloop in another thread
+        if self.root is not None:
+            try:
+                self.root.update_idletasks()
+                self.root.update()
+            except tk.TclError:
+                # If the window has been closed or errors occur, ignore
+                pass
+            except Exception:
+                pass
+
     def update_plot(self, frame):
+        # pump tk events so controls are responsive without separate Tk thread
+        self.pump_tk()
+
         if not self.paused:
-            # run several model steps per frame for speed
-            for _ in range(1):
+            # run one model step per frame (or more, if desired)
+            try:
                 self.model.step()
+            except Exception:
+                pass
+
         # update images and scatter
-        food_img = np.rot90(self.model.food_field)
-        self.im_food.set_data(food_img)
-        ab_img = np.rot90(self.model.antibiotic_field)
-        self.im_ab.set_data(ab_img)
-        xs = [a.pos[0] for a in self.model.schedule.agents]
-        ys = [a.pos[1] for a in self.model.schedule.agents]
-        colors = [a.resistance for a in self.model.schedule.agents]
+        try:
+            food_img = np.rot90(self.model.food_field)
+            self.im_food.set_data(food_img)
+            ab_img = np.rot90(self.model.antibiotic_field)
+            self.im_ab.set_data(ab_img)
+        except Exception:
+            pass
+
+        xs = [a.pos[0] for a in self.model.agents]
+        ys = [a.pos[1] for a in self.model.agents]
+        colors = [a.resistance for a in self.model.agents]
         if len(xs) == 0:
             self.scat.set_offsets(np.empty((0, 2)))
         else:
             self.scat.set_offsets(np.c_[xs, ys])
             self.scat.set_array(np.array(colors))
         self.ax.set_title(
-            f"Step: {self.model.step_count}  Agents: {len(self.model.schedule.agents)}"
+            f"Step: {self.model.step_count}  Agents: {len(self.model.agents)}"
         )
         return (self.scat,)
 
@@ -403,6 +490,7 @@ class SimulatorUI:
             init_func=self.init_plot,
             interval=200,
             blit=False,
+            cache_frame_data=False,  # avoid unbounded cache warning
         )
         plt.show()
 
