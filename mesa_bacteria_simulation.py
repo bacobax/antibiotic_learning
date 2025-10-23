@@ -869,28 +869,43 @@ class SimulatorUI:
         return [self.color_map.get(a.bacterial_type, 0) for a in agents]
 
     def build_controls(self):
-        frm = ttk.Frame(self.root, padding=8)
-        frm.grid()
+        self.root.title("Control Panel")
         
+        # Create main container with two columns
+        main_frame = ttk.Frame(self.root, padding=10)
+        main_frame.grid(row=0, column=0, sticky="nsew")
+        
+        # Left column frame
+        left_frame = ttk.Frame(main_frame, padding=(0, 0, 10, 0))
+        left_frame.grid(row=0, column=0, sticky="nsew")
+        
+        # Vertical separator between columns
+        ttk.Separator(main_frame, orient='vertical').grid(row=0, column=1, sticky='ns', padx=5)
+        
+        # Right column frame
+        right_frame = ttk.Frame(main_frame, padding=(10, 0, 0, 0))
+        right_frame.grid(row=0, column=2, sticky="nsew")
+        
+        # ===== LEFT COLUMN =====
         row = 0
         
         # Title
-        ttk.Label(frm, text="Simulation Controls", font=("TkDefaultFont", 10, "bold")).grid(
+        ttk.Label(left_frame, text="Simulation Controls", font=("TkDefaultFont", 10, "bold")).grid(
             column=0, row=row, columnspan=2, pady=(0, 10))
         row += 1
 
         # Basic controls
-        self.pause_btn = ttk.Button(frm, text="Resume", command=self.toggle_pause)
+        self.pause_btn = ttk.Button(left_frame, text="Resume", command=self.toggle_pause)
         self.pause_btn.grid(column=0, row=row, pady=2)
-        ttk.Button(frm, text="Reset", command=self.reset_sim).grid(column=1, row=row, pady=2)
+        ttk.Button(left_frame, text="Reset", command=self.reset_sim).grid(column=1, row=row, pady=2)
         row += 1
 
         # Speed controls
-        ttk.Label(frm, text="Speed Control", font=("TkDefaultFont", 9, "bold")).grid(
+        ttk.Label(left_frame, text="Speed Control", font=("TkDefaultFont", 9, "bold")).grid(
             column=0, row=row, columnspan=2, pady=(15, 5))
         row += 1
         
-        speed_frame = ttk.Frame(frm)
+        speed_frame = ttk.Frame(left_frame)
         speed_frame.grid(column=0, row=row, columnspan=2, pady=5)
         row += 1
         
@@ -898,65 +913,65 @@ class SimulatorUI:
         ttk.Button(speed_frame, text=">>", command=self.speed_faster, width=3).grid(column=1, row=0)
         ttk.Button(speed_frame, text="Reset Speed", command=self.speed_reset).grid(column=2, row=0, padx=(5,0))
         
-        self.speed_label = ttk.Label(frm, text=f"Speed: {self.steps_per_second} steps/sec")
+        self.speed_label = ttk.Label(left_frame, text=f"Speed: {self.steps_per_second} steps/sec")
         self.speed_label.grid(column=0, row=row, columnspan=2, pady=(0, 5))
         row += 1
 
         # Separator
-        ttk.Separator(frm, orient='horizontal').grid(column=0, row=row, columnspan=2, sticky='ew', pady=10)
+        ttk.Separator(left_frame, orient='horizontal').grid(column=0, row=row, columnspan=2, sticky='ew', pady=10)
         row += 1
 
         # Antibiotic controls
-        ttk.Label(frm, text="Antibiotic Control", font=("TkDefaultFont", 9, "bold")).grid(
+        ttk.Label(left_frame, text="Antibiotic Control", font=("TkDefaultFont", 9, "bold")).grid(
             column=0, row=row, columnspan=2, pady=(0, 5))
         row += 1
         
-        ttk.Label(frm, text="Type:").grid(column=0, row=row, sticky='w', padx=(0, 5))
+        ttk.Label(left_frame, text="Type:").grid(column=0, row=row, sticky='w', padx=(0, 5))
         self.antibiotic_var = tk.StringVar(value=self.model.current_antibiotic)
-        self.antibiotic_combo = ttk.Combobox(frm, textvariable=self.antibiotic_var, 
+        self.antibiotic_combo = ttk.Combobox(left_frame, textvariable=self.antibiotic_var, 
                                            values=self.model.available_antibiotics, 
                                            state="readonly", width=12)
         self.antibiotic_combo.grid(column=1, row=row, pady=2)
         self.antibiotic_combo.bind('<<ComboboxSelected>>', self.change_antibiotic)
         row += 1
 
-        ttk.Label(frm, text="Dose:").grid(column=0, row=row, sticky='w')
+        ttk.Label(left_frame, text="Dose:").grid(column=0, row=row, sticky='w')
         self.dose_var = tk.DoubleVar(value=0.5)
-        self.dose_entry = ttk.Entry(frm, textvariable=self.dose_var, width=8)
+        self.dose_entry = ttk.Entry(left_frame, textvariable=self.dose_var, width=8)
         self.dose_entry.grid(column=1, row=row, pady=2)
         row += 1
 
-        ttk.Button(frm, text="Apply Antibiotic", command=self.apply_antibiotic_ui).grid(
+        ttk.Button(left_frame, text="Apply Antibiotic", command=self.apply_antibiotic_ui).grid(
             column=0, row=row, columnspan=2, pady=5)
         row += 1
 
-        ttk.Label(frm, text="Latest dose:").grid(column=0, row=row, sticky='w')
-        self.latest_label = ttk.Label(frm, text="0.0")
+        ttk.Label(left_frame, text="Latest dose:").grid(column=0, row=row, sticky='w')
+        self.latest_label = ttk.Label(left_frame, text="0.0")
         self.latest_label.grid(column=1, row=row, sticky='w')
         row += 1
 
         # HGT toggle
         self.hgt_var = tk.BooleanVar(value=self.model.enable_hgt)
         self.hgt_check = ttk.Checkbutton(
-            frm, text="Enable Horizontal Gene Transfer", variable=self.hgt_var, command=self.toggle_hgt
+            left_frame, text="Enable HGT", variable=self.hgt_var, command=self.toggle_hgt
         )
         self.hgt_check.grid(column=0, row=row, columnspan=2, pady=(10, 5))
         row += 1
 
         # Separator
-        ttk.Separator(frm, orient='horizontal').grid(column=0, row=row, columnspan=2, sticky='ew', pady=10)
+        ttk.Separator(left_frame, orient='horizontal').grid(column=0, row=row, columnspan=2, sticky='ew', pady=10)
         row += 1
 
         # Individual tracking controls
-        ttk.Label(frm, text="Browse Bacteria", font=("TkDefaultFont", 9, "bold")).grid(
+        ttk.Label(left_frame, text="Browse Bacteria", font=("TkDefaultFont", 9, "bold")).grid(
             column=0, row=row, columnspan=2, pady=(0, 5))
         row += 1
         
         # Filter options
-        ttk.Label(frm, text="Show:").grid(column=0, row=row, sticky='w')
+        ttk.Label(left_frame, text="Show:").grid(column=0, row=row, sticky='w')
         self.filter_var = tk.StringVar(value="alive")
         
-        self.filter_combo = ttk.Combobox(frm, textvariable=self.filter_var, 
+        self.filter_combo = ttk.Combobox(left_frame, textvariable=self.filter_var, 
                                     values=["alive", "deceased", "all"], 
                                     state="readonly", width=12)
         self.filter_combo.grid(column=1, row=row, pady=2)
@@ -971,43 +986,42 @@ class SimulatorUI:
         row += 1
         
         # Bacteria list with scrollbar
-        list_frame = ttk.Frame(frm)
+        list_frame = ttk.Frame(left_frame)
         list_frame.grid(column=0, row=row, columnspan=2, pady=5, sticky="ew")
         row += 1
         
         scrollbar = ttk.Scrollbar(list_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        self.bacteria_listbox = tk.Listbox(list_frame, height=8, width=30, 
+        self.bacteria_listbox = tk.Listbox(list_frame, height=8, width=25, 
                                           yscrollcommand=scrollbar.set,
-                                          selectmode=tk.SINGLE,  # Allow single selection
-                                          exportselection=False)  # Keep selection when clicking outside
+                                          selectmode=tk.SINGLE,
+                                          exportselection=False)
         self.bacteria_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.bacteria_listbox.yview)
         
-        # Double-click to view (in addition to button)
+        # Double-click to view
         self.bacteria_listbox.bind('<Double-Button-1>', lambda e: self.view_selected_bacterium())
         
         # Tracking stats
-        self.tracking_stats_label = ttk.Label(frm, text="Tracked: 0 alive, 0 deceased", font=("TkDefaultFont", 8))
+        self.tracking_stats_label = ttk.Label(left_frame, text="Tracked: 0 alive, 0 deceased", font=("TkDefaultFont", 8))
         self.tracking_stats_label.grid(column=0, row=row, columnspan=2, pady=(2, 5))
         row += 1
         
-        ttk.Button(frm, text="View Selected Bacterium", command=self.view_selected_bacterium).grid(
+        ttk.Button(left_frame, text="View Selected Bacterium", command=self.view_selected_bacterium).grid(
             column=0, row=row, columnspan=2, pady=(0, 5))
         row += 1
 
-        # Separator
-        ttk.Separator(frm, orient='horizontal').grid(column=0, row=row, columnspan=2, sticky='ew', pady=10)
-        row += 1
-
+        # ===== RIGHT COLUMN =====
+        row = 0
+        
         # Population stats display
-        ttk.Label(frm, text="Population Stats", font=("TkDefaultFont", 9, "bold")).grid(
-            column=0, row=row, columnspan=2, pady=(0, 5))
+        ttk.Label(right_frame, text="Population Stats", font=("TkDefaultFont", 10, "bold")).grid(
+            column=0, row=row, columnspan=2, pady=(0, 10), sticky='w')
         row += 1
 
-        self.stats_frame = ttk.Frame(frm)
-        self.stats_frame.grid(column=0, row=row, columnspan=2, sticky="ew")
+        self.stats_frame = ttk.Frame(right_frame)
+        self.stats_frame.grid(column=0, row=row, columnspan=2, sticky="nsew")
         row += 1
         
         self.stats_labels = {}
@@ -1289,10 +1303,9 @@ class SimulatorUI:
             for i, bacterium_id in enumerate(ids):
                 data = tracker.get_tracked_data(bacterium_id)
                 if data:
-                    status = "✓" if bacterium_id in tracker.alive_individuals else "✗"
-                    btype = data['bacterial_type'][:8]  # Truncate long names
-                    lifespan = len(data['steps'])
-                    text = f"{status} ID:{bacterium_id:3d} {btype:8s} ({lifespan} steps)"
+                    btype = data['bacterial_type']
+                    # Simple format: just ID and type
+                    text = f"ID:{bacterium_id:3d} {btype}"
                     self.bacteria_listbox.insert(tk.END, text)
                     
                     # Track index if this was the previously selected bacterium
@@ -1421,7 +1434,7 @@ class SimulatorUI:
         else:
             self.im_ab.set_data(self.model.antibiotic_field.T)
         
-        self.ax.set_title(f"Step: {self.model.step_count}")
+        self.ax.set_title(f"Step: {self.model.step_count} Agents: {len(self.model.agent_set)}")
         self.ax.set_xlim(0, self.model.width)
         self.ax.set_ylim(0, self.model.height)
         self.fig.canvas.draw_idle()
