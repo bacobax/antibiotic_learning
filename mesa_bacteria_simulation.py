@@ -33,20 +33,20 @@ except Exception:
 # -----------------------
 # Configuration / Params
 # -----------------------
-WIDTH = 100.0  # continuous width
+WIDTH = 100.0                       # continuous width
 HEIGHT = 100.0
-GRID_RES = 200  # resolution for nutrient & antibiotic fields (square grid)
+GRID_RES = 200                      # resolution for nutrient & antibiotic fields (square grid)
 
 INITIAL_BACTERIA = 20
-FOOD_DIFFUSION_SIGMA = 1.0  # for gaussian_filter diffusion approximation
-FOOD_DECAY = 0.0
-FOOD_CONSUMPTION_PER_STEP = 0.1  # Increased from 0.01
-BACTERIA_SPEED = 0.8
-REPRODUCTION_ENERGY_THRESHOLD = 3
-ENERGY_FROM_FOOD_SCALE = 1.0
+FOOD_DIFFUSION_SIGMA = 1.0          # for gaussian_filter diffusion approximation
+FOOD_DECAY = 0.1
+FOOD_CONSUMPTION_PER_STEP = 0.1     # Increased from 0.01
+BACTERIA_SPEED = 0.3                # scaling factor for bacterium movement speed (each bacterium has its own speed multiplier)
+REPRODUCTION_ENERGY_THRESHOLD = 3   
+ENERGY_FROM_FOOD_SCALE = 1.0        # energy gained per unit food consumed
 MUTATION_STD = 0.03
-HGT_RADIUS = 1.5  # horizontal gene transfer radius
-HGT_PROB = 0.001
+HGT_RADIUS = 1.5                    # horizontal gene transfer radius
+HGT_PROB = 0.001                    # probability of HGT per neighbor per step  
 
 ANTIBIOTIC_DECAY = 0.05  # per sim step
 
@@ -122,7 +122,7 @@ ANTIBIOTIC_TYPES = {
 }
 
 # Number of bacteria per type at initialization
-BACTERIA_PER_TYPE = 7  # Will create ~21 total bacteria (3 types × 7 each)
+BACTERIA_PER_TYPE = 7
 
 # -----------------------
 # Agent definition
@@ -201,8 +201,8 @@ class Bacterium(Agent):
         direction /= np.linalg.norm(direction) + 1e-9
 
         # Move
-        new_x = self.pos[0] + direction[0] * self.speed
-        new_y = self.pos[1] + direction[1] * self.speed
+        new_x = self.pos[0] + direction[0] * self.speed * BACTERIA_SPEED
+        new_y = self.pos[1] + direction[1] * self.speed * BACTERIA_SPEED
         new_x = max(0, min(self.model.space.x_max, new_x))
         new_y = max(0, min(self.model.space.y_max, new_y))
 
