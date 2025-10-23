@@ -225,11 +225,8 @@ class IndividualPlotter:
         
     def create_plot_window(self):
         """Create a new window for individual plots"""
-        self.fig, self.axes = plt.subplots(2, 3, figsize=(15, 8))
+        self.fig, self.axes = plt.subplots(1, 3, figsize=(10,5))
         self.fig.suptitle("Individual Bacterium Tracking")
-        
-        # Flatten axes for easier indexing
-        self.axes = self.axes.flatten()
         
         plt.tight_layout()
         plt.show(block=False)  # Show window without blocking
@@ -256,7 +253,7 @@ class IndividualPlotter:
             ax.clear()
             
         steps = list(data['steps'])
-        print(f"Plotting {len(steps)} data points for bacterium {bacterium_id}")
+        # print(f"Plotting {len(steps)} data points for bacterium {bacterium_id}")
         
         # Determine if bacterium is alive or dead
         is_alive = bacterium_id in self.tracker.alive_individuals
@@ -271,7 +268,7 @@ class IndividualPlotter:
         traits = ['enzyme', 'efflux', 'membrane', 'repair']
         values = [data[trait][-1] for trait in traits]
         self.axes[0].bar(traits, values, color=['red', 'blue', 'green', 'orange'])
-        self.axes[0].set_title(f"Final Resistance Traits")
+        self.axes[0].set_title(f"Resistance Traits")
         self.axes[0].set_ylabel("Trait Value")
         self.axes[0].set_ylim(0, 1)
         self.axes[0].tick_params(axis='x', rotation=45)
@@ -286,47 +283,18 @@ class IndividualPlotter:
             self.axes[1].axvline(x=data['death_step'], color='red', linestyle='--', alpha=0.5, label='Death')
         self.axes[1].legend()
         
-        # Plot 3: All resistance traits over time
-        colors = ['red', 'blue', 'green', 'orange']
-        traits = ['enzyme', 'efflux', 'membrane', 'repair']
-        for trait, color in zip(traits, colors):
-            self.axes[2].plot(steps, list(data[trait]), color=color, label=trait, linewidth=2)
-        self.axes[2].set_title("Resistance Traits Evolution")
-        self.axes[2].set_xlabel("Simulation Step")
-        self.axes[2].set_ylabel("Trait Value")
-        self.axes[2].legend()
-        self.axes[2].set_ylim(0, 1)
-        if not is_alive and data['death_step']:
-            self.axes[2].axvline(x=data['death_step'], color='red', linestyle='--', alpha=0.5)
-        
-        # Plot 4: Position X over time
-        self.axes[3].plot(steps, list(data['pos_x']), 'cyan', linewidth=2)
-        self.axes[3].set_title("X Position Over Time")
-        self.axes[3].set_xlabel("Simulation Step")
-        self.axes[3].set_ylabel("X Position")
-        if not is_alive and data['death_step']:
-            self.axes[3].axvline(x=data['death_step'], color='red', linestyle='--', alpha=0.5)
-        
-        # Plot 5: Position Y over time
-        self.axes[4].plot(steps, list(data['pos_y']), 'magenta', linewidth=2)
-        self.axes[4].set_title("Y Position Over Time")
-        self.axes[4].set_xlabel("Simulation Step")
-        self.axes[4].set_ylabel("Y Position")
-        if not is_alive and data['death_step']:
-            self.axes[4].axvline(x=data['death_step'], color='red', linestyle='--', alpha=0.5)
-        
-        # Plot 6: Combined position trajectory
-        self.axes[5].plot(list(data['pos_x']), list(data['pos_y']), 'darkblue', linewidth=1, alpha=0.7)
+        # Plot 3: Combined position trajectory
+        self.axes[2].plot(list(data['pos_x']), list(data['pos_y']), 'darkblue', linewidth=1, alpha=0.7)
         # Mark start and end points
-        self.axes[5].scatter([data['pos_x'][0]], [data['pos_y'][0]], color='green', s=100, marker='o', label='Birth', zorder=5)
-        self.axes[5].scatter([data['pos_x'][-1]], [data['pos_y'][-1]], 
+        self.axes[2].scatter([data['pos_x'][0]], [data['pos_y'][0]], color='green', s=100, marker='o', label='Birth', zorder=5)
+        self.axes[2].scatter([data['pos_x'][-1]], [data['pos_y'][-1]], 
                             color='red' if not is_alive else 'blue', 
                             s=100, marker='X' if not is_alive else 'o', 
                             label='Death' if not is_alive else 'Current', zorder=5)
-        self.axes[5].set_title("Movement Trajectory")
-        self.axes[5].set_xlabel("X Position")
-        self.axes[5].set_ylabel("Y Position")
-        self.axes[5].legend()
+        self.axes[2].set_title("Movement Trajectory")
+        self.axes[2].set_xlabel("X Position")
+        self.axes[2].set_ylabel("Y Position")
+        self.axes[2].legend()
         
         plt.tight_layout()
         self.fig.canvas.draw()
@@ -807,16 +775,20 @@ class SimulatorUI:
         # Speed control variables
         self.steps_per_second = DEFAULT_STEPS_PER_SECOND
         self.animation_fps = ANIMATION_FPS
-        self.animation_interval = int(1000 / self.animation_fps)  # Convert FPS to milliseconds
-        self.steps_accumulator = 0.0  # For fractional step timing
+        self.animation_interval = int(1000 / self.animation_fps)
+        self.steps_accumulator = 0.0
         self.animation = None
         
         # Tracking list state - to avoid unnecessary updates
         self.last_bacteria_list_hash = None
         
+        # Highlighted bacterium for visualization
+        self.highlighted_bacterium_id = None
+        
         # Setup matplotlib figure
         self.fig, self.ax = plt.subplots(figsize=(6, 6))
         self.scat = None
+        self.highlight_scat = None  # Separate scatter for highlighted bacterium
         self.im_food = None
         self.im_ab = None
 
@@ -858,8 +830,9 @@ class SimulatorUI:
                 closest_bacterium = bacterium
                 
         if closest_bacterium and min_dist < 5.0:  # Within 5 units
-            # The bacterium is already being tracked automatically, just view its plots
-            print(f"Viewing bacterium {closest_bacterium.unique_id} ({closest_bacterium.bacterial_type})")
+            # Set this as the highlighted bacterium
+            self.highlighted_bacterium_id = closest_bacterium.unique_id
+            print(f"Viewing and highlighting bacterium {closest_bacterium.unique_id} ({closest_bacterium.bacterial_type})")
             
             # Open/update plot window
             self.individual_plotter.update_plots(closest_bacterium.unique_id)
@@ -1335,7 +1308,6 @@ class SimulatorUI:
         """View the selected bacterium's plots"""
         try:
             selection = self.bacteria_listbox.curselection()
-            print(f"DEBUG: curselection() returned: {selection}")
             
             if not selection or len(selection) == 0:
                 print("No bacterium selected")
@@ -1343,15 +1315,13 @@ class SimulatorUI:
                 
             # Extract ID from the listbox text
             text = self.bacteria_listbox.get(selection[0])
-            print(f"DEBUG: Selected text: '{text}'")
             
-            # Format is "✓ ID:  1 E.coli   (50 steps)" or "✗ ID:  1 E.coli   (50 steps)"
-            # Split by "ID:" and get the number part
-            id_part = text.split("ID:")[1].strip()  # Get part after "ID:"
-            print(f"DEBUG: ID part: '{id_part}'")
+            id_part = text.split("ID:")[1].strip()
+            bacterium_id = int(id_part.split()[0])
             
-            bacterium_id = int(id_part.split()[0])  # Get first number
-            print(f"DEBUG: Extracted bacterium ID: {bacterium_id}")
+            # Set this as the highlighted bacterium
+            self.highlighted_bacterium_id = bacterium_id
+            print(f"Highlighting bacterium {bacterium_id}")
             
             self.individual_plotter.update_plots(bacterium_id)
             
@@ -1388,6 +1358,11 @@ class SimulatorUI:
         self.update_plot()
         self.update_stats_display()
         self.update_bacteria_list()
+        
+        # Auto-update individual plots if a bacterium is being tracked
+        if self.individual_plotter.current_id is not None:
+            self.individual_plotter.update_plots(self.individual_plotter.current_id)
+        
         self.pump_tk()
 
     def update_plot(self):
@@ -1433,6 +1408,36 @@ class SimulatorUI:
             )
         else:
             self.im_ab.set_data(self.model.antibiotic_field.T)
+        
+        # Highlight the selected bacterium
+        if self.highlighted_bacterium_id is not None:
+            highlighted_bacterium = next((b for b in agents if b.unique_id == self.highlighted_bacterium_id), None)
+            if highlighted_bacterium:
+                highlight_pos = [highlighted_bacterium.pos]
+                if self.highlight_scat is None:
+                    self.highlight_scat = self.ax.scatter(
+                        [highlight_pos[0][0]],
+                        [highlight_pos[0][1]],
+                        c='yellow',
+                        s=100,
+                        edgecolor="black",
+                        linewidths=2,
+                        alpha=1.0,
+                        marker='o',
+                        zorder=10
+                    )
+                else:
+                    self.highlight_scat.set_offsets(highlight_pos)
+            else:
+                # Bacterium died, remove highlight
+                if self.highlight_scat is not None:
+                    self.highlight_scat.remove()
+                    self.highlight_scat = None
+                self.highlighted_bacterium_id = None
+        elif self.highlight_scat is not None:
+            # No bacterium selected, remove highlight if it exists
+            self.highlight_scat.remove()
+            self.highlight_scat = None
         
         self.ax.set_title(f"Step: {self.model.step_count} Agents: {len(self.model.agent_set)}")
         self.ax.set_xlim(0, self.model.width)
