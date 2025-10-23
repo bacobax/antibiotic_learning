@@ -639,51 +639,70 @@ class SimulatorUI:
             print(f"Error changing antibiotic: {e}")
 
     def update_stats_display(self):
-        """Update the population statistics display"""
+        """Update the population statistics display without flickering"""
         if self.root is None:
             return
             
         try:
             stats = self.model.get_population_stats()
             
-            # Clear old labels
-            for label in self.stats_labels.values():
-                label.destroy()
-            self.stats_labels.clear()
+            # Create labels only if they don't exist
+            if not hasattr(self, '_stats_initialized'):
+                self._create_stats_labels()
+                self._stats_initialized = True
             
-            row = 0
-            # Total population
-            self.stats_labels["total"] = ttk.Label(self.stats_frame, 
-                                                  text=f"Total: {stats['total']}")
-            self.stats_labels["total"].grid(column=0, row=row, columnspan=2, sticky="w")
-            row += 1
+            # Update existing labels with new values
+            self.stats_labels["total"].config(text=f"Total: {stats['total']}")
             
-            # Population by type
-            for btype, count in stats["by_type"].items():
-                color = BACTERIAL_TYPES[btype]["color"]
-                self.stats_labels[f"type_{btype}"] = ttk.Label(self.stats_frame, 
-                                                              text=f"{btype}: {count}")
-                self.stats_labels[f"type_{btype}"].grid(column=0, row=row, columnspan=2, sticky="w")
-                row += 1
+            # Update population by type
+            for btype in BACTERIAL_TYPES.keys():
+                count = stats["by_type"].get(btype, 0)
+                self.stats_labels[f"type_{btype}"].config(text=f"{btype}: {count}")
             
-            # Average traits (if population exists)
+            # Update average traits (if population exists)
             if stats["total"] > 0:
-                ttk.Label(self.stats_frame, text="Avg Traits:", 
-                         font=("TkDefaultFont", 8, "bold")).grid(column=0, row=row, columnspan=2, sticky="w")
-                row += 1
-                
                 for trait, value in stats["avg_traits"].items():
-                    self.stats_labels[f"trait_{trait}"] = ttk.Label(self.stats_frame, 
-                                                                   text=f"  {trait}: {value:.3f}")
-                    self.stats_labels[f"trait_{trait}"].grid(column=0, row=row, columnspan=2, sticky="w")
-                    row += 1
-                
-                self.stats_labels["age"] = ttk.Label(self.stats_frame, 
-                                                    text=f"  avg age: {stats['avg_age']:.1f}")
-                self.stats_labels["age"].grid(column=0, row=row, columnspan=2, sticky="w")
+                    self.stats_labels[f"trait_{trait}"].config(text=f"  {trait}: {value:.3f}")
+                self.stats_labels["age"].config(text=f"  avg age: {stats['avg_age']:.1f}")
+            else:
+                # Clear traits when no population
+                for trait in ["enzyme", "efflux", "membrane", "repair"]:
+                    self.stats_labels[f"trait_{trait}"].config(text=f"  {trait}: 0.000")
+                self.stats_labels["age"].config(text="  avg age: 0.0")
                 
         except Exception as e:
             print(f"Error updating stats: {e}")
+
+    def _create_stats_labels(self):
+        """Create all stats labels once"""
+        self.stats_labels = {}
+        
+        row = 0
+        # Total population
+        self.stats_labels["total"] = ttk.Label(self.stats_frame, text="Total: 0")
+        self.stats_labels["total"].grid(column=0, row=row, columnspan=2, sticky="w")
+        row += 1
+        
+        # Population by type
+        for btype in BACTERIAL_TYPES.keys():
+            self.stats_labels[f"type_{btype}"] = ttk.Label(self.stats_frame, text=f"{btype}: 0")
+            self.stats_labels[f"type_{btype}"].grid(column=0, row=row, columnspan=2, sticky="w")
+            row += 1
+        
+        # Average traits header
+        ttk.Label(self.stats_frame, text="Avg Traits:", 
+                 font=("TkDefaultFont", 8, "bold")).grid(column=0, row=row, columnspan=2, sticky="w")
+        row += 1
+        
+        # Individual traits
+        for trait in ["enzyme", "efflux", "membrane", "repair"]:
+            self.stats_labels[f"trait_{trait}"] = ttk.Label(self.stats_frame, text=f"  {trait}: 0.000")
+            self.stats_labels[f"trait_{trait}"].grid(column=0, row=row, columnspan=2, sticky="w")
+            row += 1
+        
+        # Average age
+        self.stats_labels["age"] = ttk.Label(self.stats_frame, text="  avg age: 0.0")
+        self.stats_labels["age"].grid(column=0, row=row, columnspan=2, sticky="w")
 
     def toggle_pause(self):
         self.paused = not self.paused
