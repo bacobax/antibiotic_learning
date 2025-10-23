@@ -551,7 +551,7 @@ class Bacterium(Agent):
             child_y = max(0, min(self.model.height, self.pos[1] + offset_y))
             child_pos = (child_x, child_y)
             
-            child = Bacterium(self.model, pos=child_pos, bacterial_type=self.bacterial_type)
+            child = Bacterium(self.model, bacterial_type=self.bacterial_type)
             
             # Apply mutations with repair-dependent rate
             mu_eff = MUTATION_STD * (1 - 0.5 * self.expression["repair"])
@@ -561,7 +561,7 @@ class Bacterium(Agent):
             
             child.energy = self.energy  # Give child half energy
             
-            self.model.new_agents.append(child, child_pos)
+            self.model.new_agents.append((child, child_pos))
 
     def advance(self):
         # placeholder if later one wants two-phase updates
@@ -926,8 +926,6 @@ class SimulatorUI:
         # Highlighted bacterium for visualization
         self.highlighted_bacterium_id = None
         
-        # Setup matplotlib figure
-        self.fig, self.ax = plt.subplots(figsize=(6, 6))
         # Setup matplotlib figure with four subplots (1x4 layout)
         self.fig = plt.figure(figsize=(16, 4))
         gs = self.fig.add_gridspec(1, 4)
@@ -1533,34 +1531,27 @@ class SimulatorUI:
                 
             # Update all plots separately
             history = self.model.history
-            steps = history['steps']
-            if len(steps) > 0:
+            if len(history['steps']) > 0:
                 # Update food plot
-                self.line_food.set_data(steps, history['total_food'])
-                self.ax_food.set_xlim(0, max(steps))
-                self.ax_food.set_ylim(0, max(history['total_food']) * 1.1)
+                self.line_food.set_data(history['steps'], history['total_food'])
+                self.ax_food.set_xlim(0, max(10,max(history['steps'])))
+                self.ax_food.set_ylim(0, max(10,max(history['total_food']) * 1.1))
                 
                 # Update population plot
-                self.line_pop.set_data(steps, history['population'])
-                self.ax_pop.set_xlim(0, max(steps))
-                self.ax_pop.set_ylim(0, max(history['population']) * 1.1)
+                self.line_pop.set_data(history['steps'], history['population'])
+                self.ax_pop.set_xlim(0, max(10,max(history['steps'])))
+                self.ax_pop.set_ylim(0, max(10,max(history['population']) * 1.1))
                 
                 # Update energy plot
-                self.line_energy.set_data(steps, history['avg_energy'])
-                self.ax_energy.set_xlim(0, max(steps))
-                self.ax_energy.set_ylim(0, max(history['avg_energy']) * 1.1)
+                self.line_energy.set_data(history['steps'], history['avg_energy'])
+                self.ax_energy.set_xlim(0, max(10,max(history['steps'])))
+                self.ax_energy.set_ylim(0, max(10,max(history['avg_energy']) * 1.1))
                 
             self.fig.canvas.draw_idle()
             
         except Exception as e:
             print(f"Plot update error: {e}")
             pass
-
-        self.ax.set_title(
-            f"Step: {self.model.step_count}  Agents: {len(self.model.agent_set)}  Antibiotic: {self.model.current_antibiotic}"
-        )
-        self.update_stats_display()
-        return (self.scat,)
 
     def run(self):
         """Run the simulation with visualization"""
@@ -1605,8 +1596,12 @@ class SimulatorUI:
                 alpha=0.7,
             )
         else:
-            self.scat.set_offsets(positions)
-            self.scat.set_array(np.array(colors))
+            if len(positions) > 0:
+                self.scat.set_offsets(positions)
+                self.scat.set_array(np.array(colors))
+            else:
+                self.scat.set_offsets(np.empty((0, 2)))
+                self.scat.set_array(np.array([]))
         
         # Update food field visualization
         if self.im_food is None:
@@ -1636,11 +1631,11 @@ class SimulatorUI:
         if self.highlighted_bacterium_id is not None:
             highlighted_bacterium = next((b for b in agents if b.unique_id == self.highlighted_bacterium_id), None)
             if highlighted_bacterium:
-                highlight_pos = [highlighted_bacterium.pos]
+                highlight_pos = [[highlighted_bacterium.pos[0], highlighted_bacterium.pos[1]]]
                 if self.highlight_scat is None:
                     self.highlight_scat = self.ax.scatter(
-                        [highlight_pos[0][0]],
-                        [highlight_pos[0][1]],
+                        highlight_pos[0][0],
+                        highlight_pos[0][1],
                         c='yellow',
                         s=100,
                         edgecolor="black",
