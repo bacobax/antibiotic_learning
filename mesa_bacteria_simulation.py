@@ -39,14 +39,53 @@ GRID_RES = 200                      # resolution for nutrient & antibiotic field
 
 INITIAL_BACTERIA = 20
 FOOD_DIFFUSION_SIGMA = 1.0          # for gaussian_filter diffusion approximation
-FOOD_DECAY = 0.1
-FOOD_CONSUMPTION_PER_STEP = 0.1     # Increased from 0.01
-BACTERIA_SPEED = 0.3                # scaling factor for bacterium movement speed (each bacterium has its own speed multiplier)
-REPRODUCTION_ENERGY_THRESHOLD = 3   
-ENERGY_FROM_FOOD_SCALE = 1.0        # energy gained per unit food consumed
+FOOD_DECAY = 0.3
+
+# Growth model parameters
+GROWTH_PARAMS = {
+    "dt": 0.1,               # integration timestep
+    "u_max": 1.0,            # max uptake rate
+    "k_s": 0.5,              # half-saturation constant
+    "eta": 1.0,              # conversion efficiency
+    "m0": 0.01,              # maintenance cost
+    "c_prod": 0.3,           # expression cost scale
+    "k_i": 0.2,              # induction constant
+    "n_ind": 1,              # Hill coefficient
+    "emax": 1.5,             # max kill rate
+    "ec50": 0.3,             # kill rate half-max
+    "h": 1.0,                # kill rate Hill coefficient
+    "beta_r": 0.5,           # repair effectiveness
+    "e_div": 3.0,            # division threshold
+    
+    # Expression kinetics
+    "ks": {"membrane": 0.2, "efflux": 1.0, "enzyme": 0.8, "repair": 0.5},
+    "kd": {"membrane": 0.05, "efflux": 0.2, "enzyme": 0.2, "repair": 0.1},
+    
+    # Expression costs
+    "expression_weights": {
+        "membrane": 0.1,
+        "efflux": 0.25,
+        "enzyme": 0.35,
+        "repair": 0.1
+    },
+    
+    # Resistance effectiveness
+    "alpha": {"efflux": 0.6, "enzyme": 0.7, "membrane": 0.4}
+}
+
+# Budget allocation model parameters
+ALLOCATION_PARAMS = {
+    "total_budget": 1.0,           # Total resource budget per bacterium
+    "reallocation_std": 0.02,      # Standard deviation for small reallocations
+    "amplification_prob": 0.05,    # Probability of trait amplification
+    "amplification_cost": 0.2,     # Energy cost per unit of amplification
+    "diminishing_return_alpha": 0.7 # Exponent for diminishing returns
+}
+
+BACTERIA_SPEED = 0.3               # scaling factor for bacterium movement speed
 MUTATION_STD = 0.03
-HGT_RADIUS = 1.5                    # horizontal gene transfer radius
-HGT_PROB = 0.001                    # probability of HGT per neighbor per step  
+HGT_RADIUS = 1.5                  # horizontal gene transfer radius
+HGT_PROB = 0.001                  # probability of HGT per neighbor per step
 
 ANTIBIOTIC_DECAY = 0.05  # per sim step
 
@@ -122,7 +161,7 @@ ANTIBIOTIC_TYPES = {
 }
 
 # Number of bacteria per type at initialization
-BACTERIA_PER_TYPE = 7
+BACTERIA_PER_TYPE = 1
 
 # -----------------------
 # Agent definition
@@ -137,45 +176,94 @@ class Bacterium(Agent):
         self.bacterial_type = bacterial_type
         self.age = 0
         
-        # Generate resistance traits based on bacterial type
+        # Generate initial trait allocations based on bacterial type
         type_def = BACTERIAL_TYPES[bacterial_type]
-        self.enzyme = max(0.0, min(1.0, random.gauss(*type_def["enzyme"])))
-        self.efflux = max(0.0, min(1.0, random.gauss(*type_def["efflux"])))
-        self.membrane = max(0.0, min(1.0, random.gauss(*type_def["membrane"])))
-        self.repair = max(0.0, min(1.0, random.gauss(*type_def["repair"])))
+        total = sum(type_def[trait][0] for trait in ['enzyme', 'efflux', 'membrane', 'repair'])
+        
+        # Normalize initial allocations to budget
+        budget = ALLOCATION_PARAMS["total_budget"]
+        self.enzyme = max(0.0, min(budget * type_def["enzyme"][0] / total, budget))
+        self.efflux = max(0.0, min(budget * type_def["efflux"][0] / total, budget))
+        self.membrane = max(0.0, min(budget * type_def["membrane"][0] / total, budget))
+        self.repair = max(0.0, min(budget * type_def["repair"][0] / total, budget))
+        
+        # Other initializations remain the same
         self.max_age = max(10, int(random.gauss(*type_def["max_age"])))
         self.speed = max(0.1, random.gauss(*type_def["base_speed"]))
 
+        # Expression states (X) start at 0
+        self.expression = {
+            "membrane": 0.0,
+            "efflux": 0.0,
+            "enzyme": 0.0,
+            "repair": 0.0
+        }
+
+    def mutate_offspring_traits(self):
+        """Implement budget-allocation mutation model"""
+        traits = ["enzyme", "efflux", "membrane", "repair"]
+        current_allocations = np.array([getattr(self, trait) for trait in traits])
+        budget = ALLOCATION_PARAMS["total_budget"]
+        
+        # 1. Small reallocations (correlated Gaussian)
+        deltas = np.random.normal(0, ALLOCATION_PARAMS["reallocation_std"], len(traits))
+        deltas -= deltas.mean()  # ensure sum of changes is zero
+        
+        # 2. Rare amplifications
+        if random.random() < ALLOCATION_PARAMS["amplification_prob"]:
+            # Choose random trait for amplification
+            amp_idx = random.randrange(len(traits))
+            amp_amount = random.uniform(0, 0.2)  # up to 20% amplification
+            deltas[amp_idx] += amp_amount
+            
+            # Apply metabolic cost
+            self.energy -= amp_amount * ALLOCATION_PARAMS["amplification_cost"]
+        
+        # Apply changes while ensuring constraints
+        new_allocations = current_allocations + deltas
+        
+        # Ensure non-negativity
+        new_allocations = np.maximum(new_allocations, 0)
+        
+        # Normalize to maintain budget
+        new_allocations *= budget / new_allocations.sum()
+        
+        # Convert to trait dictionary
+        mutated_traits = {
+            trait: float(alloc) for trait, alloc in zip(traits, new_allocations)
+        }
+        
+        return mutated_traits
+
     def calculate_survival_probability(self, antibiotic_conc, antibiotic_type):
-        """Calculate survival probability using the new resistance formula"""
+        """Modified to include diminishing returns on trait effectiveness"""
         if antibiotic_conc <= 0:
             return 1.0
             
         ab_def = ANTIBIOTIC_TYPES[antibiotic_type]
+        alpha = ALLOCATION_PARAMS["diminishing_return_alpha"]
+        
+        # Apply diminishing returns to trait effectiveness
+        effective_traits = {
+            "efflux": self.efflux ** alpha,
+            "enzyme": self.enzyme ** alpha,
+            "membrane": self.membrane ** alpha,
+            "repair": self.repair ** alpha
+        }
         
         # Calculate effective antibiotic concentration
         A_eff = antibiotic_conc * \
-                (1 - ab_def["efflux_weight"] * self.efflux) * \
-                (1 - ab_def["enzyme_weight"] * self.enzyme) * \
-                (1 - ab_def["membrane_weight"] * self.membrane)
+                (1 - ab_def["efflux_weight"] * effective_traits["efflux"]) * \
+                (1 - ab_def["enzyme_weight"] * effective_traits["enzyme"]) * \
+                (1 - ab_def["membrane_weight"] * effective_traits["membrane"])
         
-        A_eff = max(0.0, A_eff)  # Can't be negative
+        A_eff = max(0.0, A_eff)
         
-        # Calculate survival probability
-        damage_factor = A_eff * (1 - ab_def["repair_weight"] * self.repair)
+        # Calculate survival probability with diminishing returns on repair
+        damage_factor = A_eff * (1 - ab_def["repair_weight"] * effective_traits["repair"])
         survival_prob = math.exp(-ab_def["toxicity_constant"] * damage_factor)
         
         return min(1.0, max(0.0, survival_prob))
-
-    def mutate_offspring_traits(self):
-        """Create mutated traits for offspring"""
-        traits = {
-            "enzyme": max(0.0, min(1.0, self.enzyme + random.gauss(0, MUTATION_STD))),
-            "efflux": max(0.0, min(1.0, self.efflux + random.gauss(0, MUTATION_STD))),
-            "membrane": max(0.0, min(1.0, self.membrane + random.gauss(0, MUTATION_STD))),
-            "repair": max(0.0, min(1.0, self.repair + random.gauss(0, MUTATION_STD)))
-        }
-        return traits
 
     def step(self):
         # Age the bacterium
@@ -186,9 +274,60 @@ class Bacterium(Agent):
             self.model.to_remove.add(self)
             return
 
-        # Movement: biased random walk toward nutrient gradient
-        nx, ny = self.model.nutrient_to_field_coords(self.pos)
-        grad = self.model.compute_gradient_at_field(nx, ny)
+        # Get local conditions
+        fx, fy = self.model.nutrient_to_field_coords(self.pos)
+        local_food = self.model.sample_field(self.model.food_field, fx, fy)
+        local_ab = self.model.sample_field(self.model.antibiotic_field, fx, fy)
+
+        # 1) Update expression states based on antibiotic presence
+        if local_ab > 0:
+            S_A = (local_ab**GROWTH_PARAMS["n_ind"]) / (GROWTH_PARAMS["k_i"]**GROWTH_PARAMS["n_ind"] + local_ab**GROWTH_PARAMS["n_ind"])
+        else:
+            S_A = 0.0
+        
+        for k in self.expression:
+            g_i = getattr(self, k)  # get genome capacity
+            X = self.expression[k]   # current expression
+            dX = (GROWTH_PARAMS["ks"][k] * g_i * S_A - GROWTH_PARAMS["kd"][k] * X) * GROWTH_PARAMS["dt"]
+            self.expression[k] = max(0.0, min(1.0, X + dX))
+
+        # 2) Compute nutrient uptake (Monod kinetics)
+        uptake = GROWTH_PARAMS["u_max"] * (local_food / (GROWTH_PARAMS["k_s"] + local_food))
+        
+        # Subtract consumed nutrients from field
+        self.model.subtract_from_field(self.model.food_field, fx, fy, uptake * GROWTH_PARAMS["dt"])
+        
+        # 3) Expression cost
+        expr_cost = GROWTH_PARAMS["c_prod"] * sum(GROWTH_PARAMS["expression_weights"][k] * self.expression[k] 
+                                for k in self.expression)
+        
+        # 4) Energy update
+        dE = (GROWTH_PARAMS["eta"] * uptake - GROWTH_PARAMS["m0"] - expr_cost) * GROWTH_PARAMS["dt"]
+        self.energy = max(0.0, self.energy + dE)
+
+        # Death by starvation
+        if self.energy <= 0:
+            self.model.to_remove.add(self)
+            return
+
+        # 5) Antibiotic kill effect
+        if local_ab > 0:
+            # Calculate effective antibiotic concentration
+            A_eff = local_ab * (1 - sum(GROWTH_PARAMS["alpha"][k] * self.expression[k] 
+                              for k in ["efflux", "enzyme", "membrane"]))
+            A_eff = max(0.0, A_eff)
+            
+            # Calculate kill probability
+            kappa = GROWTH_PARAMS["emax"] * (A_eff**GROWTH_PARAMS["h"]) / (GROWTH_PARAMS["ec50"]**GROWTH_PARAMS["h"] + A_eff**GROWTH_PARAMS["h"])
+            kappa *= (1 - GROWTH_PARAMS["beta_r"] * self.expression["repair"])
+            p_death = 1 - math.exp(-kappa * GROWTH_PARAMS["dt"])
+            
+            if random.random() < p_death:
+                self.model.to_remove.add(self)
+                return
+
+        # 6) Movement: biased random walk toward nutrient gradient
+        grad = self.model.compute_gradient_at_field(fx, fy)
         g = np.array(grad, dtype=float)
         if np.linalg.norm(g) > 1e-8:
             g = g / (np.linalg.norm(g) + 1e-9)
@@ -213,40 +352,14 @@ class Bacterium(Agent):
         except Exception:
             raise Exception("Agent movement failed")
 
-        # Consume food at location (sampled from field)
-        fx, fy = self.model.nutrient_to_field_coords(self.pos)
-        food_amount = self.model.sample_field(self.model.food_field, fx, fy)
-        consumed = min(food_amount, FOOD_CONSUMPTION_PER_STEP)
-        self.model.subtract_from_field(self.model.food_field, fx, fy, consumed)
-        self.energy += consumed * ENERGY_FROM_FOOD_SCALE
-
-        # Energy decay - bacteria need constant food to survive
-        self.energy -= 0.05  # Base metabolic cost
-        
-        # Death by starvation
-        if self.energy <= 0:
-            self.model.to_remove.add(self)
-            return
-
-        # Antibiotic effect using new survival formula
-        a_conc = self.model.sample_field(self.model.antibiotic_field, fx, fy)
-        # print(f"Antibiotic concentration at bacterium {self.unique_id}: {a_conc:.3f}")
-        if a_conc > 0:
-            survival_prob = self.calculate_survival_probability(a_conc, self.model.current_antibiotic)
-            if(survival_prob < 0.0):
-                print("Warning: negative survival probability computed.")
-            elif(survival_prob > 1.0):
-                print("Warning: survival probability greater than 1 computed.")
-            if random.random() > survival_prob:
-                self.model.to_remove.add(self)
-                return
-
-        # Reproduction
-        if self.energy >= REPRODUCTION_ENERGY_THRESHOLD:
-            self.energy /= 2.0
+        # 7) Reproduction based on energy threshold
+        if self.energy >= GROWTH_PARAMS["e_div"]:
+            self.energy /= 2.0  # Split energy between parent and child
+            
+            # Create child with mutations
             mutated_traits = self.mutate_offspring_traits()
             
-            # Give child a slightly offset position to avoid placing at same location as parent
+            # Give child a slightly offset position
             offset_x = random.uniform(-0.5, 0.5)
             offset_y = random.uniform(-0.5, 0.5)
             child_x = max(0, min(self.model.width, self.pos[0] + offset_x))
@@ -254,12 +367,15 @@ class Bacterium(Agent):
             child_pos = (child_x, child_y)
             
             child = Bacterium(self.model, pos=child_pos, bacterial_type=self.bacterial_type)
-            # Apply mutations
-            child.enzyme = mutated_traits["enzyme"]
-            child.efflux = mutated_traits["efflux"]
-            child.membrane = mutated_traits["membrane"]
-            child.repair = mutated_traits["repair"]
-            # Defer adding to model until after stepping through all agents
+            
+            # Apply mutations with repair-dependent rate
+            mu_eff = MUTATION_STD * (1 - 0.5 * self.expression["repair"])
+            for trait in mutated_traits:
+                delta = random.gauss(0, mu_eff)
+                setattr(child, trait, max(0.0, min(1.0, mutated_traits[trait] + delta)))
+            
+            child.energy = self.energy  # Give child half energy
+            
             self.model.new_agents.append(child)
 
     def advance(self):
@@ -330,6 +446,14 @@ class BacteriaModel(Model):
         # HGT toggle
         self.enable_hgt = bool(enable_hgt)
 
+        # Add tracking arrays for plotting
+        self.history = {
+            'steps': [],
+            'population': [],
+            'total_food': [],
+            'avg_energy': []
+        }
+
     def next_id(self):
         nid = self._next_id
         self._next_id += 1
@@ -388,6 +512,25 @@ class BacteriaModel(Model):
             stats[btype]["membrane"] /= count
             stats[btype]["repair"] /= count
             stats[btype]["age"] /= count
+        
+        # Add food and energy tracking
+        total_food = np.sum(self.food_field)
+        avg_energy = np.mean([a.energy for a in self.agent_set]) if self.agent_set else 0
+        
+        # Calculate top 10 energy instead of average
+        top_energies = sorted([a.energy for a in self.agent_set], reverse=True)[:10]
+        avg_top_energy = np.mean(top_energies) if top_energies else 0
+        
+        # Record history
+        self.history['steps'].append(self.step_count)
+        self.history['population'].append(len(self.agent_set))
+        self.history['total_food'].append(total_food)
+        self.history['avg_energy'].append(avg_top_energy)  # Now stores top 10 average
+        
+        # Add to stats
+        stats['total_food'] = total_food
+        stats['avg_energy'] = avg_top_energy
+        stats['top_energies'] = top_energies  # Add full list for detailed display
         
         return stats
 
@@ -556,12 +699,44 @@ class SimulatorUI:
         # Speed control variables
         self.steps_per_second = DEFAULT_STEPS_PER_SECOND
         self.animation_fps = ANIMATION_FPS
-        self.animation_interval = int(1000 / self.animation_fps)  # Convert FPS to milliseconds
-        self.steps_accumulator = 0.0  # For fractional step timing
+        self.animation_interval = int(1000 / self.animation_fps)
+        self.steps_accumulator = 0.0
         self.animation = None
         
-        # Setup matplotlib figure
-        self.fig, self.ax = plt.subplots(figsize=(6, 6))
+        # Setup matplotlib figure with four subplots (1x4 layout)
+        self.fig = plt.figure(figsize=(16, 4))
+        gs = self.fig.add_gridspec(1, 4)
+        
+        # Main simulation view (leftmost)
+        self.ax = self.fig.add_subplot(gs[0])
+        
+        # Food level plot
+        self.ax_food = self.fig.add_subplot(gs[1])
+        self.ax_food.set_xlabel('Steps')
+        self.ax_food.set_ylabel('Total Food')
+        self.ax_food.grid(True)
+        self.line_food, = self.ax_food.plot([], [], label='Food Level', color='green')
+        self.ax_food.legend()
+        
+        # Population plot
+        self.ax_pop = self.fig.add_subplot(gs[2])
+        self.ax_pop.set_xlabel('Steps')
+        self.ax_pop.set_ylabel('Population')
+        self.ax_pop.grid(True)
+        self.line_pop, = self.ax_pop.plot([], [], label='Population', color='blue')
+        self.ax_pop.legend()
+        
+        # Energy plot (modified label)
+        self.ax_energy = self.fig.add_subplot(gs[3])
+        self.ax_energy.set_xlabel('Steps')
+        self.ax_energy.set_ylabel('Energy (Top 10 Avg)')
+        self.ax_energy.grid(True)
+        self.line_energy, = self.ax_energy.plot([], [], label='Top 10 Energy', color='red')
+        self.ax_energy.legend()
+        
+        # Adjust layout
+        self.fig.tight_layout()
+        
         self.scat = None
         self.im_food = None
         self.im_ab = None
@@ -853,27 +1028,49 @@ class SimulatorUI:
                 except Exception:
                     pass
 
-        # update images and scatter
+        # Update main simulation view
         try:
             food_img = np.rot90(self.model.food_field)
             self.im_food.set_data(food_img)
             ab_img = np.rot90(self.model.antibiotic_field)
             self.im_ab.set_data(ab_img)
-        except Exception:
+            
+            xs = [a.pos[0] for a in self.model.agent_set]
+            ys = [a.pos[1] for a in self.model.agent_set]
+            
+            if len(xs) == 0:
+                self.scat.set_offsets(np.empty((0, 2)))
+                self.scat.set_array(np.array([]))
+            else:
+                colors = self.get_bacterial_colors(self.model.agent_set)
+                self.scat.set_offsets(np.c_[xs, ys])
+                self.scat.set_array(np.array(colors))
+                
+            # Update all plots separately
+            history = self.model.history
+            steps = history['steps']
+            if len(steps) > 0:
+                # Update food plot
+                self.line_food.set_data(steps, history['total_food'])
+                self.ax_food.set_xlim(0, max(steps))
+                self.ax_food.set_ylim(0, max(history['total_food']) * 1.1)
+                
+                # Update population plot
+                self.line_pop.set_data(steps, history['population'])
+                self.ax_pop.set_xlim(0, max(steps))
+                self.ax_pop.set_ylim(0, max(history['population']) * 1.1)
+                
+                # Update energy plot
+                self.line_energy.set_data(steps, history['avg_energy'])
+                self.ax_energy.set_xlim(0, max(steps))
+                self.ax_energy.set_ylim(0, max(history['avg_energy']) * 1.1)
+                
+            self.fig.canvas.draw_idle()
+            
+        except Exception as e:
+            print(f"Plot update error: {e}")
             pass
 
-        xs = [a.pos[0] for a in self.model.agent_set]
-        ys = [a.pos[1] for a in self.model.agent_set]
-        
-        if len(xs) == 0:
-            self.scat.set_offsets(np.empty((0, 2)))
-            self.scat.set_array(np.array([]))
-        else:
-            # Use numerical color mapping
-            colors = self.get_bacterial_colors(self.model.agent_set)
-            self.scat.set_offsets(np.c_[xs, ys])
-            self.scat.set_array(np.array(colors))
-        
         self.ax.set_title(
             f"Step: {self.model.step_count}  Agents: {len(self.model.agent_set)}  Antibiotic: {self.model.current_antibiotic}"
         )
@@ -893,6 +1090,16 @@ class SimulatorUI:
 
 
 # -----------------------
+# Entrypoint
+# -----------------------
+def main():
+    model = BacteriaModel(N=INITIAL_BACTERIA)
+    ui = SimulatorUI(model)
+    ui.run()
+
+
+if __name__ == "__main__":
+    main()
 # Entrypoint
 # -----------------------
 def main():
