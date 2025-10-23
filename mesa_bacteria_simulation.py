@@ -356,26 +356,38 @@ class BacteriaModel(Model):
             return stats
             
         # Count by type and collect traits
-        trait_sums = {"enzyme": 0, "efflux": 0, "membrane": 0, "repair": 0}
-        age_sum = 0
+        trait_sums = {"enzyme": 0, "efflux": 0, "membrane": 0, "repair": 0, "age": 0}
         
         for bacterium in self.agent_set:
             btype = bacterium.bacterial_type
             if btype not in stats["by_type"]:
                 stats["by_type"][btype] = 0
+                stats[btype] = {"enzyme": 0, "efflux": 0, "membrane": 0, "repair": 0, "age": 0}
             stats["by_type"][btype] += 1
+            stats[btype]["enzyme"] += bacterium.enzyme
+            stats[btype]["efflux"] += bacterium.efflux
+            stats[btype]["membrane"] += bacterium.membrane
+            stats[btype]["repair"] += bacterium.repair
+            stats[btype]["age"] += bacterium.age
+            
             
             trait_sums["enzyme"] += bacterium.enzyme
             trait_sums["efflux"] += bacterium.efflux
             trait_sums["membrane"] += bacterium.membrane
             trait_sums["repair"] += bacterium.repair
-            age_sum += bacterium.age
+            trait_sums["age"] += bacterium.age
         
         # Calculate averages
         total = len(self.agent_set)
         for trait in trait_sums:
             stats["avg_traits"][trait] = trait_sums[trait] / total
-        stats["avg_age"] = age_sum / total
+        for btype in stats["by_type"]:
+            count = stats["by_type"][btype]
+            stats[btype]["enzyme"] /= count
+            stats[btype]["efflux"] /= count
+            stats[btype]["membrane"] /= count
+            stats[btype]["repair"] /= count
+            stats[btype]["age"] /= count
         
         return stats
 
@@ -658,17 +670,34 @@ class SimulatorUI:
             for btype in BACTERIAL_TYPES.keys():
                 count = stats["by_type"].get(btype, 0)
                 self.stats_labels[f"type_{btype}"].config(text=f"{btype}: {count}")
+                
+                # Update per-type traits if the type has population
+                if count > 0 and btype in stats:
+                    type_stats = stats[btype]
+                    self.stats_labels[f"{btype}_enzyme"].config(text=f"  enzyme: {type_stats['enzyme']:.3f}")
+                    self.stats_labels[f"{btype}_efflux"].config(text=f"  efflux: {type_stats['efflux']:.3f}")
+                    self.stats_labels[f"{btype}_membrane"].config(text=f"  membrane: {type_stats['membrane']:.3f}")
+                    self.stats_labels[f"{btype}_repair"].config(text=f"  repair: {type_stats['repair']:.3f}")
+                    self.stats_labels[f"{btype}_age"].config(text=f"  age: {type_stats['age']:.1f}")
+                else:
+                    # Clear per-type traits when no population of this type
+                    self.stats_labels[f"{btype}_enzyme"].config(text="  enzyme: 0.000")
+                    self.stats_labels[f"{btype}_efflux"].config(text="  efflux: 0.000")
+                    self.stats_labels[f"{btype}_membrane"].config(text="  membrane: 0.000")
+                    self.stats_labels[f"{btype}_repair"].config(text="  repair: 0.000")
+                    self.stats_labels[f"{btype}_age"].config(text="  age: 0.0")
             
-            # Update average traits (if population exists)
+            # Update overall average traits (if population exists)
             if stats["total"] > 0:
                 for trait, value in stats["avg_traits"].items():
-                    self.stats_labels[f"trait_{trait}"].config(text=f"  {trait}: {value:.3f}")
-                self.stats_labels["age"].config(text=f"  avg age: {stats['avg_age']:.1f}")
+                    if trait != "age":  # age is handled separately
+                        self.stats_labels[f"avg_{trait}"].config(text=f"  {trait}: {value:.3f}")
+                self.stats_labels["avg_age"].config(text=f"  age: {stats['avg_traits']['age']:.1f}")
             else:
-                # Clear traits when no population
+                # Clear overall traits when no population
                 for trait in ["enzyme", "efflux", "membrane", "repair"]:
-                    self.stats_labels[f"trait_{trait}"].config(text=f"  {trait}: 0.000")
-                self.stats_labels["age"].config(text="  avg age: 0.0")
+                    self.stats_labels[f"avg_{trait}"].config(text=f"  {trait}: 0.000")
+                self.stats_labels["avg_age"].config(text="  age: 0.0")
                 
         except Exception as e:
             print(f"Error updating stats: {e}")
@@ -683,26 +712,35 @@ class SimulatorUI:
         self.stats_labels["total"].grid(column=0, row=row, columnspan=2, sticky="w")
         row += 1
         
-        # Population by type
+        # Population by type with per-type stats
         for btype in BACTERIAL_TYPES.keys():
-            self.stats_labels[f"type_{btype}"] = ttk.Label(self.stats_frame, text=f"{btype}: 0")
+            # Type count
+            self.stats_labels[f"type_{btype}"] = ttk.Label(self.stats_frame, text=f"{btype}: 0", 
+                                                         font=("TkDefaultFont", 8, "bold"))
             self.stats_labels[f"type_{btype}"].grid(column=0, row=row, columnspan=2, sticky="w")
             row += 1
+            
+            # Per-type traits (indented)
+            for trait in ["enzyme", "efflux", "membrane", "repair", "age"]:
+                self.stats_labels[f"{btype}_{trait}"] = ttk.Label(self.stats_frame, 
+                                                                text=f"  {trait}: 0.000" if trait != "age" else "  age: 0.0")
+                self.stats_labels[f"{btype}_{trait}"].grid(column=0, row=row, columnspan=2, sticky="w", padx=(10,0))
+                row += 1
         
-        # Average traits header
-        ttk.Label(self.stats_frame, text="Avg Traits:", 
+        # Overall average traits header
+        ttk.Label(self.stats_frame, text="Overall Avg:", 
                  font=("TkDefaultFont", 8, "bold")).grid(column=0, row=row, columnspan=2, sticky="w")
         row += 1
         
-        # Individual traits
+        # Overall average traits
         for trait in ["enzyme", "efflux", "membrane", "repair"]:
-            self.stats_labels[f"trait_{trait}"] = ttk.Label(self.stats_frame, text=f"  {trait}: 0.000")
-            self.stats_labels[f"trait_{trait}"].grid(column=0, row=row, columnspan=2, sticky="w")
+            self.stats_labels[f"avg_{trait}"] = ttk.Label(self.stats_frame, text=f"  {trait}: 0.000")
+            self.stats_labels[f"avg_{trait}"].grid(column=0, row=row, columnspan=2, sticky="w")
             row += 1
         
-        # Average age
-        self.stats_labels["age"] = ttk.Label(self.stats_frame, text="  avg age: 0.0")
-        self.stats_labels["age"].grid(column=0, row=row, columnspan=2, sticky="w")
+        # Overall average age
+        self.stats_labels["avg_age"] = ttk.Label(self.stats_frame, text="  age: 0.0")
+        self.stats_labels["avg_age"].grid(column=0, row=row, columnspan=2, sticky="w")
 
     def toggle_pause(self):
         self.paused = not self.paused
