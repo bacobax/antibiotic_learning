@@ -53,10 +53,10 @@ ANTIBIOTIC_DECAY = 0.05  # per sim step
 CONTROL_INTERVAL = 20  # timesteps between control checks (UI applies when pressed)
 
 # Simulation speed settings
-DEFAULT_ANIMATION_INTERVAL = 200  # milliseconds between frames (lower = faster)
-MIN_ANIMATION_INTERVAL = 50      # minimum interval (maximum speed)
-MAX_ANIMATION_INTERVAL = 1000    # maximum interval (minimum speed)
-STEPS_PER_FRAME = 1              # number of simulation steps per animation frame
+DEFAULT_STEPS_PER_SECOND = 5    # simulation steps per second
+MIN_STEPS_PER_SECOND = 1        # minimum speed (slowest)
+MAX_STEPS_PER_SECOND = 20       # maximum speed (fastest)
+ANIMATION_FPS = 30              # visual update rate (frames per second)
 
 # -----------------------
 # Bacterial Types and Antibiotic Definitions
@@ -542,25 +542,24 @@ class SimulatorUI:
         self.color_map = {name: i for i, name in enumerate(self.bacterial_type_names)}
         
         # Speed control variables
-        self.animation_interval = DEFAULT_ANIMATION_INTERVAL
-        self.steps_per_frame = STEPS_PER_FRAME
-        self.animation = None  # Store reference to animation
-        self.step_counter = 0  # Counter to skip frames for slower speeds
-
+        self.steps_per_second = DEFAULT_STEPS_PER_SECOND
+        self.animation_fps = ANIMATION_FPS
+        self.animation_interval = int(1000 / self.animation_fps)  # Convert FPS to milliseconds
+        self.steps_accumulator = 0.0  # For fractional step timing
+        self.animation = None
+        
         # Setup matplotlib figure
         self.fig, self.ax = plt.subplots(figsize=(6, 6))
         self.scat = None
         self.im_food = None
         self.im_ab = None
 
-        # Start Tk UI if available, but DO NOT start mainloop in a separate thread.
-        # We'll pump Tk events from the animation loop to avoid cross-thread Tcl calls.
+        # Start Tk UI if available
         if tk is not None:
             try:
                 self.root = tk.Tk()
                 self.root.title("Control Panel")
                 self.build_controls()
-                # do NOT call self.root.mainloop() in another thread
             except Exception as e:
                 print(f"Tk UI init failed: {e}")
                 self.root = None
@@ -590,7 +589,7 @@ class SimulatorUI:
         ttk.Button(speed_frame, text=">>", command=self.speed_faster, width=3).grid(column=1, row=0)
         ttk.Button(speed_frame, text="Reset Speed", command=self.speed_reset).grid(column=2, row=0, padx=(5,0))
         
-        self.speed_label = ttk.Label(frm, text=f"Interval: {self.animation_interval}ms")
+        self.speed_label = ttk.Label(frm, text=f"Speed: {self.steps_per_second} steps/sec")
         self.speed_label.grid(column=0, row=4, columnspan=2)
 
         # Antibiotic type selection
@@ -719,36 +718,25 @@ class SimulatorUI:
         self.model.enable_hgt = new_val
 
     def speed_faster(self):
-        """Decrease interval to make animation faster"""
-        self.animation_interval = max(MIN_ANIMATION_INTERVAL, self.animation_interval - 50)
+        """Increase simulation steps per second"""
+        self.steps_per_second = min(MAX_STEPS_PER_SECOND, self.steps_per_second + 1)
         self.update_speed_display()
-        self.update_animation_speed()
 
     def speed_slower(self):
-        """Increase interval to make animation slower"""
-        self.animation_interval = min(MAX_ANIMATION_INTERVAL, self.animation_interval + 50)
+        """Decrease simulation steps per second"""
+        self.steps_per_second = max(MIN_STEPS_PER_SECOND, self.steps_per_second - 1)
         self.update_speed_display()
-        self.update_animation_speed()
 
     def speed_reset(self):
         """Reset speed to default"""
-        self.animation_interval = DEFAULT_ANIMATION_INTERVAL
+        self.steps_per_second = DEFAULT_STEPS_PER_SECOND
         self.update_speed_display()
-        self.update_animation_speed()
 
     def update_speed_display(self):
         """Update the speed label"""
         if self.root is not None:
             try:
-                self.speed_label.config(text=f"Interval: {self.animation_interval}ms")
-            except Exception:
-                pass
-
-    def update_animation_speed(self):
-        """Update the animation interval if animation is running"""
-        if self.animation is not None:
-            try:
-                self.animation.event_source.interval = self.animation_interval
+                self.speed_label.config(text=f"Speed: {self.steps_per_second} steps/sec")
             except Exception:
                 pass
 
@@ -790,28 +778,23 @@ class SimulatorUI:
                 pass
 
     def update_plot(self, frame):
-        # pump tk events so controls are responsive without separate Tk thread
         self.pump_tk()
 
         if not self.paused:
-            if self.animation_interval <= DEFAULT_ANIMATION_INTERVAL:
-                # Faster than default: run multiple steps per frame
-                steps_to_run = max(1, int(DEFAULT_ANIMATION_INTERVAL / self.animation_interval))
-                for _ in range(steps_to_run):
-                    try:
-                        self.model.step()
-                    except Exception:
-                        pass
-            else:
-                # Slower than default: skip frames to run fewer steps
-                frames_per_step = int(self.animation_interval / DEFAULT_ANIMATION_INTERVAL)
-                self.step_counter += 1
-                if self.step_counter >= frames_per_step:
-                    self.step_counter = 0
-                    try:
-                        self.model.step()
-                    except Exception:
-                        pass
+            # Calculate how many simulation steps to run this frame
+            steps_per_frame = self.steps_per_second / self.animation_fps
+            self.steps_accumulator += steps_per_frame
+            
+            # Run integer number of steps
+            steps_to_run = int(self.steps_accumulator)
+            self.steps_accumulator -= steps_to_run
+            
+            # Run the simulation steps
+            for _ in range(steps_to_run):
+                try:
+                    self.model.step()
+                except Exception:
+                    pass
 
         # update images and scatter
         try:
