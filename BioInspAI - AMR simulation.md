@@ -279,16 +279,3 @@ where:
         │     Updated environment (new gen. of bacteria)   │
         └──────────────────────────────────────────────────┘
 ```
-
-# Baseline work division
-- Bacteria has its genome
-	- membrane, efflux, enzyme, repair
-	- different types of bacteria with different starting resistances
-	- 
-
-
-## Bacteria
-- Has [[#**Genome Parameters Meaning**]]
-
-## Environment
-### Food
