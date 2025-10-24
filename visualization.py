@@ -126,6 +126,8 @@ class SimulationVisualizer:
         # Initialize plot elements
         self.scat = None
         self.scat_persistors = None  # Separate scatter for persistor bacteria
+        # Initialize plot elements - now we need separate scatter plots for circles and stars
+        self.scat_hgt = None
         self.highlight_scat = None
         self.im_food = None
         self.im_ab = None
@@ -217,23 +219,30 @@ class SimulationVisualizer:
         agents = list(self.model.agent_set)
         
         # Separate active and persistor bacteria
-        active_agents = [a for a in agents if not a.is_persistor]
+        
         persistor_agents = [a for a in agents if a.is_persistor]
+        hgt_agents = [a for a in agents if a.has_hgt_gene]
+        # rest of the agents
+        active_agents = [a for a in agents if (not a.is_persistor and not a.has_hgt_gene)]
         
         active_positions = [a.pos for a in active_agents]
         persistor_positions = [a.pos for a in persistor_agents]
+        hgt_positions = [a.pos for a in hgt_agents]
+        
         
         active_colors = self.get_bacterial_colors(active_agents)
         persistor_colors = self.get_bacterial_colors(persistor_agents)
+        hgt_colors = self.get_bacterial_colors(hgt_agents)
         
         # Update active bacteria scatter plot (normal border)
         if self.scat is None:
             self.scat = self.ax.scatter(
-                [pos[0] for pos in active_positions],
-                [pos[1] for pos in active_positions],
-                c=active_colors,
+                [pos[0] for pos in active_positions] if active_positions else [],
+                [pos[1] for pos in active_positions] if active_positions else [],
+                c=active_colors if active_colors else [],
                 cmap="viridis",
                 s=15,
+                marker='o',
                 edgecolor="k",
                 linewidths=0.5,
                 alpha=0.7,
@@ -245,6 +254,26 @@ class SimulationVisualizer:
             else:
                 self.scat.set_offsets(np.empty((0, 2)))
                 self.scat.set_array(np.array([]))
+        
+        # Update bacteria scatter plot for stars (HGT gene)
+        if self.scat_hgt is None:
+            self.scat_hgt = self.ax.scatter(
+                [pos[0] for pos in hgt_positions] if hgt_positions else [],
+                [pos[1] for pos in hgt_positions] if hgt_positions else [],
+                c=hgt_colors if hgt_colors else [],
+                cmap="viridis",
+                s=50,  # Slightly larger for visibility
+                marker='*',
+                edgecolor="k",
+                alpha=0.7,
+            )
+        else:
+            if len(hgt_positions) > 0:
+                self.scat_hgt.set_offsets(hgt_positions)
+                self.scat_hgt.set_array(np.array(hgt_colors))
+            else:
+                self.scat_hgt.set_offsets(np.empty((0, 2)))
+                self.scat_hgt.set_array(np.array([]))
         
         # Update persistor bacteria scatter plot (thicker border)
         if self.scat_persistors is None:
@@ -314,20 +343,36 @@ class SimulationVisualizer:
             )
             if highlighted_bacterium:
                 highlight_pos = [[highlighted_bacterium.pos[0], highlighted_bacterium.pos[1]]]
+                # Use star marker if bacterium has HGT gene, circle otherwise
+                marker = '*' if highlighted_bacterium.has_hgt_gene else 'o'
+                marker_size = 250 if highlighted_bacterium.has_hgt_gene else 150
+                
                 if self.highlight_scat is None:
                     self.highlight_scat = self.ax.scatter(
                         highlight_pos[0][0],
                         highlight_pos[0][1],
                         c='yellow',
-                        s=150,
+                        s=marker_size,
                         edgecolor="black",
                         linewidths=2,
                         alpha=1.0,
-                        marker='o',
+                        marker=marker,
                         zorder=10
                     )
                 else:
-                    self.highlight_scat.set_offsets(highlight_pos)
+                    # Need to remove and recreate if marker changes
+                    self.highlight_scat.remove()
+                    self.highlight_scat = self.ax.scatter(
+                        highlight_pos[0][0],
+                        highlight_pos[0][1],
+                        c='yellow',
+                        s=marker_size,
+                        edgecolor="black",
+                        linewidths=2,
+                        alpha=1.0,
+                        marker=marker,
+                        zorder=10
+                    )
             else:
                 # Bacterium died
                 if self.highlight_scat is not None:

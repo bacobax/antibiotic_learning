@@ -28,9 +28,9 @@ FOOD_PATCH_AMPLITUDE_MAX = 0.8      # maximum food concentration per patch
 FOOD_PATCH_SIGMA_MIN = 3            # minimum patch size (smaller = more concentrated)
 FOOD_PATCH_SIGMA_MAX = 10            # maximum patch size (larger = more spread out)
 
-# HGT Parameters
-HGT_RADIUS = 1.5                    # horizontal gene transfer radius
-HGT_PROB = 0.001                    # probability of HGT per neighbor per step
+# Gene Transfer Parameters
+HGT_RADIUS = 1.5                    # gene transfer radius between bacteria
+HGT_PROB = 0.001                    # probability of gene transfer between neighbors with HGT gene
 
 # Simulation speed settings
 DEFAULT_STEPS_PER_FRAME = 1         # simulation steps to run per visual frame (more direct control)

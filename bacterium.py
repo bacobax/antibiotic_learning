@@ -26,6 +26,7 @@ class Bacterium(Agent):
         
         # Initialize persistor state flag
         self.is_persistor = False
+        self.has_hgt_gene = random.random() < 0.05  # 5% chance of having HGT gene
         
         # Initialize traits
         self._initialize_traits(bacterial_type)

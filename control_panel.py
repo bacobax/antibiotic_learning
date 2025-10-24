@@ -19,7 +19,7 @@ class ControlPanel:
     """Tkinter control panel for simulation controls and statistics."""
     
     def __init__(self, model, on_toggle_pause, on_reset, on_apply_antibiotic, 
-                 on_toggle_hgt, on_speed_change, on_view_bacterium):
+                 on_speed_change, on_view_bacterium):
         """
         Initialize control panel.
         
@@ -28,7 +28,6 @@ class ControlPanel:
             on_toggle_pause: Callback for pause/resume
             on_reset: Callback for reset
             on_apply_antibiotic: Callback for applying antibiotic
-            on_toggle_hgt: Callback for toggling HGT
             on_speed_change: Callback for speed changes
             on_view_bacterium: Callback for viewing selected bacterium
         """
@@ -36,7 +35,6 @@ class ControlPanel:
         self.on_toggle_pause = on_toggle_pause
         self.on_reset = on_reset
         self.on_apply_antibiotic = on_apply_antibiotic
-        self.on_toggle_hgt = on_toggle_hgt
         self.on_speed_change = on_speed_change
         self.on_view_bacterium = on_view_bacterium
         
@@ -100,13 +98,7 @@ class ControlPanel:
         # Antibiotic controls
         row = self._add_antibiotic_controls(frame, row)
 
-        # HGT toggle
-        self.hgt_var = tk.BooleanVar(value=self.model.enable_hgt)
-        self.hgt_check = ttk.Checkbutton(
-            frame, text="Enable HGT", variable=self.hgt_var, command=self._toggle_hgt_internal
-        )
-        self.hgt_check.grid(column=0, row=row, columnspan=2, pady=(10, 5))
-        row += 1
+
 
         # Performance mode toggle - initialize with config value
         self.perf_mode_var = tk.BooleanVar(value=PERFORMANCE_MODE)
@@ -256,13 +248,6 @@ class ControlPanel:
         self.on_apply_antibiotic(val)
         self.latest_label.config(text=f"{val:.3f}")
 
-    def _toggle_hgt_internal(self):
-        """Internal handler for HGT toggle"""
-        try:
-            new_val = bool(self.hgt_var.get())
-        except Exception:
-            new_val = not self.model.enable_hgt
-        self.on_toggle_hgt(new_val)
 
     def _toggle_performance_mode(self):
         """Internal handler for performance mode toggle"""
