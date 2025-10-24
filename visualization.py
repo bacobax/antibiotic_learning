@@ -219,11 +219,10 @@ class SimulationVisualizer:
         agents = list(self.model.agent_set)
         
         # Separate active and persistor bacteria
-        
-        persistor_agents = [a for a in agents if a.is_persistor]
-        hgt_agents = [a for a in agents if a.has_hgt_gene]
+        persistor_agents = [a for a in agents if a.is_persistor and a.pos is not None]
+        hgt_agents = [a for a in agents if a.has_hgt_gene and a.pos is not None]
         # rest of the agents
-        active_agents = [a for a in agents if (not a.is_persistor and not a.has_hgt_gene)]
+        active_agents = [a for a in agents if (not a.is_persistor and not a.has_hgt_gene and a.pos is not None)]
         
         active_positions = [a.pos for a in active_agents]
         persistor_positions = [a.pos for a in persistor_agents]
@@ -278,9 +277,9 @@ class SimulationVisualizer:
         # Update persistor bacteria scatter plot (thicker border)
         if self.scat_persistors is None:
             self.scat_persistors = self.ax.scatter(
-                [pos[0] for pos in persistor_positions],
-                [pos[1] for pos in persistor_positions],
-                c=persistor_colors,
+                [pos[0] for pos in persistor_positions] if persistor_positions else [],
+                [pos[1] for pos in persistor_positions] if persistor_positions else [],
+                c=persistor_colors if persistor_colors else [],
                 cmap="viridis",
                 s=15,
                 edgecolor="purple",  # Distinctive color for persistors
@@ -324,8 +323,9 @@ class SimulationVisualizer:
         
         # Update title with persistor count
         persistor_count = len(persistor_agents)
+        hgt_gene_count = len(hgt_agents)
         self.ax.set_title(
-            f"Step: {self.model.step_count} | Agents: {len(agents)} (Persistors: {persistor_count})", 
+            f"Step: {self.model.step_count} | Agents: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count}", 
             fontsize=11
         )
         self.ax.set_xlim(0, self.model.width)
