@@ -113,6 +113,8 @@ PERSISTENCE_PARAMS = {
     "movement_speed_factor": 0.2,       # Movement speed multiplier (80% reduction)
     "min_persistor_energy": 0.1,        # Minimum energy to remain in persistor state
     "aging_rate_factor": 0.1,           # Aging rate multiplier for persistors (age 10x slower)
+    
+    "max_entry_prob": 0.5,               # Cap on entry probability
 }
 
 # -----------------------

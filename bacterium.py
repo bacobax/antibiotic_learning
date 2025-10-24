@@ -249,9 +249,9 @@ class Bacterium(Agent):
     def _check_persistor_entry(self, local_ab):
         """Determine if bacterium should enter persistor state
         
-        Entry probability increases under stress conditions:
-        - Low energy (starvation stress)
-        - High antibiotic concentration (chemical stress)
+        Entry probability increases continuously with stress conditions:
+        - Scales with antibiotic concentration (dose-dependent)
+        - Inversely proportional to energy (starvation stress)
         
         Returns:
             bool: True if bacterium enters persistor state
@@ -259,14 +259,25 @@ class Bacterium(Agent):
         if self.is_persistor:
             return False  # Already a persistor
         
-        # Calculate stress factors
-        energy_stress = self.energy < PERSISTENCE_PARAMS["energy_stress_threshold"]
-        antibiotic_stress = local_ab > PERSISTENCE_PARAMS["antibiotic_stress_threshold"]
-        
-        # Base probability with stress multiplier
+        # Base probability
         prob = PERSISTENCE_PARAMS["base_entry_prob"]
-        if energy_stress or antibiotic_stress:
-            prob *= PERSISTENCE_PARAMS["stress_entry_multiplier"]
+        
+        # Antibiotic stress: Hill-function style dose-dependent response
+        # Probability increases sigmoidally with antibiotic concentration
+        if local_ab > 0:
+            ab_factor = (local_ab ** 2) / (PERSISTENCE_PARAMS["antibiotic_stress_threshold"] ** 2 + local_ab ** 2)
+            prob += ab_factor * PERSISTENCE_PARAMS["stress_entry_multiplier"] * PERSISTENCE_PARAMS["base_entry_prob"]
+        
+        # Energy stress: probability increases as energy decreases
+        # Normalized energy (0 = no energy, 1 = well-fed at e_div threshold)
+        normalized_energy = self.energy / GROWTH_PARAMS["e_div"]
+        if normalized_energy < 1.0:
+            # Inverse relationship: lower energy -> higher probability
+            energy_stress_factor = (1.0 - normalized_energy) ** 2  # Quadratic to emphasize low energy
+            prob += energy_stress_factor * PERSISTENCE_PARAMS["stress_entry_multiplier"] * PERSISTENCE_PARAMS["base_entry_prob"]
+        
+        # Cap probability at reasonable maximum
+        prob = min(prob, PERSISTENCE_PARAMS["max_entry_prob"])
         
         return random.random() < prob
 
