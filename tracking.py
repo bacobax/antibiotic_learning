@@ -103,11 +103,12 @@ class IndividualTracker:
 class IndividualPlotter:
     """Creates and manages individual bacteria plots."""
     
-    def __init__(self, tracker):
+    def __init__(self, tracker, on_close_callback=None):
         self.tracker = tracker
         self.fig = None
         self.axes = None
         self.current_id = None
+        self.on_close_callback = on_close_callback
     
     def close(self):
         """Close the plot window if it exists"""
@@ -121,13 +122,37 @@ class IndividualPlotter:
                 self.axes = None
                 self.current_id = None
         
+    def _on_window_close(self, event):
+        """Handle window close event"""
+        self.fig = None
+        self.axes = None
+        self.current_id = None
+        # Notify callback if provided
+        if self.on_close_callback:
+            self.on_close_callback()
+        
     def create_plot_window(self):
         """Create a new window for individual plots"""
-        self.fig, self.axes = plt.subplots(1, 3, figsize=(10, 5))
-        self.fig.suptitle("Individual Bacterium Tracking")
+        # Close existing figure if it's still around but closed
+        if self.fig is not None:
+            try:
+                # Check if figure is still valid
+                if not plt.fignum_exists(self.fig.number):
+                    self.fig = None
+                    self.axes = None
+            except:
+                self.fig = None
+                self.axes = None
         
-        plt.tight_layout()
-        plt.show(block=False)  # Show window without blocking
+        # Create new figure only if needed
+        if self.fig is None:
+            self.fig, self.axes = plt.subplots(1, 3, figsize=(10, 5))
+            self.fig.suptitle("Individual Bacterium Tracking")
+            # Register close event handler
+            self.fig.canvas.mpl_connect('close_event', self._on_window_close)
+            plt.tight_layout()
+            plt.show(block=False)  # Show window without blocking
+        
         return self.fig
     
     def _plot_resistance_traits(self, data, ax):
@@ -168,6 +193,26 @@ class IndividualPlotter:
         
     def update_plots(self, bacterium_id):
         """Update all plots for the given bacterium ID"""
+        # Check if figure was closed by user
+        if self.fig is not None:
+            try:
+                if not plt.fignum_exists(self.fig.number):
+                    # Window was closed, clear everything and don't reopen
+                    self.fig = None
+                    self.axes = None
+                    self.current_id = None
+                    if self.on_close_callback:
+                        self.on_close_callback()
+                    return
+            except:
+                self.fig = None
+                self.axes = None
+                self.current_id = None
+                if self.on_close_callback:
+                    self.on_close_callback()
+                return
+        
+        # Create window if needed (only when explicitly called, not from close)
         if self.fig is None:
             self.create_plot_window()
             
@@ -210,3 +255,12 @@ class IndividualPlotter:
             self.fig.canvas.manager.window.wm_attributes('-topmost', 0)
         except:
             pass
+    
+    def is_window_open(self):
+        """Check if the window is currently open"""
+        if self.fig is None:
+            return False
+        try:
+            return plt.fignum_exists(self.fig.number)
+        except:
+            return False

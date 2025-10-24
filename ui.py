@@ -44,7 +44,10 @@ class SimulatorUI:
         self.graph_update_counter = 0  # For graph updates
         
         # Individual tracking
-        self.individual_plotter = IndividualPlotter(self.model.individual_tracker)
+        self.individual_plotter = IndividualPlotter(
+            self.model.individual_tracker,
+            on_close_callback=self.on_individual_window_close
+        )
         
         # Setup visualization
         self.visualizer = SimulationVisualizer(
@@ -66,6 +69,12 @@ class SimulatorUI:
     def on_bacterium_click(self, bacterium_id):
         """Handle bacterium click from visualizer"""
         self.individual_plotter.update_plots(bacterium_id)
+
+    def on_individual_window_close(self):
+        """Handle individual tracking window being closed by user"""
+        # Clear the highlight in the visualizer
+        self.visualizer.clear_highlight()
+        print("Individual tracking window closed")
 
     def view_bacterium(self, bacterium_id):
         """View selected bacterium from control panel"""
@@ -118,8 +127,11 @@ class SimulatorUI:
         # Clear visualization highlight
         self.visualizer.clear_highlight()
         
-        # Reset individual plotter
-        self.individual_plotter = IndividualPlotter(self.model.individual_tracker)
+        # Reset individual plotter with callback
+        self.individual_plotter = IndividualPlotter(
+            self.model.individual_tracker,
+            on_close_callback=self.on_individual_window_close
+        )
         
         # Force UI update
         self.visualizer.update_main_plot()
