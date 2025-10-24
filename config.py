@@ -19,6 +19,13 @@ BACTERIA_SPEED = 0.3                # scaling factor for bacterium movement spee
 MUTATION_STD = 0.03
 ANTIBIOTIC_DECAY = 0.05             # per sim step
 
+# Food Patch Configuration
+FOOD_PATCH_COUNT = 6                # number of food patches to spawn
+FOOD_PATCH_AMPLITUDE_MIN = 0.5      # minimum food concentration per patch
+FOOD_PATCH_AMPLITUDE_MAX = 2.0      # maximum food concentration per patch
+FOOD_PATCH_SIGMA_MIN = 3            # minimum patch size (smaller = more concentrated)
+FOOD_PATCH_SIGMA_MAX = 5            # maximum patch size (larger = more spread out)
+
 # HGT Parameters
 HGT_RADIUS = 1.5                    # horizontal gene transfer radius
 HGT_PROB = 0.001                    # probability of HGT per neighbor per step

@@ -10,7 +10,9 @@ from mesa.space import ContinuousSpace
 
 from config import (
     WIDTH, HEIGHT, GRID_RES, FOOD_DIFFUSION_SIGMA, ANTIBIOTIC_DECAY,
-    BACTERIAL_TYPES, ANTIBIOTIC_TYPES, BACTERIA_PER_TYPE, HGT_RADIUS, HGT_PROB
+    BACTERIAL_TYPES, ANTIBIOTIC_TYPES, BACTERIA_PER_TYPE, HGT_RADIUS, HGT_PROB,
+    FOOD_PATCH_COUNT, FOOD_PATCH_AMPLITUDE_MIN, FOOD_PATCH_AMPLITUDE_MAX,
+    FOOD_PATCH_SIGMA_MIN, FOOD_PATCH_SIGMA_MAX
 )
 from bacterium import Bacterium
 from tracking import IndividualTracker
@@ -65,11 +67,11 @@ class BacteriaModel(Model):
 
     def _initialize_food_patches(self):
         """Initialize food field with Gaussian patches"""
-        for _ in range(6):
+        for _ in range(FOOD_PATCH_COUNT):
             cx = random.uniform(0, self.field_w - 1)
             cy = random.uniform(0, self.field_h - 1)
-            sigma = random.uniform(6, 18)
-            amplitude = random.uniform(2.0, 5.0)
+            sigma = random.uniform(FOOD_PATCH_SIGMA_MIN, FOOD_PATCH_SIGMA_MAX)
+            amplitude = random.uniform(FOOD_PATCH_AMPLITUDE_MIN, FOOD_PATCH_AMPLITUDE_MAX)
             self.add_gaussian_patch(self.food_field, cx, cy, sigma, amplitude)
 
     def _create_initial_population(self, N):
@@ -256,7 +258,8 @@ class BacteriaModel(Model):
     def step(self):
         """Execute one simulation step"""
         # Update fields
-        self.food_field = gaussian_filter(self.food_field, sigma=FOOD_DIFFUSION_SIGMA)
+        
+        # self.food_field = gaussian_filter(self.food_field, sigma=FOOD_DIFFUSION_SIGMA)
         self.antibiotic_field *= 1 - ANTIBIOTIC_DECAY
 
         # Prepare collections

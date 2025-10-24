@@ -152,7 +152,9 @@ class Bacterium(Agent):
         self.pos = (new_x, new_y)
         try:
             self.model.space.move_agent(self, self.pos)
-        except Exception:
+        except Exception as e:
+            print(f"Error moving agent {self.unique_id} to position {self.pos}: {e}")
+            
             raise Exception("Agent movement failed")
 
     def _try_reproduce(self):
