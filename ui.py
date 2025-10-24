@@ -25,6 +25,8 @@ class SimulatorUI:
     def __init__(self, model):
         self.model = model
         self.paused = True
+        self.simulation_started = False  # Track if simulation has been started
+        self.population_extinct = False  # Track if population is extinct
         self.latest_dose = 0.0
         
         # Color mapping for bacterial types
@@ -394,16 +396,56 @@ class SimulatorUI:
             self.stats_labels["avg_age"].config(text="  age: 0.0")
 
     def toggle_pause(self):
-        """Toggle simulation pause"""
-        self.paused = not self.paused
-        if self.paused:
-            self.pause_btn.config(text="Resume")
-        else:
+        """Toggle simulation pause/start"""
+        if not self.simulation_started:
+            # First start
+            self.simulation_started = True
+            self.paused = False
             self.pause_btn.config(text="Pause")
+            print("Simulation started")
+        elif self.population_extinct:
+            # Can't resume if extinct
+            return
+        else:
+            # Normal pause/resume
+            self.paused = not self.paused
+            if self.paused:
+                self.pause_btn.config(text="Resume")
+            else:
+                self.pause_btn.config(text="Pause")
 
     def reset_sim(self):
-        """Reset simulation (not implemented)"""
-        print("Reset not implemented")
+        """Reset simulation to initial conditions"""
+        # Reset the model
+        self.model.reset()
+        
+        # Reset UI state
+        self.paused = True
+        self.simulation_started = False
+        self.population_extinct = False
+        self.steps_accumulator = 0.0
+        self.highlighted_bacterium_id = None
+        self.last_bacteria_list_hash = None
+        
+        # Update button states
+        if self.root is not None:
+            self.pause_btn.config(text="Start", state="normal")
+            self.latest_label.config(text="0.0")
+        
+        # Clear highlight
+        if self.highlight_scat is not None:
+            self.highlight_scat.remove()
+            self.highlight_scat = None
+        
+        # Reset individual plotter
+        self.individual_plotter = IndividualPlotter(self.model.individual_tracker)
+        
+        # Force UI update
+        self.update_plot()
+        self.update_stats_display()
+        self.update_bacteria_list(force_update=True)
+        
+        print("Simulation reset - press Start to begin")
 
     def apply_antibiotic_ui(self):
         """Apply antibiotic from UI"""
@@ -580,6 +622,15 @@ class SimulatorUI:
 
     def update(self, frame):
         """Animation update callback"""
+        # Check for population extinction
+        population = len(self.model.agent_set)
+        if population == 0 and self.simulation_started and not self.population_extinct:
+            self.population_extinct = True
+            self.paused = True
+            if self.root is not None:
+                self.pause_btn.config(text="Extinct", state="disabled")
+            print("Population extinct! Simulation paused. Press Reset to restart.")
+        
         if not self.paused:
             self.steps_accumulator += self.steps_per_second / self.animation_fps
             while self.steps_accumulator >= 1.0:

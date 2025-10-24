@@ -47,6 +47,9 @@ class BacteriaModel(Model):
         self.to_remove = set()
         self.new_agents = []
 
+        # Store initial bacteria count for reset
+        self._initial_bacteria_count = N
+
         # Initialize bacteria population
         self._create_initial_population(N)
 
@@ -301,3 +304,44 @@ class BacteriaModel(Model):
 
         # Update tracking
         self.individual_tracker.update_tracked_individuals(self)
+
+    def reset(self):
+        """Reset simulation to initial conditions"""
+        # Clear all agents
+        for agent in list(self.agent_set):
+            try:
+                self.space.remove_agent(agent)
+            except Exception:
+                pass
+        self.agent_set.clear()
+        
+        # Reset ID counter
+        self._next_id = 0
+        
+        # Reset fields
+        self.food_field = np.zeros((self.field_w, self.field_h), dtype=float)
+        self.antibiotic_field = np.zeros_like(self.food_field)
+        self._initialize_food_patches()
+        
+        # Clear tracking collections
+        self.to_remove.clear()
+        self.new_agents.clear()
+        
+        # Reset step counter
+        self.step_count = 0
+        
+        # Reset history
+        self.history = {
+            'steps': [],
+            'population': [],
+            'total_food': [],
+            'avg_energy': []
+        }
+        
+        # Reset tracking system
+        self.individual_tracker = IndividualTracker()
+        
+        # Recreate initial population
+        self._create_initial_population(self._initial_bacteria_count)
+        
+        print("Simulation reset to initial conditions")
