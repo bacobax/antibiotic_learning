@@ -61,7 +61,6 @@ class SimulatorUI:
             on_toggle_pause=self.toggle_pause,
             on_reset=self.reset_sim,
             on_apply_antibiotic=self.apply_antibiotic,
-            on_toggle_hgt=self.toggle_hgt,
             on_speed_change=self.handle_speed_change,
             on_view_bacterium=self.view_bacterium
         )
@@ -145,10 +144,6 @@ class SimulatorUI:
         self.model.apply_antibiotic(dose)
         self.latest_dose = dose
 
-    def toggle_hgt(self, enabled):
-        """Toggle horizontal gene transfer"""
-        self.model.enable_hgt = enabled
-    
     def toggle_performance_mode(self, enabled):
         """Toggle performance mode"""
         self.performance_mode = enabled

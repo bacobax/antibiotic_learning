@@ -23,6 +23,7 @@ class Bacterium(Agent):
         self.energy = random.uniform(1.0, 2.0)
         self.bacterial_type = bacterial_type
         self.age = 0
+        self.has_hgt_gene = random.random() < 0.05  # 5% chance of having HGT gene
         
         # Initialize traits
         self._initialize_traits(bacterial_type)
