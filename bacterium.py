@@ -312,6 +312,10 @@ class Bacterium(Agent):
 
     def step(self):
         """Execute one step of the bacterium lifecycle"""
+        # Safety check: skip if position is None (being removed)
+        if self.pos is None:
+            return
+            
         # Aging mechanism - persistors age slower
         if self.is_persistor:
             # Accumulate fractional aging for persistors
