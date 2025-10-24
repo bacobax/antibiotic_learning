@@ -157,7 +157,7 @@ class SimulatorUI:
         row += 1
 
         # Basic controls
-        self.pause_btn = ttk.Button(frame, text="Resume", command=self.toggle_pause)
+        self.pause_btn = ttk.Button(frame, text="Start", command=self.toggle_pause)
         self.pause_btn.grid(column=0, row=row, pady=2)
         ttk.Button(frame, text="Reset", command=self.reset_sim).grid(column=1, row=row, pady=2)
         row += 1
@@ -450,7 +450,7 @@ class SimulatorUI:
             except Exception:
                 pass
 
-    def update_bacteria_list(self, event=None, filter_type=None, force_update=False):
+    def update_bacteria_list(self, filter_type=None, force_update=False):
         """Update bacteria listbox based on filter"""
         if self.root is None:
             return
@@ -545,29 +545,10 @@ class SimulatorUI:
                 print(f"Error pumping Tk events: {e}")
         
         try:
-            self._update_field_visualizations()
             self._update_history_plots()
             self.fig.canvas.draw_idle()
         except Exception as e:
             print(f"Plot update error: {e}")
-
-    def _update_field_visualizations(self):
-        """Update food and antibiotic field visualizations"""
-        food_img = np.rot90(self.model.food_field)
-        self.im_food.set_data(food_img)
-        ab_img = np.rot90(self.model.antibiotic_field)
-        self.im_ab.set_data(ab_img)
-        
-        xs = [a.pos[0] for a in self.model.agent_set]
-        ys = [a.pos[1] for a in self.model.agent_set]
-        
-        if len(xs) == 0:
-            self.scat.set_offsets(np.empty((0, 2)))
-            self.scat.set_array(np.array([]))
-        else:
-            colors = self.get_bacterial_colors(self.model.agent_set)
-            self.scat.set_offsets(np.c_[xs, ys])
-            self.scat.set_array(np.array(colors))
 
     def _update_history_plots(self):
         """Update history line plots"""

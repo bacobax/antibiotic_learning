@@ -55,8 +55,6 @@ class BacteriaModel(Model):
         # Tracking system
         self.individual_tracker = IndividualTracker()
         self.enable_hgt = bool(enable_hgt)
-        self.tracked_bacteria = set()
-        self.tracking_data = defaultdict(lambda: defaultdict(deque))
         
         # History for plotting
         self.history = {
@@ -168,25 +166,6 @@ class BacteriaModel(Model):
         stats['top_energies'] = top_energies
         
         return stats
-
-    def track_bacterium(self, bacterium):
-        """Start tracking a bacterium"""
-        self.tracked_bacteria.add(bacterium)
-
-    def untrack_bacterium(self, bacterium):
-        """Stop tracking a bacterium"""
-        if bacterium in self.tracked_bacteria:
-            self.tracked_bacteria.remove(bacterium)
-
-    def collect_tracking_data(self):
-        """Collect data for tracked bacteria"""
-        for bacterium in self.tracked_bacteria:
-            self.tracking_data[bacterium]["age"].append(bacterium.age)
-            self.tracking_data[bacterium]["energy"].append(bacterium.energy)
-            self.tracking_data[bacterium]["enzyme"].append(bacterium.enzyme)
-            self.tracking_data[bacterium]["efflux"].append(bacterium.efflux)
-            self.tracking_data[bacterium]["membrane"].append(bacterium.membrane)
-            self.tracking_data[bacterium]["repair"].append(bacterium.repair)
 
     # Field utilities
     def add_gaussian_patch(self, field, cx, cy, sigma, amplitude):
@@ -320,4 +299,3 @@ class BacteriaModel(Model):
 
         # Update tracking
         self.individual_tracker.update_tracked_individuals(self)
-        self.collect_tracking_data()
