@@ -111,13 +111,13 @@ class ControlPanel:
         # Performance mode toggle - initialize with config value
         self.perf_mode_var = tk.BooleanVar(value=PERFORMANCE_MODE)
         self.perf_mode_check = ttk.Checkbutton(
-            frame, text="Performance Mode", variable=self.perf_mode_var, command=self._toggle_performance_mode
+            frame, text="Performance Mode (Control Panel)", variable=self.perf_mode_var, command=self._toggle_performance_mode
         )
         self.perf_mode_check.grid(column=0, row=row, columnspan=2, pady=(0, 5))
         row += 1
 
         # Performance info label
-        self.perf_info_label = ttk.Label(frame, text="(reduces stats update frequency)", 
+        self.perf_info_label = ttk.Label(frame, text="(reduces control panel update frequency, not simulation)", 
                                          font=("TkDefaultFont", 7), foreground="gray")
         self.perf_info_label.grid(column=0, row=row, columnspan=2, pady=(0, 10))
         row += 1
