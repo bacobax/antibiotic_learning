@@ -75,36 +75,6 @@ class Bacterium(Agent):
         
         return {trait: float(alloc) for trait, alloc in zip(traits, new_allocations)}
 
-    def calculate_survival_probability(self, antibiotic_conc, antibiotic_type):
-        """Calculate survival probability with diminishing returns"""
-        if antibiotic_conc <= 0:
-            return 1.0
-            
-        ab_def = ANTIBIOTIC_TYPES[antibiotic_type]
-        alpha = ALLOCATION_PARAMS["diminishing_return_alpha"]
-        
-        # Apply diminishing returns
-        effective_traits = {
-            "efflux": self.efflux ** alpha,
-            "enzyme": self.enzyme ** alpha,
-            "membrane": self.membrane ** alpha,
-            "repair": self.repair ** alpha
-        }
-        
-        # Calculate effective antibiotic concentration
-        A_eff = antibiotic_conc * \
-                (1 - ab_def["efflux_weight"] * effective_traits["efflux"]) * \
-                (1 - ab_def["enzyme_weight"] * effective_traits["enzyme"]) * \
-                (1 - ab_def["membrane_weight"] * effective_traits["membrane"])
-        
-        A_eff = max(0.0, A_eff)
-        
-        # Calculate survival probability
-        damage_factor = A_eff * (1 - ab_def["repair_weight"] * effective_traits["repair"])
-        survival_prob = math.exp(-ab_def["toxicity_constant"] * damage_factor)
-        
-        return min(1.0, max(0.0, survival_prob))
-
     def _update_expression_states(self, local_ab):
         """Update gene expression based on antibiotic presence"""
         if local_ab > 0:
@@ -252,7 +222,3 @@ class Bacterium(Agent):
 
         # Try to reproduce
         self._try_reproduce()
-
-    def advance(self):
-        """Placeholder for two-phase updates"""
-        pass

@@ -7,7 +7,6 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 from mesa import Model
 from mesa.space import ContinuousSpace
-from collections import defaultdict, deque
 
 from config import (
     WIDTH, HEIGHT, GRID_RES, FOOD_DIFFUSION_SIGMA, ANTIBIOTIC_DECAY,

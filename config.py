@@ -15,11 +15,9 @@ GRID_RES = 200                      # resolution for nutrient & antibiotic field
 # -----------------------
 INITIAL_BACTERIA = 1
 FOOD_DIFFUSION_SIGMA = 1.0          # for gaussian_filter diffusion approximation
-FOOD_DECAY = 0.3
 BACTERIA_SPEED = 0.3                # scaling factor for bacterium movement speed
 MUTATION_STD = 0.03
 ANTIBIOTIC_DECAY = 0.05             # per sim step
-CONTROL_INTERVAL = 20               # timesteps between control checks
 
 # HGT Parameters
 HGT_RADIUS = 1.5                    # horizontal gene transfer radius
