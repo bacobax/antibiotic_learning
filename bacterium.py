@@ -79,11 +79,21 @@ class Bacterium(Agent):
         
         return {trait: float(alloc) for trait, alloc in zip(traits, new_allocations)}
 
-    def _update_expression_states(self, local_ab):
+    def _update_expression_states(self, local_antibiotics):
         """Update gene expression based on antibiotic presence
+        
+        Args:
+            local_antibiotics: dict mapping antibiotic_type -> concentration
+        
+        TODO: Currently uses sum of all antibiotics as temporary solution.
+        Should be updated to respond differently to each antibiotic type.
         
         Persistors maintain minimal expression states to reduce energy costs.
         """
+        # TEMPORARY: Sum all antibiotic concentrations
+        # TODO: Each antibiotic should induce different expression patterns
+        local_ab = sum(local_antibiotics.values()) if local_antibiotics else 0.0
+        
         # Persistors don't actively respond to antibiotics (dormant metabolism)
         if self.is_persistor:
             # Slow decay of existing expression
@@ -132,26 +142,57 @@ class Bacterium(Agent):
         dE = (GROWTH_PARAMS["eta"] * uptake - GROWTH_PARAMS["m0"] - expr_cost) * GROWTH_PARAMS["dt"]
         self.energy = max(0.0, self.energy + dE)
 
-    def _check_antibiotic_death(self, local_ab):
+    def _check_antibiotic_death(self, local_antibiotics):
         """Check if bacterium dies from antibiotic exposure
+        
+        Processes each antibiotic type separately with its own parameters,
+        then combines the kill probabilities.
+        
+        Args:
+            local_antibiotics: dict mapping antibiotic_type -> concentration
         
         Persistors have greatly reduced susceptibility to antibiotics.
         """
-        if local_ab <= 0:
+        if not local_antibiotics or sum(local_antibiotics.values()) <= 0:
             return False
-            
-        # Calculate effective antibiotic concentration
-        A_eff = local_ab * (1 - sum(
-            GROWTH_PARAMS["alpha"][k] * self.expression[k] 
-            for k in ["efflux", "enzyme", "membrane"]
-        ))
-        A_eff = max(0.0, A_eff)
         
-        # Calculate kill probability
-        kappa = GROWTH_PARAMS["emax"] * (A_eff**GROWTH_PARAMS["h"]) / \
-                (GROWTH_PARAMS["ec50"]**GROWTH_PARAMS["h"] + A_eff**GROWTH_PARAMS["h"])
-        kappa *= (1 - GROWTH_PARAMS["beta_r"] * self.expression["repair"])
-        p_death = 1 - math.exp(-kappa * GROWTH_PARAMS["dt"])
+        # Calculate effective concentration and kill probability for each antibiotic
+        total_kappa = 0.0
+        
+        for ab_type, ab_concentration in local_antibiotics.items():
+            if ab_concentration <= 0:
+                continue
+                
+            # Get antibiotic-specific parameters
+            ab_params = ANTIBIOTIC_TYPES[ab_type]
+            
+            # Calculate resistance effectiveness for this specific antibiotic
+            # Each antibiotic has different weights for how effective each resistance mechanism is
+            resistance_reduction = (
+                ab_params["enzyme_weight"] * GROWTH_PARAMS["alpha"]["enzyme"] * self.expression["enzyme"] +
+                ab_params["efflux_weight"] * GROWTH_PARAMS["alpha"]["efflux"] * self.expression["efflux"] +
+                ab_params["membrane_weight"] * GROWTH_PARAMS["alpha"]["membrane"] * self.expression["membrane"]
+            )
+            
+            # Calculate effective antibiotic concentration after resistance
+            A_eff = ab_concentration * (1 - resistance_reduction)
+            A_eff = max(0.0, A_eff)
+            
+            # Calculate kill rate for this antibiotic using its toxicity constant
+            # Higher toxicity_constant = more deadly antibiotic
+            ec50_adjusted = GROWTH_PARAMS["ec50"] / ab_params["toxicity_constant"]
+            
+            kappa = GROWTH_PARAMS["emax"] * (A_eff**GROWTH_PARAMS["h"]) / \
+                    (ec50_adjusted**GROWTH_PARAMS["h"] + A_eff**GROWTH_PARAMS["h"])
+            
+            # Apply repair mechanism (weighted by antibiotic's repair_weight)
+            kappa *= (1 - ab_params["repair_weight"] * GROWTH_PARAMS["beta_r"] * self.expression["repair"])
+            
+            # Accumulate kill rates (additive effect of multiple antibiotics)
+            total_kappa += kappa
+        
+        # Convert accumulated kill rate to death probability
+        p_death = 1 - math.exp(-total_kappa * GROWTH_PARAMS["dt"])
         
         # Persistors have dramatically reduced kill probability (dormant cells less affected)
         if self.is_persistor:
@@ -247,8 +288,14 @@ class Bacterium(Agent):
         child.energy = self.energy
         self.model.new_agents.append((child, child_pos))
 
-    def _check_persistor_entry(self, local_ab):
+    def _check_persistor_entry(self, local_antibiotics):
         """Determine if bacterium should enter persistor state
+        
+        Args:
+            local_antibiotics: dict mapping antibiotic_type -> concentration
+        
+        TODO: Currently uses sum of all antibiotics as temporary solution.
+        Should be updated to have antibiotic-specific stress responses.
         
         Entry probability increases continuously with stress conditions:
         - Scales with antibiotic concentration (dose-dependent)
@@ -259,6 +306,10 @@ class Bacterium(Agent):
         """
         if self.is_persistor:
             return False  # Already a persistor
+        
+        # TEMPORARY: Sum all antibiotic concentrations
+        # TODO: Different antibiotics should cause different stress levels
+        local_ab = sum(local_antibiotics.values()) if local_antibiotics else 0.0
         
         # Base probability
         prob = PERSISTENCE_PARAMS["base_entry_prob"]
@@ -282,8 +333,14 @@ class Bacterium(Agent):
         
         return random.random() < prob
 
-    def _check_persistor_exit(self, local_ab):
+    def _check_persistor_exit(self, local_antibiotics):
         """Determine if persistor should revert to normal state
+        
+        Args:
+            local_antibiotics: dict mapping antibiotic_type -> concentration
+        
+        TODO: Currently uses sum of all antibiotics as temporary solution.
+        Should be updated to consider specific antibiotic threats.
         
         Exit probability increases under favorable conditions:
         - No antibiotics present
@@ -294,6 +351,10 @@ class Bacterium(Agent):
         """
         if not self.is_persistor:
             return False  # Not a persistor
+        
+        # TEMPORARY: Sum all antibiotic concentrations
+        # TODO: Different antibiotics should have different thresholds for "safe" exit
+        local_ab = sum(local_antibiotics.values()) if local_antibiotics else 0.0
         
         # Force exit if energy too low (starvation override)
         if self.energy < PERSISTENCE_PARAMS["min_persistor_energy"]:
@@ -329,16 +390,18 @@ class Bacterium(Agent):
         # Get local conditions
         fx, fy = self.model.nutrient_to_field_coords(self.pos)
         local_food = self.model.sample_field(self.model.food_field, fx, fy)
-        local_ab = self.model.sample_field(self.model.antibiotic_field, fx, fy)
-
+        
+        # Get individual antibiotic concentrations (dict: antibiotic_type -> concentration)
+        local_antibiotics = self.model.get_antibiotic_concentrations_at_position(fx, fy)
+        
         # Check for persistor state transitions (before other actions)
-        if self._check_persistor_entry(local_ab):
+        if self._check_persistor_entry(local_antibiotics):
             self.is_persistor = True
-        elif self._check_persistor_exit(local_ab):
+        elif self._check_persistor_exit(local_antibiotics):
             self.is_persistor = False
 
         # Update expression states
-        self._update_expression_states(local_ab)
+        self._update_expression_states(local_antibiotics)
 
         # Consume nutrients and update energy
         self._consume_nutrients(local_food, fx, fy)
@@ -349,8 +412,8 @@ class Bacterium(Agent):
             self.model.to_remove.add(self)
             return
 
-        # Check antibiotic death
-        if self._check_antibiotic_death(local_ab):
+        # Check antibiotic death - now passes individual concentrations
+        if self._check_antibiotic_death(local_antibiotics):
             self.model.individual_tracker.mark_death(self.unique_id, 'antibiotic')
             self.model.to_remove.add(self)
             return

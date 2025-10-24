@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-from config import BACTERIAL_TYPES, ANIMATION_FPS
+from config import BACTERIAL_TYPES, ANTIBIOTIC_TYPES, ANIMATION_FPS
 
 
 class SimulationVisualizer:
@@ -52,13 +52,13 @@ class SimulationVisualizer:
         """Setup matplotlib figure and subplots"""
         # Larger figure for more content
         self.fig = plt.figure(figsize=(20, 10))
-        gs = self.fig.add_gridspec(4, 4, hspace=0.3, wspace=0.3)
+        gs = self.fig.add_gridspec(5, 4, hspace=0.3, wspace=0.3)
 
         # LEFT SIDE: Main simulation view (50% width, full height)
         self.ax = self.fig.add_subplot(gs[:, 0:2])
         self.ax.set_title("Bacteria Simulation")
 
-        # RIGHT TOP: Three existing plots (Food, Population, Energy)
+        # RIGHT TOP: Four plots in 2x2 grid (Food, Population, Energy, Antibiotics)
         # Food level plot
         self.ax_food = self.fig.add_subplot(gs[0, 2])
         self.ax_food.set_xlabel('Steps', fontsize=8)
@@ -80,19 +80,34 @@ class SimulationVisualizer:
         self.ax_pop.set_title('Total Population', fontsize=9)
 
         # Energy plot
-        self.ax_energy = self.fig.add_subplot(gs[1, 2:4])
+        self.ax_energy = self.fig.add_subplot(gs[1, 2])
         self.ax_energy.set_xlabel('Steps', fontsize=8)
         self.ax_energy.set_ylabel('Energy', fontsize=8)
         self.ax_energy.tick_params(labelsize=7)
         self.ax_energy.grid(True, alpha=0.3)
         self.line_energy_avg, = self.ax_energy.plot([], [], label='Avg Energy', color='red', linewidth=1.5)
-        self.line_energy_worst, = self.ax_energy.plot([], [], label='Worst 10 Energy', color='green', linewidth=1.5)
-        self.line_energy_top, = self.ax_energy.plot([], [], label='Top 10 Energy', color='blue', linewidth=1.5)
-        self.ax_energy.legend(fontsize=7)
-        self.ax_energy.set_title('Average Energy (Top 10)', fontsize=9)
+        self.line_energy_worst, = self.ax_energy.plot([], [], label='Worst 10', color='green', linewidth=1.5)
+        self.line_energy_top, = self.ax_energy.plot([], [], label='Top 10', color='blue', linewidth=1.5)
+        self.ax_energy.legend(fontsize=6, loc='best')
+        self.ax_energy.set_title('Average Energy', fontsize=9)
 
-        # RIGHT BOTTOM: Trait evolution plots per bacterial type
-        # We'll create one plot per trait showing all bacterial types
+        # NEW: Antibiotic concentrations plot
+        self.ax_antibiotics = self.fig.add_subplot(gs[1, 3])
+        self.ax_antibiotics.set_xlabel('Steps', fontsize=8)
+        self.ax_antibiotics.set_ylabel('Concentration', fontsize=8)
+        self.ax_antibiotics.tick_params(labelsize=7)
+        self.ax_antibiotics.grid(True, alpha=0.3)
+        self.ax_antibiotics.set_title('Antibiotic Concentrations', fontsize=9)
+        
+        # Create line for each antibiotic type
+        self.antibiotic_lines = {}
+        for ab_type, ab_config in ANTIBIOTIC_TYPES.items():
+            color = ab_config.get('color', 'gray')
+            line, = self.ax_antibiotics.plot([], [], label=ab_type, color=color, linewidth=1.5, alpha=0.8)
+            self.antibiotic_lines[ab_type] = line
+        self.ax_antibiotics.legend(fontsize=6, loc='best')
+
+        # RIGHT BOTTOM: Trait evolution plots per bacterial type (4 plots in 2x2 grid)
         self.ax_enzyme = self.fig.add_subplot(gs[2, 2])
         self.ax_efflux = self.fig.add_subplot(gs[2, 3])
         self.ax_membrane = self.fig.add_subplot(gs[3, 2])
@@ -180,6 +195,22 @@ class SimulationVisualizer:
             self.line_energy_top.set_data(history['steps'], history['avg_energy_top'])
             self.ax_energy.set_xlim(0, max(10, max(history['steps'])))
             self.ax_energy.set_ylim(0, max(10, max(history['avg_energy']) * 1.1))
+            
+            # Antibiotic concentrations plot
+            max_antibiotic_concentration = 0.01
+            for ab_type in ANTIBIOTIC_TYPES.keys():
+                ab_key = f'antibiotic_{ab_type}'
+                if ab_key in history and len(history[ab_key]) > 0:
+                    data = history[ab_key]
+                    steps = history['steps'][:len(data)]
+                    self.antibiotic_lines[ab_type].set_data(steps, data)
+                    if len(data) > 0:
+                        max_antibiotic_concentration = max(max_antibiotic_concentration, max(data))
+                else:
+                    self.antibiotic_lines[ab_type].set_data([], [])
+            
+            self.ax_antibiotics.set_xlim(0, max(10, max(history['steps'])))
+            self.ax_antibiotics.set_ylim(0, max(0.1, max_antibiotic_concentration * 1.1))
             
         # Update trait evolution plots
         self._update_trait_plots()
@@ -308,16 +339,19 @@ class SimulationVisualizer:
         else:
             self.im_food.set_data(self.model.food_field.T)
         
+        # Combine all antibiotic fields for visualization
+        combined_antibiotic_field = sum(self.model.antibiotic_fields.values())
+        
         if self.im_ab is None:
             self.im_ab = self.ax.imshow(
-                self.model.antibiotic_field.T,
+                combined_antibiotic_field.T,
                 extent=[0, self.model.width, 0, self.model.height],
                 origin="lower",
                 cmap="Reds",
                 alpha=0.3,
             )
         else:
-            self.im_ab.set_data(self.model.antibiotic_field.T)
+            self.im_ab.set_data(combined_antibiotic_field.T)
         
         # Highlight selected bacterium
         self._update_highlight(agents)

@@ -19,7 +19,6 @@ INITIAL_BACTERIA = None
 FOOD_DIFFUSION_SIGMA = 1.0 #UNUSED          # for gaussian_filter diffusion approximation 
 BACTERIA_SPEED = 1                # scaling factor for bacterium movement speed
 MUTATION_STD = 0.03
-ANTIBIOTIC_DECAY = 0.05             # per sim step
 
 # Food Patch Configuration
 FOOD_PATCH_COUNT = 120                # number of food patches to spawn
@@ -46,6 +45,9 @@ SLOW_MODE_FRAME_SKIP = 3            # step every Nth frame when in "skip" mode
 PERFORMANCE_MODE = False            # When enabled, reduces UI update frequency for better performance
 STATS_UPDATE_INTERVAL = 5           # Update stats every N frames when performance mode is on
 VISUALIZATION_UPDATE_INTERVAL = 1   # Update visualization every N frames (1 = every frame)
+
+# Antibiotic degradation (legacy - now per antibiotic type, see ANTIBIOTIC_TYPES)
+ANTIBIOTIC_DECAY = 0.05             # per sim step (default if not specified)
 
 # -----------------------
 # Growth Model Parameters
@@ -160,7 +162,8 @@ ANTIBIOTIC_TYPES = {
         "membrane_weight": 0.3,
         "repair_weight": 0.4,
         "toxicity_constant": 2.0,
-        "color": "red"
+        "color": "red",
+        "decay_rate": 0.05         # per sim step
     },
     "tetracycline": {
         "enzyme_weight": 0.1,
@@ -168,7 +171,8 @@ ANTIBIOTIC_TYPES = {
         "membrane_weight": 0.4,
         "repair_weight": 0.3,
         "toxicity_constant": 1.5,
-        "color": "orange"
+        "color": "orange",
+        "decay_rate": 0.03         # per sim step
     },
     "vancomycin": {
         "enzyme_weight": 0.2,
@@ -176,6 +180,7 @@ ANTIBIOTIC_TYPES = {
         "membrane_weight": 0.8,    # membrane changes very effective
         "repair_weight": 0.6,
         "toxicity_constant": 3.0,
-        "color": "purple"
+        "color": "purple",
+        "decay_rate": 0.07         # per sim step
     }
 }

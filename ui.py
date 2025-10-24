@@ -139,9 +139,9 @@ class SimulatorUI:
         
         print("Simulation reset - press Start to begin")
 
-    def apply_antibiotic(self, dose):
-        """Apply antibiotic with given dose"""
-        self.model.apply_antibiotic(dose)
+    def apply_antibiotic(self, antibiotic_type, dose):
+        """Apply antibiotic of specific type with given dose"""
+        self.model.apply_antibiotic(antibiotic_type, dose)
         self.latest_dose = dose
 
     def toggle_performance_mode(self, enabled):

@@ -41,6 +41,9 @@ class ControlPanel:
         self.last_bacteria_list_hash = None
         self.ui_ref = None  # Reference to UI for performance stats
         
+        # Track currently selected antibiotic type
+        self.selected_antibiotic_type = None
+        
         if tk is not None:
             try:
                 self.root = tk.Tk()
@@ -148,12 +151,34 @@ class ControlPanel:
         row += 1
         
         ttk.Label(frame, text="Type:").grid(column=0, row=row, sticky='w', padx=(0, 5))
-        self.antibiotic_var = tk.StringVar(value=self.model.current_antibiotic)
+        
+        # Initialize with first antibiotic if current is None
+        initial_antibiotic = self.model.current_antibiotic if self.model.current_antibiotic else self.model.available_antibiotics[0]
+        
+        # Store the selected antibiotic type
+        self.selected_antibiotic_type = initial_antibiotic
+        
+        self.antibiotic_var = tk.StringVar(value=initial_antibiotic)
+        
         self.antibiotic_combo = ttk.Combobox(frame, textvariable=self.antibiotic_var, 
                                            values=self.model.available_antibiotics, 
                                            state="readonly", width=12)
         self.antibiotic_combo.grid(column=1, row=row, pady=2)
-        self.antibiotic_combo.bind('<<ComboboxSelected>>', self._change_antibiotic)
+        
+        # Use inline lambda like the filter dropdown - only update local variable
+        def on_antibiotic_change(event):
+            selected_value = self.antibiotic_combo.get()
+            self.selected_antibiotic_type = selected_value
+            self.model.set_antibiotic_type(selected_value)
+        
+        self.antibiotic_combo.bind('<<ComboboxSelected>>', on_antibiotic_change)
+        
+        # Set the initial selection in the combobox
+        self.antibiotic_combo.current(0)
+        
+        # Update model with the initial selection (only once at startup)
+        self.model.set_antibiotic_type(initial_antibiotic)
+        
         row += 1
 
         ttk.Label(frame, text="Dose:").grid(column=0, row=row, sticky='w')
@@ -235,6 +260,7 @@ class ControlPanel:
         """Change antibiotic type"""
         try:
             new_antibiotic = self.antibiotic_var.get()
+            self.selected_antibiotic_type = new_antibiotic  # Update local tracking variable
             self.model.set_antibiotic_type(new_antibiotic)
         except Exception as e:
             print(f"Error changing antibiotic: {e}")
@@ -245,9 +271,20 @@ class ControlPanel:
             val = float(self.dose_entry.get())
         except Exception:
             val = 0.0
-        self.on_apply_antibiotic(val)
+        
+        # Use the locally tracked antibiotic type instead of reading from dropdown
+        # This prevents issues with dropdown state changes
+        antibiotic_type = self.selected_antibiotic_type
+        
+        if not antibiotic_type:
+            # Fallback to first antibiotic if somehow not set
+            antibiotic_type = self.model.available_antibiotics[0]
+            self.selected_antibiotic_type = antibiotic_type
+            self.antibiotic_var.set(antibiotic_type)
+        
+        # Pass both antibiotic type and dose
+        self.on_apply_antibiotic(antibiotic_type, val)
         self.latest_label.config(text=f"{val:.3f}")
-
 
     def _toggle_performance_mode(self):
         """Internal handler for performance mode toggle"""

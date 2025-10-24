@@ -33,15 +33,21 @@ class BacteriaModel(Model):
         self.agent_set = set()
         self._next_id = 0
 
-        # Antibiotic management
-        self.current_antibiotic = None
+        # Antibiotic management - now supports multiple simultaneous antibiotics
         self.available_antibiotics = list(ANTIBIOTIC_TYPES.keys())
+        self.current_antibiotic = self.available_antibiotics[0] if self.available_antibiotics else None  # Default to first antibiotic
 
         # Initialize fields
         self.field_w = GRID_RES
         self.field_h = GRID_RES
         self.food_field = np.zeros((self.field_w, self.field_h), dtype=float)
-        self.antibiotic_field = np.zeros_like(self.food_field)
+        
+        # Multiple antibiotic fields - one per antibiotic type
+        self.antibiotic_fields = {
+            ab_type: np.zeros((self.field_w, self.field_h), dtype=float)
+            for ab_type in ANTIBIOTIC_TYPES.keys()
+        }
+        
         self._initialize_food_patches()
 
         # Agent tracking
@@ -69,6 +75,10 @@ class BacteriaModel(Model):
             'avg_energy_top': [],
             'avg_energy_worst': []
         }
+        
+        # Add antibiotic concentration history for each antibiotic type
+        for ab_type in ANTIBIOTIC_TYPES.keys():
+            self.history[f'antibiotic_{ab_type}'] = []
         
         # Initialize per-type trait tracking in history
         for btype in BACTERIAL_TYPES.keys():
@@ -183,6 +193,11 @@ class BacteriaModel(Model):
         self.history['avg_energy_top'].append(stats["avg_energy_top"])
         self.history['avg_energy_worst'].append(stats["avg_energy_worst"])
         
+        # Record antibiotic concentrations (average across field)
+        for ab_type in ANTIBIOTIC_TYPES.keys():
+            avg_concentration = float(np.mean(self.antibiotic_fields[ab_type]))
+            self.history[f'antibiotic_{ab_type}'].append(avg_concentration)
+        
         # Record per-type trait averages
         for btype in BACTERIAL_TYPES.keys():
             if btype in stats["by_type"] and stats["by_type"][btype] > 0:
@@ -250,11 +265,44 @@ class BacteriaModel(Model):
         gy *= self.field_h / self.height
         return gx, gy
 
-    def apply_antibiotic(self, amount):
-        """Apply antibiotic to the field"""
+    def apply_antibiotic(self, antibiotic_type, amount):
+        """Apply antibiotic of specific type to the field
+        
+        Args:
+            antibiotic_type: The type of antibiotic to apply (must be in ANTIBIOTIC_TYPES)
+            amount: The concentration to add to the field
+        """
         if amount <= 0:
             return
-        self.antibiotic_field += float(amount)
+        
+        if antibiotic_type not in ANTIBIOTIC_TYPES:
+            print(f"Warning: Unknown antibiotic type '{antibiotic_type}'")
+            return
+            
+        self.antibiotic_fields[antibiotic_type] += float(amount)
+        print(f"Applied {amount:.3f} of {antibiotic_type} (total avg: {np.mean(self.antibiotic_fields[antibiotic_type]):.3f})")
+    
+    def get_antibiotic_concentrations_at_position(self, fx, fy):
+        """Get all antibiotic concentrations at a position as a dictionary
+        
+        Returns:
+            dict: Mapping of antibiotic_type -> concentration
+        """
+        concentrations = {}
+        for ab_type, ab_field in self.antibiotic_fields.items():
+            concentrations[ab_type] = self.sample_field(ab_field, fx, fy)
+        return concentrations
+    
+    def get_total_antibiotic_at_position(self, fx, fy):
+        """Get combined antibiotic concentration at a position
+        
+        Returns the sum of all antibiotic types at the given position.
+        This is used for stress calculations and general antibiotic presence.
+        """
+        total = 0.0
+        for ab_field in self.antibiotic_fields.values():
+            total += self.sample_field(ab_field, fx, fy)
+        return total
 
     def horizontal_gene_transfer(self):
         """Exchange resistance traits between nearby bacteria"""
@@ -282,10 +330,12 @@ class BacteriaModel(Model):
 
     def step(self):
         """Execute one simulation step"""
-        # Update fields
-        
+        # Update fields - decay each antibiotic independently
         # self.food_field = gaussian_filter(self.food_field, sigma=FOOD_DIFFUSION_SIGMA)
-        self.antibiotic_field *= 1 - ANTIBIOTIC_DECAY
+        
+        for ab_type, ab_field in self.antibiotic_fields.items():
+            decay_rate = ANTIBIOTIC_TYPES[ab_type].get("decay_rate", ANTIBIOTIC_DECAY)
+            self.antibiotic_fields[ab_type] *= (1 - decay_rate)
 
         # Prepare collections
         self.to_remove.clear()
@@ -344,7 +394,13 @@ class BacteriaModel(Model):
         
         # Reset fields
         self.food_field = np.zeros((self.field_w, self.field_h), dtype=float)
-        self.antibiotic_field = np.zeros_like(self.food_field)
+        
+        # Reset all antibiotic fields
+        self.antibiotic_fields = {
+            ab_type: np.zeros((self.field_w, self.field_h), dtype=float)
+            for ab_type in ANTIBIOTIC_TYPES.keys()
+        }
+        
         self._initialize_food_patches()
         
         # Clear tracking collections
@@ -363,6 +419,10 @@ class BacteriaModel(Model):
             'avg_energy_top': [],
             'avg_energy_worst': []
         }
+        
+        # Add antibiotic concentration history for each antibiotic type
+        for ab_type in ANTIBIOTIC_TYPES.keys():
+            self.history[f'antibiotic_{ab_type}'] = []
         
         # Initialize per-type trait tracking in history
         for btype in BACTERIAL_TYPES.keys():
