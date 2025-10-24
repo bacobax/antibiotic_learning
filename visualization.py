@@ -340,7 +340,9 @@ class SimulationVisualizer:
             self.im_food.set_data(self.model.food_field.T)
         
         # Combine all antibiotic fields for visualization
-        combined_antibiotic_field = sum(self.model.antibiotic_fields.values())
+        combined_antibiotic_field = np.zeros_like(self.model.food_field)
+        for ab_field in self.model.antibiotic_fields.values():
+            combined_antibiotic_field += ab_field
         
         if self.im_ab is None:
             self.im_ab = self.ax.imshow(
@@ -348,10 +350,17 @@ class SimulationVisualizer:
                 extent=[0, self.model.width, 0, self.model.height],
                 origin="lower",
                 cmap="Reds",
-                alpha=0.3,
+                alpha=0.4,
+                vmin=0,
+                vmax=1.0,
+                interpolation='bilinear'
             )
         else:
             self.im_ab.set_data(combined_antibiotic_field.T)
+            # Update color limits dynamically based on current max
+            max_ab = np.max(combined_antibiotic_field)
+            if max_ab > 0:
+                self.im_ab.set_clim(vmin=0, vmax=max(0.1, max_ab))
         
         # Highlight selected bacterium
         self._update_highlight(agents)
