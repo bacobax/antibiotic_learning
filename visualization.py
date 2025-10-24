@@ -82,10 +82,12 @@ class SimulationVisualizer:
         # Energy plot
         self.ax_energy = self.fig.add_subplot(gs[1, 2:4])
         self.ax_energy.set_xlabel('Steps', fontsize=8)
-        self.ax_energy.set_ylabel('Energy (Top 10 Avg)', fontsize=8)
+        self.ax_energy.set_ylabel('Energy', fontsize=8)
         self.ax_energy.tick_params(labelsize=7)
         self.ax_energy.grid(True, alpha=0.3)
-        self.line_energy, = self.ax_energy.plot([], [], label='Top 10 Energy', color='red', linewidth=1.5)
+        self.line_energy_avg, = self.ax_energy.plot([], [], label='Avg Energy', color='red', linewidth=1.5)
+        self.line_energy_worst, = self.ax_energy.plot([], [], label='Worst 10 Energy', color='green', linewidth=1.5)
+        self.line_energy_top, = self.ax_energy.plot([], [], label='Top 10 Energy', color='blue', linewidth=1.5)
         self.ax_energy.legend(fontsize=7)
         self.ax_energy.set_title('Average Energy (Top 10)', fontsize=9)
 
@@ -170,7 +172,9 @@ class SimulationVisualizer:
             self.ax_pop.set_ylim(0, max(10, max(history['population']) * 1.1))
             
             # Energy plot
-            self.line_energy.set_data(history['steps'], history['avg_energy'])
+            self.line_energy_avg.set_data(history['steps'], history['avg_energy'])
+            self.line_energy_worst.set_data(history['steps'], history['avg_energy_worst'])
+            self.line_energy_top.set_data(history['steps'], history['avg_energy_top'])
             self.ax_energy.set_xlim(0, max(10, max(history['steps'])))
             self.ax_energy.set_ylim(0, max(10, max(history['avg_energy']) * 1.1))
             

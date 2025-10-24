@@ -65,7 +65,9 @@ class BacteriaModel(Model):
             'steps': [],
             'population': [],
             'total_food': [],
-            'avg_energy': []
+            'avg_energy': [],
+            'avg_energy_top': [],
+            'avg_energy_worst': []
         }
         
         # Initialize per-type trait tracking in history
@@ -163,12 +165,17 @@ class BacteriaModel(Model):
         total_food = np.sum(self.food_field)
         top_energies = sorted([a.energy for a in self.agent_set], reverse=True)[:10]
         avg_top_energy = np.mean(top_energies) if top_energies else 0
+        worst_energies = sorted([a.energy for a in self.agent_set])[:10]
+        avg_worst_energy = np.mean(worst_energies) if worst_energies else 0
+        avg_energy = np.mean([a.energy for a in self.agent_set])
         
         # Record history
         self.history['steps'].append(self.step_count)
         self.history['population'].append(len(self.agent_set))
         self.history['total_food'].append(total_food)
-        self.history['avg_energy'].append(avg_top_energy)
+        self.history['avg_energy'].append(avg_energy)
+        self.history['avg_energy_top'].append(avg_top_energy)
+        self.history['avg_energy_worst'].append(avg_worst_energy)
         
         # Record per-type trait averages
         for btype in BACTERIAL_TYPES.keys():
@@ -179,10 +186,6 @@ class BacteriaModel(Model):
                 # No bacteria of this type, append 0
                 for trait in ['enzyme', 'efflux', 'membrane', 'repair']:
                     self.history[f'{btype}_avg_{trait}'].append(0.0)
-        
-        stats['total_food'] = total_food
-        stats['avg_energy'] = avg_top_energy
-        stats['top_energies'] = top_energies
         
         return stats
 
