@@ -13,7 +13,9 @@ GRID_RES = 200                      # resolution for nutrient & antibiotic field
 # -----------------------
 # Simulation Parameters
 # -----------------------
-INITIAL_BACTERIA = 1
+# Number of bacteria per type at initialization
+BACTERIA_PER_TYPE = 10
+INITIAL_BACTERIA = None
 FOOD_DIFFUSION_SIGMA = 1.0          # for gaussian_filter diffusion approximation
 BACTERIA_SPEED = 0.3                # scaling factor for bacterium movement speed
 MUTATION_STD = 0.03
@@ -113,9 +115,6 @@ BACTERIAL_TYPES = {
         "color": "green"
     }
 }
-
-# Number of bacteria per type at initialization
-BACTERIA_PER_TYPE = 1
 
 # -----------------------
 # Antibiotic Type Definitions

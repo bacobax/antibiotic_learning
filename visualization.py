@@ -27,6 +27,13 @@ class SimulationVisualizer:
         self.bacterial_type_names = list(BACTERIAL_TYPES.keys())
         self.color_map = {name: i for i, name in enumerate(self.bacterial_type_names)}
         
+        # Colors for bacterial types in trait plots
+        self.type_colors = {
+            "E.coli": "blue",
+            "Staph": "red",
+            "Pseudomonas": "green"
+        }
+        
         # Animation settings
         self.animation_fps = ANIMATION_FPS
         self.animation_interval = int(1000 / self.animation_fps)
@@ -43,37 +50,76 @@ class SimulationVisualizer:
 
     def _setup_plots(self):
         """Setup matplotlib figure and subplots"""
-        self.fig = plt.figure(figsize=(16, 8))
-        gs = self.fig.add_gridspec(2, 2)
+        # Larger figure for more content
+        self.fig = plt.figure(figsize=(20, 10))
+        gs = self.fig.add_gridspec(4, 4, hspace=0.3, wspace=0.3)
 
-        # Main simulation view
-        self.ax = self.fig.add_subplot(gs[0, 0])
+        # LEFT SIDE: Main simulation view (50% width, full height)
+        self.ax = self.fig.add_subplot(gs[:, 0:2])
+        self.ax.set_title("Bacteria Simulation")
 
+        # RIGHT TOP: Three existing plots (Food, Population, Energy)
         # Food level plot
-        self.ax_food = self.fig.add_subplot(gs[0, 1])
-        self.ax_food.set_xlabel('Steps')
-        self.ax_food.set_ylabel('Total Food')
-        self.ax_food.grid(True)
-        self.line_food, = self.ax_food.plot([], [], label='Food Level', color='green')
-        self.ax_food.legend()
+        self.ax_food = self.fig.add_subplot(gs[0, 2])
+        self.ax_food.set_xlabel('Steps', fontsize=8)
+        self.ax_food.set_ylabel('Total Food', fontsize=8)
+        self.ax_food.tick_params(labelsize=7)
+        self.ax_food.grid(True, alpha=0.3)
+        self.line_food, = self.ax_food.plot([], [], label='Food Level', color='green', linewidth=1.5)
+        self.ax_food.legend(fontsize=7)
+        self.ax_food.set_title('Food Level', fontsize=9)
 
         # Population plot
-        self.ax_pop = self.fig.add_subplot(gs[1, 0])
-        self.ax_pop.set_xlabel('Steps')
-        self.ax_pop.set_ylabel('Population')
-        self.ax_pop.grid(True)
-        self.line_pop, = self.ax_pop.plot([], [], label='Population', color='blue')
-        self.ax_pop.legend()
+        self.ax_pop = self.fig.add_subplot(gs[0, 3])
+        self.ax_pop.set_xlabel('Steps', fontsize=8)
+        self.ax_pop.set_ylabel('Population', fontsize=8)
+        self.ax_pop.tick_params(labelsize=7)
+        self.ax_pop.grid(True, alpha=0.3)
+        self.line_pop, = self.ax_pop.plot([], [], label='Population', color='blue', linewidth=1.5)
+        self.ax_pop.legend(fontsize=7)
+        self.ax_pop.set_title('Total Population', fontsize=9)
 
         # Energy plot
-        self.ax_energy = self.fig.add_subplot(gs[1, 1])
-        self.ax_energy.set_xlabel('Steps')
-        self.ax_energy.set_ylabel('Energy (Top 10 Avg)')
-        self.ax_energy.grid(True)
-        self.line_energy, = self.ax_energy.plot([], [], label='Top 10 Energy', color='red')
-        self.ax_energy.legend()
+        self.ax_energy = self.fig.add_subplot(gs[1, 2:4])
+        self.ax_energy.set_xlabel('Steps', fontsize=8)
+        self.ax_energy.set_ylabel('Energy (Top 10 Avg)', fontsize=8)
+        self.ax_energy.tick_params(labelsize=7)
+        self.ax_energy.grid(True, alpha=0.3)
+        self.line_energy, = self.ax_energy.plot([], [], label='Top 10 Energy', color='red', linewidth=1.5)
+        self.ax_energy.legend(fontsize=7)
+        self.ax_energy.set_title('Average Energy (Top 10)', fontsize=9)
 
-        self.fig.tight_layout()
+        # RIGHT BOTTOM: Trait evolution plots per bacterial type
+        # We'll create one plot per trait showing all bacterial types
+        self.ax_enzyme = self.fig.add_subplot(gs[2, 2])
+        self.ax_efflux = self.fig.add_subplot(gs[2, 3])
+        self.ax_membrane = self.fig.add_subplot(gs[3, 2])
+        self.ax_repair = self.fig.add_subplot(gs[3, 3])
+        
+        # Store trait axes for easy access
+        self.trait_axes = {
+            'enzyme': self.ax_enzyme,
+            'efflux': self.ax_efflux,
+            'membrane': self.ax_membrane,
+            'repair': self.ax_repair
+        }
+        
+        # Initialize trait plot lines for each bacterial type
+        self.trait_lines = {}
+        for trait, ax in self.trait_axes.items():
+            ax.set_xlabel('Steps', fontsize=8)
+            ax.set_ylabel(f'Avg {trait.capitalize()}', fontsize=8)
+            ax.tick_params(labelsize=7)
+            ax.grid(True, alpha=0.3)
+            ax.set_title(f'{trait.capitalize()} Trait Evolution', fontsize=9)
+            
+            self.trait_lines[trait] = {}
+            for btype in self.bacterial_type_names:
+                color = self.type_colors.get(btype, 'gray')
+                line, = ax.plot([], [], label=btype, color=color, linewidth=1.5, alpha=0.8)
+                self.trait_lines[trait][btype] = line
+            
+            ax.legend(fontsize=6, loc='best')
 
         # Initialize plot elements
         self.scat = None
@@ -127,6 +173,39 @@ class SimulationVisualizer:
             self.line_energy.set_data(history['steps'], history['avg_energy'])
             self.ax_energy.set_xlim(0, max(10, max(history['steps'])))
             self.ax_energy.set_ylim(0, max(10, max(history['avg_energy']) * 1.1))
+            
+        # Update trait evolution plots
+        self._update_trait_plots()
+
+    def _update_trait_plots(self):
+        """Update trait evolution plots for each bacterial type"""
+        history = self.model.history
+        
+        if len(history['steps']) > 0:
+            # Update each trait plot
+            for trait in ['enzyme', 'efflux', 'membrane', 'repair']:
+                ax = self.trait_axes[trait]
+                max_val = 0.01
+                
+                for btype in self.bacterial_type_names:
+                    # Get data from history
+                    trait_key = f'{btype}_avg_{trait}'
+                    
+                    if trait_key in history and len(history[trait_key]) > 0:
+                        data = history[trait_key]
+                        steps = history['steps'][:len(data)]
+                        
+                        self.trait_lines[trait][btype].set_data(steps, data)
+                        
+                        if len(data) > 0:
+                            max_val = max(max_val, max(data) * 1.1)
+                    else:
+                        self.trait_lines[trait][btype].set_data([], [])
+                
+                # Update axis limits
+                if len(history['steps']) > 0:
+                    ax.set_xlim(0, max(10, max(history['steps'])))
+                    ax.set_ylim(0, max(1.0, max_val))
 
     def update_main_plot(self):
         """Update the main simulation plot"""
@@ -141,7 +220,7 @@ class SimulationVisualizer:
                 [pos[1] for pos in positions],
                 c=colors,
                 cmap="viridis",
-                s=10,
+                s=15,
                 edgecolor="k",
                 alpha=0.7,
             )
@@ -179,7 +258,7 @@ class SimulationVisualizer:
         # Highlight selected bacterium
         self._update_highlight(agents)
         
-        self.ax.set_title(f"Step: {self.model.step_count} Agents: {len(self.model.agent_set)}")
+        self.ax.set_title(f"Step: {self.model.step_count} | Agents: {len(self.model.agent_set)}", fontsize=11)
         self.ax.set_xlim(0, self.model.width)
         self.ax.set_ylim(0, self.model.height)
 
@@ -196,7 +275,7 @@ class SimulationVisualizer:
                         highlight_pos[0][0],
                         highlight_pos[0][1],
                         c='yellow',
-                        s=100,
+                        s=150,
                         edgecolor="black",
                         linewidths=2,
                         alpha=1.0,

@@ -67,6 +67,11 @@ class BacteriaModel(Model):
             'total_food': [],
             'avg_energy': []
         }
+        
+        # Initialize per-type trait tracking in history
+        for btype in BACTERIAL_TYPES.keys():
+            for trait in ['enzyme', 'efflux', 'membrane', 'repair']:
+                self.history[f'{btype}_avg_{trait}'] = []
 
     def _initialize_food_patches(self):
         """Initialize food field with Gaussian patches"""
@@ -164,6 +169,16 @@ class BacteriaModel(Model):
         self.history['population'].append(len(self.agent_set))
         self.history['total_food'].append(total_food)
         self.history['avg_energy'].append(avg_top_energy)
+        
+        # Record per-type trait averages
+        for btype in BACTERIAL_TYPES.keys():
+            if btype in stats["by_type"] and stats["by_type"][btype] > 0:
+                for trait in ['enzyme', 'efflux', 'membrane', 'repair']:
+                    self.history[f'{btype}_avg_{trait}'].append(stats[btype][trait])
+            else:
+                # No bacteria of this type, append 0
+                for trait in ['enzyme', 'efflux', 'membrane', 'repair']:
+                    self.history[f'{btype}_avg_{trait}'].append(0.0)
         
         stats['total_food'] = total_food
         stats['avg_energy'] = avg_top_energy
@@ -337,6 +352,11 @@ class BacteriaModel(Model):
             'total_food': [],
             'avg_energy': []
         }
+        
+        # Initialize per-type trait tracking in history
+        for btype in BACTERIAL_TYPES.keys():
+            for trait in ['enzyme', 'efflux', 'membrane', 'repair']:
+                self.history[f'{btype}_avg_{trait}'] = []
         
         # Reset tracking system
         self.individual_tracker = IndividualTracker()
