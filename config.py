@@ -14,19 +14,19 @@ GRID_RES = 200                      # resolution for nutrient & antibiotic field
 # Simulation Parameters
 # -----------------------
 # Number of bacteria per type at initialization
-BACTERIA_PER_TYPE = 10
+BACTERIA_PER_TYPE = 20
 INITIAL_BACTERIA = None
 FOOD_DIFFUSION_SIGMA = 1.0 #UNUSED          # for gaussian_filter diffusion approximation 
-BACTERIA_SPEED = 0.3                # scaling factor for bacterium movement speed
+BACTERIA_SPEED = 1                # scaling factor for bacterium movement speed
 MUTATION_STD = 0.03
 ANTIBIOTIC_DECAY = 0.05             # per sim step
 
 # Food Patch Configuration
-FOOD_PATCH_COUNT = 6                # number of food patches to spawn
-FOOD_PATCH_AMPLITUDE_MIN = 0.5      # minimum food concentration per patch
-FOOD_PATCH_AMPLITUDE_MAX = 2.0      # maximum food concentration per patch
+FOOD_PATCH_COUNT = 120                # number of food patches to spawn
+FOOD_PATCH_AMPLITUDE_MIN = 0.2      # minimum food concentration per patch
+FOOD_PATCH_AMPLITUDE_MAX = 0.8      # maximum food concentration per patch
 FOOD_PATCH_SIGMA_MIN = 3            # minimum patch size (smaller = more concentrated)
-FOOD_PATCH_SIGMA_MAX = 5            # maximum patch size (larger = more spread out)
+FOOD_PATCH_SIGMA_MAX = 10            # maximum patch size (larger = more spread out)
 
 # HGT Parameters
 HGT_RADIUS = 1.5                    # horizontal gene transfer radius
@@ -90,6 +90,29 @@ ALLOCATION_PARAMS = {
     "amplification_prob": 0.05,    # Probability of trait amplification
     "amplification_cost": 0.2,     # Energy cost per unit of amplification
     "diminishing_return_alpha": 0.7 # Exponent for diminishing returns
+}
+
+# -----------------------
+# Persistence Parameters
+# -----------------------
+PERSISTENCE_PARAMS = {
+    # Entry probabilities (per timestep)
+    "base_entry_prob": 0.001,           # Baseline probability of entering persistor state
+    "stress_entry_multiplier": 10.0,    # Multiplier when under stress (low energy or antibiotics)
+    "energy_stress_threshold": 1.0,     # Energy below this is considered stress
+    "antibiotic_stress_threshold": 0.1, # Antibiotic concentration above this is stress
+    
+    # Exit probabilities (per timestep)
+    "base_exit_prob": 0.005,            # Baseline probability of exiting persistor state
+    "favorable_exit_multiplier": 5.0,   # Multiplier when conditions are favorable
+    "energy_favorable_threshold": 0.5,  # Minimum energy to consider conditions favorable
+    
+    # Persistor state modifiers
+    "energy_decay_rate": 0.002,         # Energy loss per timestep while dormant
+    "antibiotic_resistance_factor": 0.1,# Multiply kill probability by this (90% reduction)
+    "movement_speed_factor": 0.2,       # Movement speed multiplier (80% reduction)
+    "min_persistor_energy": 0.1,        # Minimum energy to remain in persistor state
+    "aging_rate_factor": 0.1,           # Aging rate multiplier for persistors (age 10x slower)
 }
 
 # -----------------------

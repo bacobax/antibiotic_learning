@@ -125,6 +125,7 @@ class SimulationVisualizer:
 
         # Initialize plot elements
         self.scat = None
+        self.scat_persistors = None  # Separate scatter for persistor bacteria
         self.highlight_scat = None
         self.im_food = None
         self.im_ab = None
@@ -214,27 +215,57 @@ class SimulationVisualizer:
     def update_main_plot(self):
         """Update the main simulation plot"""
         agents = list(self.model.agent_set)
-        positions = [a.pos for a in agents]
-        colors = self.get_bacterial_colors(agents)
         
-        # Update bacteria scatter plot
+        # Separate active and persistor bacteria
+        active_agents = [a for a in agents if not a.is_persistor]
+        persistor_agents = [a for a in agents if a.is_persistor]
+        
+        active_positions = [a.pos for a in active_agents]
+        persistor_positions = [a.pos for a in persistor_agents]
+        
+        active_colors = self.get_bacterial_colors(active_agents)
+        persistor_colors = self.get_bacterial_colors(persistor_agents)
+        
+        # Update active bacteria scatter plot (normal border)
         if self.scat is None:
             self.scat = self.ax.scatter(
-                [pos[0] for pos in positions],
-                [pos[1] for pos in positions],
-                c=colors,
+                [pos[0] for pos in active_positions],
+                [pos[1] for pos in active_positions],
+                c=active_colors,
                 cmap="viridis",
                 s=15,
                 edgecolor="k",
+                linewidths=0.5,
                 alpha=0.7,
             )
         else:
-            if len(positions) > 0:
-                self.scat.set_offsets(positions)
-                self.scat.set_array(np.array(colors))
+            if len(active_positions) > 0:
+                self.scat.set_offsets(active_positions)
+                self.scat.set_array(np.array(active_colors))
             else:
                 self.scat.set_offsets(np.empty((0, 2)))
                 self.scat.set_array(np.array([]))
+        
+        # Update persistor bacteria scatter plot (thicker border)
+        if self.scat_persistors is None:
+            self.scat_persistors = self.ax.scatter(
+                [pos[0] for pos in persistor_positions],
+                [pos[1] for pos in persistor_positions],
+                c=persistor_colors,
+                cmap="viridis",
+                s=15,
+                edgecolor="purple",  # Distinctive color for persistors
+                linewidths=2.5,      # Thicker border for persistors
+                alpha=0.7,
+                zorder=5  # Draw on top of active bacteria
+            )
+        else:
+            if len(persistor_positions) > 0:
+                self.scat_persistors.set_offsets(persistor_positions)
+                self.scat_persistors.set_array(np.array(persistor_colors))
+            else:
+                self.scat_persistors.set_offsets(np.empty((0, 2)))
+                self.scat_persistors.set_array(np.array([]))
         
         # Update field overlays
         if self.im_food is None:
@@ -262,7 +293,12 @@ class SimulationVisualizer:
         # Highlight selected bacterium
         self._update_highlight(agents)
         
-        self.ax.set_title(f"Step: {self.model.step_count} | Agents: {len(self.model.agent_set)}", fontsize=11)
+        # Update title with persistor count
+        persistor_count = len(persistor_agents)
+        self.ax.set_title(
+            f"Step: {self.model.step_count} | Agents: {len(agents)} (Persistors: {persistor_count})", 
+            fontsize=11
+        )
         self.ax.set_xlim(0, self.model.width)
         self.ax.set_ylim(0, self.model.height)
 

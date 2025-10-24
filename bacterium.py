@@ -9,7 +9,7 @@ from mesa import Agent
 
 from config import (
     BACTERIAL_TYPES, ANTIBIOTIC_TYPES, ALLOCATION_PARAMS, 
-    GROWTH_PARAMS, MUTATION_STD, BACTERIA_SPEED
+    GROWTH_PARAMS, MUTATION_STD, BACTERIA_SPEED, PERSISTENCE_PARAMS
 )
 
 
@@ -22,7 +22,10 @@ class Bacterium(Agent):
         self.pos = None
         self.energy = random.uniform(1.0, 2.0)
         self.bacterial_type = bacterial_type
-        self.age = 0
+        self.age = 0.0  # Float to support fractional aging for persistors
+        
+        # Initialize persistor state flag
+        self.is_persistor = False
         
         # Initialize traits
         self._initialize_traits(bacterial_type)
@@ -76,7 +79,20 @@ class Bacterium(Agent):
         return {trait: float(alloc) for trait, alloc in zip(traits, new_allocations)}
 
     def _update_expression_states(self, local_ab):
-        """Update gene expression based on antibiotic presence"""
+        """Update gene expression based on antibiotic presence
+        
+        Persistors maintain minimal expression states to reduce energy costs.
+        """
+        # Persistors don't actively respond to antibiotics (dormant metabolism)
+        if self.is_persistor:
+            # Slow decay of existing expression
+            for k in self.expression:
+                X = self.expression[k]
+                dX = -GROWTH_PARAMS["kd"][k] * X * GROWTH_PARAMS["dt"] * 0.5  # Slower decay
+                self.expression[k] = max(0.0, X + dX)
+            return
+        
+        # Normal expression dynamics for active bacteria
         if local_ab > 0:
             S_A = (local_ab**GROWTH_PARAMS["n_ind"]) / \
                   (GROWTH_PARAMS["k_i"]**GROWTH_PARAMS["n_ind"] + local_ab**GROWTH_PARAMS["n_ind"])
@@ -90,7 +106,17 @@ class Bacterium(Agent):
             self.expression[k] = max(0.0, min(1.0, X + dX))
 
     def _consume_nutrients(self, local_food, fx, fy):
-        """Consume nutrients and update energy"""
+        """Consume nutrients and update energy
+        
+        Persistors cannot actively consume nutrients but lose energy slowly.
+        """
+        if self.is_persistor:
+            # Persistors don't actively consume nutrients (dormant metabolism)
+            # Only lose energy through minimal maintenance
+            self.energy -= PERSISTENCE_PARAMS["energy_decay_rate"] * GROWTH_PARAMS["dt"]
+            return
+        
+        # Normal nutrient consumption for active bacteria
         # Monod kinetics
         uptake = GROWTH_PARAMS["u_max"] * (local_food / (GROWTH_PARAMS["k_s"] + local_food))
         self.model.subtract_from_field(self.model.food_field, fx, fy, uptake * GROWTH_PARAMS["dt"])
@@ -106,7 +132,10 @@ class Bacterium(Agent):
         self.energy = max(0.0, self.energy + dE)
 
     def _check_antibiotic_death(self, local_ab):
-        """Check if bacterium dies from antibiotic exposure"""
+        """Check if bacterium dies from antibiotic exposure
+        
+        Persistors have greatly reduced susceptibility to antibiotics.
+        """
         if local_ab <= 0:
             return False
             
@@ -123,32 +152,50 @@ class Bacterium(Agent):
         kappa *= (1 - GROWTH_PARAMS["beta_r"] * self.expression["repair"])
         p_death = 1 - math.exp(-kappa * GROWTH_PARAMS["dt"])
         
+        # Persistors have dramatically reduced kill probability (dormant cells less affected)
+        if self.is_persistor:
+            p_death *= PERSISTENCE_PARAMS["antibiotic_resistance_factor"]
+        
         return random.random() < p_death
 
     def _move_towards_nutrients(self, fx, fy):
-        """Move bacterium towards nutrient gradient"""
-        grad = self.model.compute_gradient_at_field(fx, fy)
-        g = np.array(grad, dtype=float)
+        """Move bacterium towards nutrient gradient
         
-        if np.linalg.norm(g) > 1e-8:
-            g = g / (np.linalg.norm(g) + 1e-9)
-        else:
-            g = np.zeros(2)
+        Persistors move randomly with significantly reduced speed (no chemotaxis).
+        """
+        # Persistors move randomly without chemotaxis
+        if self.is_persistor:
+            # Pure random walk for persistors
+            rand_dir = np.random.normal(size=2)
+            rand_dir /= np.linalg.norm(rand_dir) + 1e-9
+            direction = rand_dir
             
-        rand_dir = np.random.normal(size=2)
-        rand_dir /= np.linalg.norm(rand_dir) + 1e-9
-        
-        alpha = 0.8
-        direction = alpha * g + (1 - alpha) * rand_dir
-        direction /= np.linalg.norm(direction) + 1e-9
+            # Significantly reduced speed for persistors
+            effective_speed = self.speed * BACTERIA_SPEED * PERSISTENCE_PARAMS["movement_speed_factor"]
+        else:
+            # Normal chemotactic movement for active bacteria
+            grad = self.model.compute_gradient_at_field(fx, fy)
+            g = np.array(grad, dtype=float)
+            
+            if np.linalg.norm(g) > 1e-8:
+                g = g / (np.linalg.norm(g) + 1e-9)
+            else:
+                g = np.zeros(2)
+                
+            rand_dir = np.random.normal(size=2)
+            rand_dir /= np.linalg.norm(rand_dir) + 1e-9
+            
+            alpha = 0.8
+            direction = alpha * g + (1 - alpha) * rand_dir
+            direction /= np.linalg.norm(direction) + 1e-9
+            
+            effective_speed = self.speed * BACTERIA_SPEED
 
         # Calculate new position with proper boundary clamping
-        # Use slightly smaller bounds to avoid edge cases (exclusive upper bound)
-        new_x = self.pos[0] + direction[0] * self.speed * BACTERIA_SPEED
-        new_y = self.pos[1] + direction[1] * self.speed * BACTERIA_SPEED
+        new_x = self.pos[0] + direction[0] * effective_speed
+        new_y = self.pos[1] + direction[1] * effective_speed
         
         # Clamp to valid range [0, width) and [0, height)
-        # Use a small epsilon to keep away from exact boundary
         epsilon = 1e-6
         new_x = max(0, min(self.model.width - epsilon, new_x))
         new_y = max(0, min(self.model.height - epsilon, new_y))
@@ -164,7 +211,14 @@ class Bacterium(Agent):
             pass
 
     def _try_reproduce(self):
-        """Attempt reproduction if energy threshold is met"""
+        """Attempt reproduction if energy threshold is met
+        
+        Persistors cannot reproduce (dormant state).
+        """
+        # Persistors cannot reproduce
+        if self.is_persistor:
+            return
+            
         if self.energy < GROWTH_PARAMS["e_div"]:
             return
             
@@ -192,9 +246,67 @@ class Bacterium(Agent):
         child.energy = self.energy
         self.model.new_agents.append((child, child_pos))
 
+    def _check_persistor_entry(self, local_ab):
+        """Determine if bacterium should enter persistor state
+        
+        Entry probability increases under stress conditions:
+        - Low energy (starvation stress)
+        - High antibiotic concentration (chemical stress)
+        
+        Returns:
+            bool: True if bacterium enters persistor state
+        """
+        if self.is_persistor:
+            return False  # Already a persistor
+        
+        # Calculate stress factors
+        energy_stress = self.energy < PERSISTENCE_PARAMS["energy_stress_threshold"]
+        antibiotic_stress = local_ab > PERSISTENCE_PARAMS["antibiotic_stress_threshold"]
+        
+        # Base probability with stress multiplier
+        prob = PERSISTENCE_PARAMS["base_entry_prob"]
+        if energy_stress or antibiotic_stress:
+            prob *= PERSISTENCE_PARAMS["stress_entry_multiplier"]
+        
+        return random.random() < prob
+
+    def _check_persistor_exit(self, local_ab):
+        """Determine if persistor should revert to normal state
+        
+        Exit probability increases under favorable conditions:
+        - No antibiotics present
+        - Sufficient energy reserves
+        
+        Returns:
+            bool: True if persistor exits to normal state
+        """
+        if not self.is_persistor:
+            return False  # Not a persistor
+        
+        # Force exit if energy too low (starvation override)
+        if self.energy < PERSISTENCE_PARAMS["min_persistor_energy"]:
+            return True
+        
+        # Calculate favorable conditions
+        no_antibiotics = local_ab < PERSISTENCE_PARAMS["antibiotic_stress_threshold"]
+        sufficient_energy = self.energy > PERSISTENCE_PARAMS["energy_favorable_threshold"]
+        
+        # Base probability with favorable condition multiplier
+        prob = PERSISTENCE_PARAMS["base_exit_prob"]
+        if no_antibiotics and sufficient_energy:
+            prob *= PERSISTENCE_PARAMS["favorable_exit_multiplier"]
+        
+        return random.random() < prob
+
     def step(self):
         """Execute one step of the bacterium lifecycle"""
-        self.age += 1
+        # Aging mechanism - persistors age slower
+        if self.is_persistor:
+            # Accumulate fractional aging for persistors
+            self.age += PERSISTENCE_PARAMS["aging_rate_factor"]
+        else:
+            # Normal aging for active bacteria
+            self.age += 1
         
         # Check for death by old age
         if self.age >= self.max_age:
@@ -206,6 +318,12 @@ class Bacterium(Agent):
         fx, fy = self.model.nutrient_to_field_coords(self.pos)
         local_food = self.model.sample_field(self.model.food_field, fx, fy)
         local_ab = self.model.sample_field(self.model.antibiotic_field, fx, fy)
+
+        # Check for persistor state transitions (before other actions)
+        if self._check_persistor_entry(local_ab):
+            self.is_persistor = True
+        elif self._check_persistor_exit(local_ab):
+            self.is_persistor = False
 
         # Update expression states
         self._update_expression_states(local_ab)
