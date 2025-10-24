@@ -349,7 +349,9 @@ class BacteriaModel(Model):
             'steps': [],
             'population': [],
             'total_food': [],
-            'avg_energy': []
+            'avg_energy': [],
+            'avg_energy_top': [],
+            'avg_energy_worst': []
         }
         
         # Initialize per-type trait tracking in history

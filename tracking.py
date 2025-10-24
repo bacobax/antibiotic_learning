@@ -47,6 +47,10 @@ class IndividualTracker:
         
         # Update data for all alive bacteria
         for bacterium in model.agent_set:
+            # Skip if bacterium has no position (shouldn't happen, but safety check)
+            if bacterium.pos is None:
+                continue
+                
             data = self.tracked_individuals[bacterium.unique_id]
             data['steps'].append(current_step)
             data['enzyme'].append(bacterium.enzyme)

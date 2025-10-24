@@ -33,10 +33,19 @@ HGT_RADIUS = 1.5                    # horizontal gene transfer radius
 HGT_PROB = 0.001                    # probability of HGT per neighbor per step
 
 # Simulation speed settings
-DEFAULT_STEPS_PER_SECOND = 5        # simulation steps per second
-MIN_STEPS_PER_SECOND = 1            # minimum speed (slowest)
-MAX_STEPS_PER_SECOND = 20           # maximum speed (fastest)
+DEFAULT_STEPS_PER_FRAME = 1         # simulation steps to run per visual frame (more direct control)
+MIN_STEPS_PER_FRAME = 0             # 0 means skip some frames (slower than 1 step/frame)
+MAX_STEPS_PER_FRAME = 10            # maximum steps per frame (can go higher if needed)
 ANIMATION_FPS = 30                  # visual update rate (frames per second)
+
+# When MIN_STEPS_PER_FRAME = 0, this controls how often to step
+# e.g., SLOW_MODE_FRAME_SKIP = 3 means step every 3rd frame
+SLOW_MODE_FRAME_SKIP = 3            # step every Nth frame when in "skip" mode
+
+# Performance mode settings
+PERFORMANCE_MODE = False            # When enabled, reduces UI update frequency for better performance
+STATS_UPDATE_INTERVAL = 5           # Update stats every N frames when performance mode is on
+VISUALIZATION_UPDATE_INTERVAL = 1   # Update visualization every N frames (1 = every frame)
 
 # -----------------------
 # Growth Model Parameters

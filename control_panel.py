@@ -9,8 +9,9 @@ except Exception:
     tk = None
 
 from config import (
-    BACTERIAL_TYPES, DEFAULT_STEPS_PER_SECOND, 
-    MIN_STEPS_PER_SECOND, MAX_STEPS_PER_SECOND
+    BACTERIAL_TYPES, DEFAULT_STEPS_PER_FRAME, 
+    MIN_STEPS_PER_FRAME, MAX_STEPS_PER_FRAME,
+    SLOW_MODE_FRAME_SKIP
 )
 
 
@@ -40,6 +41,7 @@ class ControlPanel:
         self.on_view_bacterium = on_view_bacterium
         
         self.last_bacteria_list_hash = None
+        self.ui_ref = None  # Reference to UI for performance stats
         
         if tk is not None:
             try:
@@ -52,6 +54,10 @@ class ControlPanel:
         else:
             self.root = None
     
+    def set_ui_reference(self, ui):
+        """Set reference to UI for accessing performance metrics"""
+        self.ui_ref = ui
+
     def build_controls(self):
         """Build Tkinter control panel"""
         main_frame = ttk.Frame(self.root, padding=10)
@@ -102,6 +108,20 @@ class ControlPanel:
         self.hgt_check.grid(column=0, row=row, columnspan=2, pady=(10, 5))
         row += 1
 
+        # Performance mode toggle
+        self.perf_mode_var = tk.BooleanVar(value=False)
+        self.perf_mode_check = ttk.Checkbutton(
+            frame, text="Performance Mode", variable=self.perf_mode_var, command=self._toggle_performance_mode
+        )
+        self.perf_mode_check.grid(column=0, row=row, columnspan=2, pady=(0, 5))
+        row += 1
+
+        # Performance info label
+        self.perf_info_label = ttk.Label(frame, text="(reduces stats update frequency)", 
+                                         font=("TkDefaultFont", 7), foreground="gray")
+        self.perf_info_label.grid(column=0, row=row, columnspan=2, pady=(0, 10))
+        row += 1
+
         # Separator
         ttk.Separator(frame, orient='horizontal').grid(column=0, row=row, columnspan=2, sticky='ew', pady=10)
         row += 1
@@ -123,7 +143,7 @@ class ControlPanel:
         ttk.Button(speed_frame, text=">>", command=lambda: self.on_speed_change(1), width=3).grid(column=1, row=0)
         ttk.Button(speed_frame, text="Reset Speed", command=lambda: self.on_speed_change(0)).grid(column=2, row=0, padx=(5,0))
         
-        self.speed_label = ttk.Label(frame, text=f"Speed: {DEFAULT_STEPS_PER_SECOND} steps/sec")
+        self.speed_label = ttk.Label(frame, text=f"Speed: {DEFAULT_STEPS_PER_FRAME} steps/frame")
         self.speed_label.grid(column=0, row=row, columnspan=2, pady=(0, 5))
         row += 1
         
@@ -244,6 +264,17 @@ class ControlPanel:
             new_val = not self.model.enable_hgt
         self.on_toggle_hgt(new_val)
 
+    def _toggle_performance_mode(self):
+        """Internal handler for performance mode toggle"""
+        try:
+            new_val = bool(self.perf_mode_var.get())
+            if self.ui_ref is not None:
+                self.ui_ref.toggle_performance_mode(new_val)
+            else:
+                print("Warning: UI reference not set, cannot toggle performance mode")
+        except Exception as e:
+            print(f"Error toggling performance mode: {e}")
+
     def _view_selected_bacterium(self):
         """View selected bacterium plots"""
         try:
@@ -266,7 +297,7 @@ class ControlPanel:
         """Update speed label"""
         if self.root is not None:
             try:
-                self.speed_label.config(text=f"Speed: {speed} steps/sec")
+                self.speed_label.config(text=f"Speed: {speed} steps/frame")
             except Exception:
                 pass
 
