@@ -22,7 +22,7 @@ from tracking import IndividualTracker
 class BacteriaModel(Model):
     """Main simulation model for bacteria population dynamics."""
     
-    def __init__(self, N=None, width=WIDTH, height=HEIGHT, enable_hgt=True):
+    def __init__(self, N=None, width=WIDTH, height=HEIGHT):
         super().__init__()
         self.width = width
         self.height = height
@@ -59,7 +59,6 @@ class BacteriaModel(Model):
 
         # Tracking system
         self.individual_tracker = IndividualTracker()
-        self.enable_hgt = bool(enable_hgt)
         
         # History for plotting
         self.history = {
@@ -270,7 +269,7 @@ class BacteriaModel(Model):
                 ]
             
             for nb in neighbors:
-                if random.random() < HGT_PROB:
+                if random.random() < HGT_PROB and a.has_hgt_gene and nb.has_hgt_gene:
                     mix = 0.3
                     traits = ['enzyme', 'efflux', 'membrane', 'repair']
                     for trait in traits:
@@ -317,11 +316,10 @@ class BacteriaModel(Model):
             self.agent_set.add(child)
 
         # Horizontal gene transfer
-        if self.enable_hgt:
-            try:
-                self.horizontal_gene_transfer()
-            except Exception:
-                pass
+        try:
+            self.horizontal_gene_transfer()
+        except Exception:
+            pass
 
         self.step_count += 1
 
