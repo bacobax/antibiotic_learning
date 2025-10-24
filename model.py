@@ -7,6 +7,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 from mesa import Model
 from mesa.space import ContinuousSpace
+import heapq
 
 from config import (
     WIDTH, HEIGHT, GRID_RES, FOOD_DIFFUSION_SIGMA, ANTIBIOTIC_DECAY,
@@ -131,7 +132,9 @@ class BacteriaModel(Model):
         
         # Collect statistics
         trait_sums = {"enzyme": 0, "efflux": 0, "membrane": 0, "repair": 0, "age": 0}
-        
+        trait_arrays = {trait: [] for trait in trait_sums}
+        energy_array = []
+
         for bacterium in self.agent_set:
             btype = bacterium.bacterial_type
             if btype not in stats["by_type"]:
@@ -139,17 +142,12 @@ class BacteriaModel(Model):
                 stats[btype] = {"enzyme": 0, "efflux": 0, "membrane": 0, "repair": 0, "age": 0}
             
             stats["by_type"][btype] += 1
-            stats[btype]["enzyme"] += bacterium.enzyme
-            stats[btype]["efflux"] += bacterium.efflux
-            stats[btype]["membrane"] += bacterium.membrane
-            stats[btype]["repair"] += bacterium.repair
-            stats[btype]["age"] += bacterium.age
-            
-            trait_sums["enzyme"] += bacterium.enzyme
-            trait_sums["efflux"] += bacterium.efflux
-            trait_sums["membrane"] += bacterium.membrane
-            trait_sums["repair"] += bacterium.repair
-            trait_sums["age"] += bacterium.age
+            for trait in trait_sums:
+                value = getattr(bacterium, trait)
+                stats[btype][trait] += value
+                trait_sums[trait] += value
+                trait_arrays[trait].append(value)
+            energy_array.append(bacterium.energy)
         
         # Calculate averages
         total = len(self.agent_set)
@@ -163,11 +161,9 @@ class BacteriaModel(Model):
         
         # Add food and energy tracking
         total_food = np.sum(self.food_field)
-        top_energies = sorted([a.energy for a in self.agent_set], reverse=True)[:10]
-        avg_top_energy = np.mean(top_energies) if top_energies else 0
-        worst_energies = sorted([a.energy for a in self.agent_set])[:10]
-        avg_worst_energy = np.mean(worst_energies) if worst_energies else 0
-        avg_energy = np.mean([a.energy for a in self.agent_set])
+        avg_top_energy = np.mean(heapq.nlargest(10, energy_array)) if energy_array else 0
+        avg_worst_energy = np.mean(heapq.nsmallest(10, energy_array)) if energy_array else 0
+        avg_energy = np.mean(energy_array) if energy_array else 0
         
         # Record history
         self.history['steps'].append(self.step_count)
