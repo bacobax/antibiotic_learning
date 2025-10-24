@@ -67,38 +67,38 @@ class SimulatorUI:
 
     def _setup_plots(self):
         """Setup matplotlib figure and subplots"""
-        self.fig = plt.figure(figsize=(16, 4))
-        gs = self.fig.add_gridspec(1, 4)
-        
+        self.fig = plt.figure(figsize=(16, 8))  # Adjust figure size to accommodate larger plots
+        gs = self.fig.add_gridspec(2, 2)  # Change grid spec to 2x2
+
         # Main simulation view
-        self.ax = self.fig.add_subplot(gs[0])
-        
+        self.ax = self.fig.add_subplot(gs[0, 0])  # Keep bacteria simulation plot unchanged
+
         # Food level plot
-        self.ax_food = self.fig.add_subplot(gs[1])
+        self.ax_food = self.fig.add_subplot(gs[0, 1])  # Food plot takes half window space
         self.ax_food.set_xlabel('Steps')
         self.ax_food.set_ylabel('Total Food')
         self.ax_food.grid(True)
         self.line_food, = self.ax_food.plot([], [], label='Food Level', color='green')
         self.ax_food.legend()
-        
+
         # Population plot
-        self.ax_pop = self.fig.add_subplot(gs[2])
+        self.ax_pop = self.fig.add_subplot(gs[1, 0])  # Population plot takes half window space
         self.ax_pop.set_xlabel('Steps')
         self.ax_pop.set_ylabel('Population')
         self.ax_pop.grid(True)
         self.line_pop, = self.ax_pop.plot([], [], label='Population', color='blue')
         self.ax_pop.legend()
-        
+
         # Energy plot
-        self.ax_energy = self.fig.add_subplot(gs[3])
+        self.ax_energy = self.fig.add_subplot(gs[1, 1])  # Energy plot takes half window space
         self.ax_energy.set_xlabel('Steps')
         self.ax_energy.set_ylabel('Energy (Top 10 Avg)')
         self.ax_energy.grid(True)
         self.line_energy, = self.ax_energy.plot([], [], label='Top 10 Energy', color='red')
         self.ax_energy.legend()
-        
+
         self.fig.tight_layout()
-        
+
         self.scat = None
         self.highlight_scat = None
         self.im_food = None
