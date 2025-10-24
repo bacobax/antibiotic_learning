@@ -104,6 +104,18 @@ class IndividualPlotter:
         self.fig = None
         self.axes = None
         self.current_id = None
+    
+    def close(self):
+        """Close the plot window if it exists"""
+        if self.fig is not None:
+            try:
+                plt.close(self.fig)
+            except Exception as e:
+                print(f"Error closing individual plot window: {e}")
+            finally:
+                self.fig = None
+                self.axes = None
+                self.current_id = None
         
     def create_plot_window(self):
         """Create a new window for individual plots"""

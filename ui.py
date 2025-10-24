@@ -416,6 +416,10 @@ class SimulatorUI:
 
     def reset_sim(self):
         """Reset simulation to initial conditions"""
+        # Close individual tracker window if it exists
+        if hasattr(self, 'individual_plotter'):
+            self.individual_plotter.close()
+        
         # Reset the model
         self.model.reset()
         

@@ -142,20 +142,26 @@ class Bacterium(Agent):
         direction = alpha * g + (1 - alpha) * rand_dir
         direction /= np.linalg.norm(direction) + 1e-9
 
-        # Calculate new position
+        # Calculate new position with proper boundary clamping
+        # Use slightly smaller bounds to avoid edge cases (exclusive upper bound)
         new_x = self.pos[0] + direction[0] * self.speed * BACTERIA_SPEED
         new_y = self.pos[1] + direction[1] * self.speed * BACTERIA_SPEED
-        new_x = max(0, min(self.model.space.x_max, new_x))
-        new_y = max(0, min(self.model.space.y_max, new_y))
+        
+        # Clamp to valid range [0, width) and [0, height)
+        # Use a small epsilon to keep away from exact boundary
+        epsilon = 1e-6
+        new_x = max(0, min(self.model.width - epsilon, new_x))
+        new_y = max(0, min(self.model.height - epsilon, new_y))
 
         # Update position
-        self.pos = (new_x, new_y)
+        new_pos = (float(new_x), float(new_y))
         try:
-            self.model.space.move_agent(self, self.pos)
+            self.model.space.move_agent(self, new_pos)
+            self.pos = new_pos
         except Exception as e:
-            print(f"Error moving agent {self.unique_id} to position {self.pos}: {e}")
-            
-            raise Exception("Agent movement failed")
+            print(f"Error moving agent {self.unique_id} to position {new_pos}: {e}")
+            # Keep old position if move fails
+            pass
 
     def _try_reproduce(self):
         """Attempt reproduction if energy threshold is met"""
