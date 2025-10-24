@@ -127,6 +127,12 @@ class BacteriaModel(Model):
             "avg_age": 0
         }
         
+        # Always add food and energy tracking to stats, even if population is 0
+        stats["total_food"] = float(np.sum(self.food_field))
+        stats["avg_energy"] = 0.0
+        stats["avg_energy_top"] = 0.0
+        stats["avg_energy_worst"] = 0.0
+        
         if len(self.agent_set) == 0:
             return stats
         
@@ -159,19 +165,24 @@ class BacteriaModel(Model):
             for trait in ["enzyme", "efflux", "membrane", "repair", "age"]:
                 stats[btype][trait] /= count
         
-        # Add food and energy tracking
-        total_food = np.sum(self.food_field)
-        avg_top_energy = np.mean(heapq.nlargest(10, energy_array)) if energy_array else 0
-        avg_worst_energy = np.mean(heapq.nsmallest(10, energy_array)) if energy_array else 0
-        avg_energy = np.mean(energy_array) if energy_array else 0
+        # Update energy tracking with actual values
+        stats["avg_energy"] = float(np.mean(energy_array)) if energy_array else 0.0
+        stats["avg_energy_top"] = float(np.mean(heapq.nlargest(10, energy_array))) if energy_array else 0.0
+        stats["avg_energy_worst"] = float(np.mean(heapq.nsmallest(10, energy_array))) if energy_array else 0.0
         
-        # Record history
+        return stats
+
+    def _record_history(self):
+        """Record current stats to history - called every step"""
+        stats = self.get_population_stats()
+        
+        # Record basic stats
         self.history['steps'].append(self.step_count)
         self.history['population'].append(len(self.agent_set))
-        self.history['total_food'].append(total_food)
-        self.history['avg_energy'].append(avg_energy)
-        self.history['avg_energy_top'].append(avg_top_energy)
-        self.history['avg_energy_worst'].append(avg_worst_energy)
+        self.history['total_food'].append(stats["total_food"])
+        self.history['avg_energy'].append(stats["avg_energy"])
+        self.history['avg_energy_top'].append(stats["avg_energy_top"])
+        self.history['avg_energy_worst'].append(stats["avg_energy_worst"])
         
         # Record per-type trait averages
         for btype in BACTERIAL_TYPES.keys():
@@ -182,8 +193,6 @@ class BacteriaModel(Model):
                 # No bacteria of this type, append 0
                 for trait in ['enzyme', 'efflux', 'membrane', 'repair']:
                     self.history[f'{btype}_avg_{trait}'].append(0.0)
-        
-        return stats
 
     # Field utilities
     def add_gaussian_patch(self, field, cx, cy, sigma, amplitude):
@@ -318,6 +327,9 @@ class BacteriaModel(Model):
 
         # Update tracking
         self.individual_tracker.update_tracked_individuals(self)
+        
+        # Record history every step
+        self._record_history()
 
     def reset(self):
         """Reset simulation to initial conditions"""

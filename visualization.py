@@ -266,6 +266,10 @@ class SimulationVisualizer:
         self.ax.set_xlim(0, self.model.width)
         self.ax.set_ylim(0, self.model.height)
 
+    def update_graphs(self):
+        """Update only the history plots (separate from main plot for performance mode)"""
+        self.update_history_plots()
+
     def _update_highlight(self, agents):
         """Update highlighted bacterium visualization"""
         if self.highlighted_bacterium_id is not None:

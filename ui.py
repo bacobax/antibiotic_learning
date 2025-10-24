@@ -37,10 +37,11 @@ class SimulatorUI:
         self.max_step_time_samples = 30
         self.actual_steps_per_second = 0.0
         
-        # Performance mode
+        # Performance mode - initialize from config
         self.performance_mode = PERFORMANCE_MODE
         self.stats_update_counter = 0
         self.viz_update_counter = 0
+        self.graph_update_counter = 0  # For graph updates
         
         # Individual tracking
         self.individual_plotter = IndividualPlotter(self.model.individual_tracker)
@@ -197,13 +198,13 @@ class SimulatorUI:
             if self.steps_per_frame > 0:
                 # Normal mode: run multiple steps per frame
                 for _ in range(self.steps_per_frame):
-                    self.model.step()
+                    self.model.step()  # This now calls _record_history() internally
                     steps_executed += 1
             else:
                 # Slow mode: run 1 step every N frames
                 self.frame_counter += 1
                 if self.frame_counter >= SLOW_MODE_FRAME_SKIP:
-                    self.model.step()
+                    self.model.step()  # This now calls _record_history() internally
                     steps_executed = 1
                     self.frame_counter = 0
 
@@ -219,10 +220,23 @@ class SimulatorUI:
                 if avg_duration > 0:
                     self.actual_steps_per_second = steps_executed / avg_duration
 
-        # Update visualizations (always update for smooth animation)
+        # Update visualizations - with performance mode throttling for graphs
+        should_update_graphs = True
+        if self.performance_mode:
+            self.graph_update_counter += 1
+            if self.graph_update_counter >= VISUALIZATION_UPDATE_INTERVAL:
+                self.graph_update_counter = 0
+            else:
+                should_update_graphs = False
+        
+        # Always update main plot for smooth animation
         self.visualizer.update_main_plot()
         
-        # Update stats - with performance mode throttling
+        # Update graphs conditionally based on performance mode
+        if should_update_graphs:
+            self.visualizer.update_graphs()
+        
+        # Update stats panel - with performance mode throttling
         should_update_stats = True
         if self.performance_mode:
             self.stats_update_counter += 1
@@ -232,7 +246,7 @@ class SimulatorUI:
                 should_update_stats = False
         
         if should_update_stats:
-            stats = self.model.get_population_stats()
+            stats = self.model.get_population_stats()  # Get stats but don't record to history
             self.control_panel.update_stats_display(stats)
             self.control_panel.update_bacteria_list()
         

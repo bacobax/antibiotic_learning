@@ -11,7 +11,7 @@ except Exception:
 from config import (
     BACTERIAL_TYPES, DEFAULT_STEPS_PER_FRAME, 
     MIN_STEPS_PER_FRAME, MAX_STEPS_PER_FRAME,
-    SLOW_MODE_FRAME_SKIP
+    SLOW_MODE_FRAME_SKIP, PERFORMANCE_MODE
 )
 
 
@@ -108,8 +108,8 @@ class ControlPanel:
         self.hgt_check.grid(column=0, row=row, columnspan=2, pady=(10, 5))
         row += 1
 
-        # Performance mode toggle
-        self.perf_mode_var = tk.BooleanVar(value=False)
+        # Performance mode toggle - initialize with config value
+        self.perf_mode_var = tk.BooleanVar(value=PERFORMANCE_MODE)
         self.perf_mode_check = ttk.Checkbutton(
             frame, text="Performance Mode", variable=self.perf_mode_var, command=self._toggle_performance_mode
         )
@@ -267,8 +267,11 @@ class ControlPanel:
     def _toggle_performance_mode(self):
         """Internal handler for performance mode toggle"""
         try:
-            new_val = bool(self.perf_mode_var.get())
+            # The checkbox value gets updated AFTER this callback is called,
+            # so we need to invert the current UI state
             if self.ui_ref is not None:
+                current_ui_state = self.ui_ref.performance_mode
+                new_val = not current_ui_state
                 self.ui_ref.toggle_performance_mode(new_val)
             else:
                 print("Warning: UI reference not set, cannot toggle performance mode")
