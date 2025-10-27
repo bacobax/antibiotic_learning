@@ -1,0 +1,45 @@
+# Default configuration for antibiotic learning experiments
+
+# Bacteria simulation parameters
+bacteria:
+  initial_population: 100
+  carrying_capacity: 10000
+  base_resistance: 0.1
+  mutation_rate: 0.01
+
+# Environment parameters
+environment:
+  max_steps: 200
+  action_space_size: 10
+  max_dose: 1.0
+  
+# RL agent parameters
+agent:
+  type: "DQN"  # Options: "QLearning", "DQN"
+  learning_rate: 0.001
+  gamma: 0.99
+  epsilon: 1.0
+  epsilon_decay: 0.995
+  epsilon_min: 0.01
+  
+  # DQN specific
+  buffer_size: 10000
+  batch_size: 64
+  hidden_dim: 128
+  
+  # Q-Learning specific
+  state_space_size: 100
+
+# Training parameters
+training:
+  num_episodes: 1000
+  save_interval: 100
+  eval_interval: 50
+  eval_episodes: 10
+  
+# Logging
+logging:
+  log_dir: "logs"
+  results_dir: "results"
+  save_models: true
+  model_dir: "models"
