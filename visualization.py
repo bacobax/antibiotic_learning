@@ -267,6 +267,35 @@ class SimulationVisualizer:
                     ax.set_xlim(0, max(10, max(history["steps"])))
                     ax.set_ylim(0, max(1.0, max_val))
 
+    @staticmethod
+    def _convex_hull(points):
+        """Compute 2D convex hull of a set of points using Andrew's monotone chain.
+
+        points: iterable of (x, y)
+        Returns a list of hull vertices in counter-clockwise order (no duplicate endpoint).
+        """
+        pts = sorted(set(points))
+        if len(pts) <= 1:
+            return pts
+
+        def cross(o, a, b):
+            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+        lower = []
+        for p in pts:
+            while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+                lower.pop()
+            lower.append(p)
+
+        upper = []
+        for p in reversed(pts):
+            while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+                upper.pop()
+            upper.append(p)
+
+        # Concatenate lower and upper to get full hull (omitting last point of each)
+        return lower[:-1] + upper[:-1]
+
     def update_main_plot(self):
         """Update the main simulation plot"""
         agents = list(self.model.agent_set)
@@ -400,23 +429,71 @@ class SimulationVisualizer:
                     biofilm_groups[agent.biofilm_id] = []
                 biofilm_groups[agent.biofilm_id].append(agent)
         
-        # Draw lines connecting bacteria in each biofilm
+        # Draw boundary (outer layer) connecting bacteria in each biofilm
+        # For each biofilm group we compute the convex hull of member positions
+        # and draw only the hull edges (outer layer). For groups of two, draw
+        # a single segment between the two members.
+        def _convex_hull(points):
+            """Compute 2D convex hull of a set of points using Andrew's monotone chain."""
+            # points: list of (x, y)
+            pts = sorted(set(points))
+            if len(pts) <= 1:
+                return pts
+
+            def cross(o, a, b):
+                return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+            lower = []
+            for p in pts:
+                while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+                    lower.pop()
+                lower.append(p)
+
+            upper = []
+            for p in reversed(pts):
+                while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+                    upper.pop()
+                upper.append(p)
+
+            # Concatenate lower and upper to get full hull (omitting last point of each)
+            return lower[:-1] + upper[:-1]
+
         for biofilm_id, members in biofilm_groups.items():
-            if len(members) > 1:
-                # Draw lines between all pairs in the biofilm (create a network)
-                for i, bacterium1 in enumerate(members):
-                    for bacterium2 in members[i+1:]:
-                        # Draw line from bacterium1 to bacterium2
-                        x_coords = [bacterium1.pos[0], bacterium2.pos[0]]
-                        y_coords = [bacterium1.pos[1], bacterium2.pos[1]]
-                        
+            n = len(members)
+            if n <= 1:
+                continue
+
+            pts = [(m.pos[0], m.pos[1]) for m in members]
+
+            if n == 2:
+                # Just draw the single segment between the two members
+                x_coords = [pts[0][0], pts[1][0]]
+                y_coords = [pts[0][1], pts[1][1]]
+                line, = self.ax.plot(
+                    x_coords,
+                    y_coords,
+                    color="deepskyblue",
+                    linewidth=1.0,
+                    alpha=0.4,
+                    zorder=1,
+                )
+                self.biofilm_lines.append(line)
+            else:
+                # Compute hull and draw polygon edges
+                hull = self._convex_hull(pts)
+                if len(hull) >= 2:
+                    for i in range(len(hull)):
+                        a = hull[i]
+                        b = hull[(i + 1) % len(hull)]
+                        x_coords = [a[0], b[0]]
+                        y_coords = [a[1], b[1]]
                         line, = self.ax.plot(
-                            x_coords, 
+                            x_coords,
                             y_coords,
-                            color='deepskyblue',
+                            color="deepskyblue",
                             linewidth=1.0,
                             alpha=0.4,
-                            zorder=1  # Draw below bacteria
+                            zorder=1,
                         )
                         self.biofilm_lines.append(line)
 
