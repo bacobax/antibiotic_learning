@@ -4,7 +4,6 @@ Bacteria simulation model implementation.
 
 import random
 import numpy as np
-from scipy.ndimage import gaussian_filter
 from mesa import Model
 from mesa.space import ContinuousSpace
 import heapq
