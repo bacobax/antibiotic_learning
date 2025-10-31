@@ -29,9 +29,8 @@ class Bacterium(Agent):
         self.is_persistor = False
         self.has_hgt_gene = random.random() < 0.05  # 5% chance of having HGT gene
         
-        # Initialize biofilm state
-        self.in_biofilm = False
-        self.biofilm_strength = 0.0
+        # Initialize biofilm state - now uses unique biofilm ID
+        self.biofilm_id = None  # None = not in biofilm, integer = biofilm cluster ID
         
         # Initialize traits
         self._initialize_traits(bacterial_type)
@@ -181,9 +180,13 @@ class Bacterium(Agent):
             local_antibiotics: dict mapping antibiotic_type -> concentration
         
         Persistors have greatly reduced susceptibility to antibiotics.
+        Biofilm provides physical protection barrier reducing effective antibiotic concentration.
         """
         if not local_antibiotics or sum(local_antibiotics.values()) <= 0:
             return False
+        
+        # Get biofilm protection factor (1.0 to 3.0)
+        biofilm_protection = self._calculate_biofilm_protection()
         
         # Calculate effective concentration and kill probability for each antibiotic
         total_kappa = 0.0
@@ -205,6 +208,10 @@ class Bacterium(Agent):
             
             # Calculate effective antibiotic concentration after resistance
             A_eff = ab_concentration * (1 - resistance_reduction)
+            
+            # Apply biofilm protection (reduces effective antibiotic penetration)
+            A_eff = A_eff / biofilm_protection
+            
             A_eff = max(0.0, A_eff)
             
             # Calculate kill rate for this antibiotic using its toxicity constant
@@ -233,6 +240,7 @@ class Bacterium(Agent):
         """Move bacterium towards nutrient gradient
         
         Persistors move randomly with significantly reduced speed (no chemotaxis).
+        Biofilm bacteria have reduced movement speed due to matrix attachment.
         """
         # Persistors move randomly without chemotaxis
         if self.is_persistor:
@@ -261,6 +269,10 @@ class Bacterium(Agent):
             direction /= np.linalg.norm(direction) + 1e-9
             
             effective_speed = self.speed * BACTERIA_SPEED
+        
+        # Apply biofilm movement penalty
+        if self.biofilm_id is not None:
+            effective_speed *= BIOFILM_PARAMS["movement_penalty"]
 
         # Calculate new position with proper boundary clamping
         new_x = self.pos[0] + direction[0] * effective_speed
@@ -411,111 +423,138 @@ class Bacterium(Agent):
         return random.random() < prob
 
     # -------------------------
-    # Biofilm Mechanics
+    # Biofilm Mechanics (Cluster-Based)
     # -------------------------
     
-    def _calculate_local_density(self):
-        """Calculate number of bacteria within biofilm radius
-        
-        Returns:
-            tuple: (total_neighbors, neighbors_in_biofilm)
-        """
-        if self.pos is None:
-            return 0, 0
-            
-        try:
-            neighbors = self.model.space.get_neighbors(
-                self.pos, 
-                BIOFILM_PARAMS["radius"], 
-                include_center=False
-            )
-            total_neighbors = len(neighbors)
-            neighbors_in_biofilm = sum(1 for n in neighbors if hasattr(n, 'in_biofilm') and n.in_biofilm)
-            return total_neighbors, neighbors_in_biofilm
-        except:
-            return 0, 0
-    
     def _check_biofilm_formation(self, local_antibiotics):
-        """Determine if bacterium should join/form biofilm
+        """Check if this bacterium should initiate biofilm formation
         
         Args:
             local_antibiotics: dict mapping antibiotic_type -> concentration
             
-        Formation depends on:
-        - Local bacterial density (more neighbors = more likely)
-        - Recruitment from existing biofilm neighbors
-        - Antibiotic stress increases formation probability
+        Formation requires:
+        - Not already in a biofilm
+        - Minimum number of neighbors (5+) within formation radius
+        - Probabilistic check (base + stress bonus)
         
         Returns:
-            bool: True if bacterium joins biofilm
+            bool: True if should create biofilm
         """
-        if self.in_biofilm:
+        if self.biofilm_id is not None:
             return False  # Already in biofilm
             
-        total_neighbors, biofilm_neighbors = self._calculate_local_density()
-        
-        # Need minimum neighbors to form biofilm
-        if total_neighbors < BIOFILM_PARAMS["min_neighbors"]:
+        if self.pos is None:
             return False
         
-        # Base formation probability
-        prob = BIOFILM_PARAMS["formation_prob"]
+        # Count neighbors within formation radius
+        try:
+            neighbors = self.model.space.get_neighbors(
+                self.pos,
+                BIOFILM_PARAMS["formation_radius"],
+                include_center=True  # Include self in count
+            )
+        except:
+            return False
         
-        # Recruitment bonus: existing biofilm neighbors increase formation
-        if biofilm_neighbors > 0:
-            recruitment_factor = min(biofilm_neighbors / BIOFILM_PARAMS["optimal_size"], 1.0)
-            prob += recruitment_factor * 0.1  # Up to 10% bonus from recruitment
+        # Need minimum neighbors to create biofilm (including self)
+        if len(neighbors) < BIOFILM_PARAMS["min_neighbors"]:
+            return False
         
-        # Antibiotic stress bonus
+        # Calculate antibiotic stress
         total_threat = sum(
             conc * ANTIBIOTIC_TYPES[ab_type]["toxicity_constant"]
             for ab_type, conc in local_antibiotics.items()
             if conc > 0
         )
+        
+        # Formation probability: base + stress bonus
+        prob = BIOFILM_PARAMS["formation_base_prob"]
         if total_threat > 0:
-            prob += BIOFILM_PARAMS["stress_bonus"]
+            prob += BIOFILM_PARAMS["formation_stress_bonus"]
         
         return random.random() < prob
     
-    def _update_biofilm_strength(self):
-        """Update biofilm strength based on cluster size
+    def _get_biofilm_size(self):
+        """Get the number of bacteria in this bacterium's biofilm
         
-        Strength scales with cluster size using a Hill-like function:
-        - Small clusters: low strength
-        - Optimal size clusters: maximum strength (1.0)
-        - Isolated bacteria: lose biofilm status
+        Returns:
+            int: Number of bacteria in same biofilm cluster
         """
-        if not self.in_biofilm:
-            self.biofilm_strength = 0.0
-            return
+        if self.biofilm_id is None:
+            return 0
         
-        total_neighbors, biofilm_neighbors = self._calculate_local_density()
-        
-        # Auto-exit if isolated
-        if biofilm_neighbors == 0:
-            self.in_biofilm = False
-            self.biofilm_strength = 0.0
-            return
-        
-        # Hill function for strength scaling
-        n = biofilm_neighbors + 1  # Include self
-        K = BIOFILM_PARAMS["optimal_size"]
-        hill_coeff = 2.0
-        
-        self.biofilm_strength = (n ** hill_coeff) / (K ** hill_coeff + n ** hill_coeff)
+        return sum(
+            1 for agent in self.model.agent_set
+            if hasattr(agent, 'biofilm_id') and agent.biofilm_id == self.biofilm_id
+        )
     
     def _calculate_biofilm_protection(self):
         """Calculate antibiotic protection multiplier from biofilm
         
+        Protection scales with biofilm size:
+        - Base protection at minimum
+        - Increases with size up to optimal
+        - Caps at max_protection
+        
         Returns:
-            float: Protection factor (1.0 = no protection, 3.0 = 3x protection)
+            float: Protection factor (1.0 = no protection, up to max_protection)
         """
-        if not self.in_biofilm or self.biofilm_strength == 0:
+        if self.biofilm_id is None:
             return 1.0
         
-        # Linear scaling from 1.0 to max_protection based on strength
+        biofilm_size = self._get_biofilm_size()
+        
+        if biofilm_size == 0:
+            return 1.0
+        
+        # Linear scaling from base to max protection based on size
+        base_prot = BIOFILM_PARAMS["base_protection"]
         max_prot = BIOFILM_PARAMS["max_protection"]
-        return 1.0 + (max_prot - 1.0) * self.biofilm_strength
+        optimal_size = BIOFILM_PARAMS["optimal_size"]
+        
+        size_factor = min(1.0, biofilm_size / optimal_size)
+        protection = base_prot + (max_prot - base_prot) * size_factor
+        
+        return protection
+    
+    def _check_biofilm_exit(self, local_food, local_antibiotics):
+        """Check if bacterium should exit biofilm
+        
+        Exit conditions:
+        - Low energy (< threshold)
+        - Low food (< threshold)
+        - Low antibiotic threat (safe to leave)
+        
+        Args:
+            local_food: local nutrient concentration
+            local_antibiotics: dict of antibiotic concentrations
+        
+        Returns:
+            bool: True if should exit biofilm
+        """
+        if self.biofilm_id is None:
+            return False  # Not in biofilm
+        
+        # Exit if energy too low (starvation)
+        if self.energy < BIOFILM_PARAMS["exit_energy_threshold"]:
+            return True
+        
+        # Exit if food too low (better to seek nutrients)
+        if local_food < BIOFILM_PARAMS["exit_food_threshold"]:
+            return True
+        
+        # Calculate antibiotic threat
+        total_threat = sum(
+            conc * ANTIBIOTIC_TYPES[ab_type]["toxicity_constant"]
+            for ab_type, conc in local_antibiotics.items()
+            if conc > 0
+        )
+        
+        # Exit if threat is low (biofilm protection not needed)
+        if total_threat < BIOFILM_PARAMS["exit_threat_threshold"]:
+            return True
+        
+        return False
 
     def step(self):
         """Execute one step of the bacterium lifecycle"""
@@ -555,6 +594,21 @@ class Bacterium(Agent):
 
         # Consume nutrients and update energy
         self._consume_nutrients(local_food, fx, fy)
+        
+        # Biofilm mechanics: check formation and create cluster
+        if self._check_biofilm_formation(local_antibiotics):
+            # Create new biofilm and assign all nearby bacteria to it
+            self.model.create_biofilm(self)
+        
+        # Check for biofilm exit
+        if self._check_biofilm_exit(local_food, local_antibiotics):
+            # Exit biofilm
+            self.biofilm_id = None
+            self.energy -= BIOFILM_PARAMS["detachment_cost"]
+        
+        # Apply biofilm energy cost
+        if self.biofilm_id is not None:
+            self.energy -= BIOFILM_PARAMS["energy_cost"]
 
         # Check for starvation
         if self.energy <= 0:

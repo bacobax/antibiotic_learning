@@ -189,12 +189,22 @@ ANTIBIOTIC_TYPES = {
 # Biofilm Parameters
 # -----------------------
 BIOFILM_PARAMS = {
-    "radius": 2.5,                  # Detection radius for neighboring bacteria
-    "min_neighbors": 3,             # Minimum neighbors required for biofilm formation
-    "optimal_size": 8,              # Optimal cluster size for maximum strength
-    "max_protection": 3.0,          # Maximum antibiotic protection multiplier
-    "formation_prob": 0.01,         # Base probability of joining biofilm per step
-    "stress_bonus": 0.15,           # Additional formation probability under antibiotic stress
-    "energy_cost": 0.02,            # Energy cost per step for maintaining biofilm
-    "movement_penalty": 0.5         # Movement speed multiplier (0.5 = 50% slower)
+    # Formation parameters
+    "formation_radius": 3.0,        # Detection radius for biofilm formation
+    "min_neighbors": 3,             # Minimum neighbors required to create biofilm (including self)
+    "formation_base_prob": 0.01,    # Base probability of creating biofilm per step
+    "formation_stress_bonus": 1, # Additional formation probability under antibiotic stress
+    
+    # Protection and costs
+    "base_protection": 1.5,         # Minimum antibiotic protection multiplier
+    "max_protection": 3.0,          # Maximum antibiotic protection multiplier (at optimal size)
+    "optimal_size": 10,             # Optimal cluster size for maximum protection
+    "energy_cost": 0.03,            # Energy cost per step for maintaining biofilm
+    "movement_penalty": 0.3,        # Movement speed multiplier (0.3 = 70% slower)
+    
+    # Exit parameters
+    "exit_energy_threshold": 0.15,  # Exit if energy below this
+    "exit_food_threshold": 0.1,     # Exit if local food below this
+    "exit_threat_threshold": 0.05,   # Exit if antibiotic threat below this (low danger)
+    "detachment_cost": 0.02         # Energy cost for detaching from biofilm
 }

@@ -156,6 +156,7 @@ class SimulationVisualizer:
         self.highlight_scat = None
         self.im_food = None
         self.im_ab = None
+        self.biofilm_lines = []  # List to hold biofilm connection lines
 
     def _on_click(self, event):
         """Handle mouse clicks to select bacteria"""
@@ -385,14 +386,50 @@ class SimulationVisualizer:
             if max_ab > 0:
                 self.im_ab.set_clim(vmin=0, vmax=max(0.1, max_ab))
 
+        # Draw biofilm connection lines
+        # Remove old lines
+        for line in self.biofilm_lines:
+            line.remove()
+        self.biofilm_lines = []
+        
+        # Group bacteria by biofilm_id
+        biofilm_groups = {}
+        for agent in agents:
+            if hasattr(agent, 'biofilm_id') and agent.biofilm_id is not None and agent.pos is not None:
+                if agent.biofilm_id not in biofilm_groups:
+                    biofilm_groups[agent.biofilm_id] = []
+                biofilm_groups[agent.biofilm_id].append(agent)
+        
+        # Draw lines connecting bacteria in each biofilm
+        for biofilm_id, members in biofilm_groups.items():
+            if len(members) > 1:
+                # Draw lines between all pairs in the biofilm (create a network)
+                for i, bacterium1 in enumerate(members):
+                    for bacterium2 in members[i+1:]:
+                        # Draw line from bacterium1 to bacterium2
+                        x_coords = [bacterium1.pos[0], bacterium2.pos[0]]
+                        y_coords = [bacterium1.pos[1], bacterium2.pos[1]]
+                        
+                        line, = self.ax.plot(
+                            x_coords, 
+                            y_coords,
+                            color='deepskyblue',
+                            linewidth=1.0,
+                            alpha=0.4,
+                            zorder=1  # Draw below bacteria
+                        )
+                        self.biofilm_lines.append(line)
+
         # Highlight selected bacterium
         self._update_highlight(agents)
 
         # Update title with persistor count
         persistor_count = len(persistor_agents)
         hgt_gene_count = len(hgt_agents)
+        # Count active biofilm clusters (groups with more than one member)
+        biofilm_count = sum(1 for members in biofilm_groups.values() if len(members) > 1)
         self.ax.set_title(
-            f"Step: {self.model.step_count} | Agents: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count}",
+            f"Step: {self.model.step_count} | Agents: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count} | Biofilm: {biofilm_count}",
             fontsize=11,
         )
         self.ax.set_xlim(0, self.model.width)
