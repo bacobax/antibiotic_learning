@@ -10,10 +10,21 @@ from mesa.space import ContinuousSpace
 import heapq
 
 from config import (
-    WIDTH, HEIGHT, GRID_RES, FOOD_DIFFUSION_SIGMA, ANTIBIOTIC_DECAY,
-    BACTERIAL_TYPES, ANTIBIOTIC_TYPES, BACTERIA_PER_TYPE, HGT_RADIUS, HGT_PROB,
-    FOOD_PATCH_COUNT, FOOD_PATCH_AMPLITUDE_MIN, FOOD_PATCH_AMPLITUDE_MAX,
-    FOOD_PATCH_SIGMA_MIN, FOOD_PATCH_SIGMA_MAX
+    WIDTH,
+    HEIGHT,
+    GRID_RES,
+    FOOD_DIFFUSION_SIGMA,
+    ANTIBIOTIC_DECAY,
+    BACTERIAL_TYPES,
+    ANTIBIOTIC_TYPES,
+    BACTERIA_PER_TYPE,
+    HGT_RADIUS,
+    HGT_PROB,
+    FOOD_PATCH_COUNT,
+    FOOD_PATCH_AMPLITUDE_MIN,
+    FOOD_PATCH_AMPLITUDE_MAX,
+    FOOD_PATCH_SIGMA_MIN,
+    FOOD_PATCH_SIGMA_MAX,
 )
 from bacterium import Bacterium
 from tracking import IndividualTracker
@@ -21,7 +32,7 @@ from tracking import IndividualTracker
 
 class BacteriaModel(Model):
     """Main simulation model for bacteria population dynamics."""
-    
+
     def __init__(self, N=None, width=WIDTH, height=HEIGHT):
         super().__init__()
         self.width = width
@@ -35,19 +46,21 @@ class BacteriaModel(Model):
 
         # Antibiotic management - now supports multiple simultaneous antibiotics
         self.available_antibiotics = list(ANTIBIOTIC_TYPES.keys())
-        self.current_antibiotic = self.available_antibiotics[0] if self.available_antibiotics else None  # Default to first antibiotic
+        self.current_antibiotic = (
+            self.available_antibiotics[0] if self.available_antibiotics else None
+        )  # Default to first antibiotic
 
         # Initialize fields
         self.field_w = GRID_RES
         self.field_h = GRID_RES
         self.food_field = np.zeros((self.field_w, self.field_h), dtype=float)
-        
+
         # Multiple antibiotic fields - one per antibiotic type
         self.antibiotic_fields = {
             ab_type: np.zeros((self.field_w, self.field_h), dtype=float)
             for ab_type in ANTIBIOTIC_TYPES.keys()
         }
-        
+
         self._initialize_food_patches()
 
         # Agent tracking
@@ -65,25 +78,25 @@ class BacteriaModel(Model):
 
         # Tracking system
         self.individual_tracker = IndividualTracker()
-        
+
         # History for plotting
         self.history = {
-            'steps': [],
-            'population': [],
-            'total_food': [],
-            'avg_energy': [],
-            'avg_energy_top': [],
-            'avg_energy_worst': []
+            "steps": [],
+            "population": [],
+            "total_food": [],
+            "avg_energy": [],
+            "avg_energy_top": [],
+            "avg_energy_worst": [],
         }
-        
+
         # Add antibiotic concentration history for each antibiotic type
         for ab_type in ANTIBIOTIC_TYPES.keys():
-            self.history[f'antibiotic_{ab_type}'] = []
-        
+            self.history[f"antibiotic_{ab_type}"] = []
+
         # Initialize per-type trait tracking in history
         for btype in BACTERIAL_TYPES.keys():
-            for trait in ['enzyme', 'efflux', 'membrane', 'repair']:
-                self.history[f'{btype}_avg_{trait}'] = []
+            for trait in ["enzyme", "efflux", "membrane", "repair"]:
+                self.history[f"{btype}_avg_{trait}"] = []
 
     def _initialize_food_patches(self):
         """Initialize food field with Gaussian patches"""
@@ -91,7 +104,9 @@ class BacteriaModel(Model):
             cx = random.uniform(0, self.field_w - 1)
             cy = random.uniform(0, self.field_h - 1)
             sigma = random.uniform(FOOD_PATCH_SIGMA_MIN, FOOD_PATCH_SIGMA_MAX)
-            amplitude = random.uniform(FOOD_PATCH_AMPLITUDE_MIN, FOOD_PATCH_AMPLITUDE_MAX)
+            amplitude = random.uniform(
+                FOOD_PATCH_AMPLITUDE_MIN, FOOD_PATCH_AMPLITUDE_MAX
+            )
             self.add_gaussian_patch(self.food_field, cx, cy, sigma, amplitude)
 
     def _create_initial_population(self, N):
@@ -100,13 +115,13 @@ class BacteriaModel(Model):
             total_bacteria = len(BACTERIAL_TYPES) * BACTERIA_PER_TYPE
         else:
             total_bacteria = N
-            
+
         bacteria_per_type = total_bacteria // len(BACTERIAL_TYPES)
         remainder = total_bacteria % len(BACTERIAL_TYPES)
-        
+
         for i, bacterial_type in enumerate(BACTERIAL_TYPES.keys()):
             count = bacteria_per_type + (1 if i < remainder else 0)
-            
+
             for _ in range(count):
                 x, y = random.uniform(0, self.width), random.uniform(0, self.height)
                 bacterium = Bacterium(self, bacterial_type=bacterial_type)
@@ -133,18 +148,18 @@ class BacteriaModel(Model):
             "total": len(self.agent_set),
             "by_type": {},
             "avg_traits": {},
-            "avg_age": 0
+            "avg_age": 0,
         }
-        
+
         # Always add food and energy tracking to stats, even if population is 0
         stats["total_food"] = float(np.sum(self.food_field))
         stats["avg_energy"] = 0.0
         stats["avg_energy_top"] = 0.0
         stats["avg_energy_worst"] = 0.0
-        
+
         if len(self.agent_set) == 0:
             return stats
-        
+
         # Collect statistics
         trait_sums = {"enzyme": 0, "efflux": 0, "membrane": 0, "repair": 0, "age": 0}
         trait_arrays = {trait: [] for trait in trait_sums}
@@ -154,8 +169,14 @@ class BacteriaModel(Model):
             btype = bacterium.bacterial_type
             if btype not in stats["by_type"]:
                 stats["by_type"][btype] = 0
-                stats[btype] = {"enzyme": 0, "efflux": 0, "membrane": 0, "repair": 0, "age": 0}
-            
+                stats[btype] = {
+                    "enzyme": 0,
+                    "efflux": 0,
+                    "membrane": 0,
+                    "repair": 0,
+                    "age": 0,
+                }
+
             stats["by_type"][btype] += 1
             for trait in trait_sums:
                 value = getattr(bacterium, trait)
@@ -163,50 +184,54 @@ class BacteriaModel(Model):
                 trait_sums[trait] += value
                 trait_arrays[trait].append(value)
             energy_array.append(bacterium.energy)
-        
+
         # Calculate averages
         total = len(self.agent_set)
         for trait in trait_sums:
             stats["avg_traits"][trait] = trait_sums[trait] / total
-        
+
         for btype in stats["by_type"]:
             count = stats["by_type"][btype]
             for trait in ["enzyme", "efflux", "membrane", "repair", "age"]:
                 stats[btype][trait] /= count
-        
+
         # Update energy tracking with actual values
         stats["avg_energy"] = float(np.mean(energy_array)) if energy_array else 0.0
-        stats["avg_energy_top"] = float(np.mean(heapq.nlargest(10, energy_array))) if energy_array else 0.0
-        stats["avg_energy_worst"] = float(np.mean(heapq.nsmallest(10, energy_array))) if energy_array else 0.0
-        
+        stats["avg_energy_top"] = (
+            float(np.mean(heapq.nlargest(10, energy_array))) if energy_array else 0.0
+        )
+        stats["avg_energy_worst"] = (
+            float(np.mean(heapq.nsmallest(10, energy_array))) if energy_array else 0.0
+        )
+
         return stats
 
     def _record_history(self):
         """Record current stats to history - called every step"""
         stats = self.get_population_stats()
-        
+
         # Record basic stats
-        self.history['steps'].append(self.step_count)
-        self.history['population'].append(len(self.agent_set))
-        self.history['total_food'].append(stats["total_food"])
-        self.history['avg_energy'].append(stats["avg_energy"])
-        self.history['avg_energy_top'].append(stats["avg_energy_top"])
-        self.history['avg_energy_worst'].append(stats["avg_energy_worst"])
-        
+        self.history["steps"].append(self.step_count)
+        self.history["population"].append(len(self.agent_set))
+        self.history["total_food"].append(stats["total_food"])
+        self.history["avg_energy"].append(stats["avg_energy"])
+        self.history["avg_energy_top"].append(stats["avg_energy_top"])
+        self.history["avg_energy_worst"].append(stats["avg_energy_worst"])
+
         # Record antibiotic concentrations (average across field)
         for ab_type in ANTIBIOTIC_TYPES.keys():
             avg_concentration = float(np.mean(self.antibiotic_fields[ab_type]))
-            self.history[f'antibiotic_{ab_type}'].append(avg_concentration)
-        
+            self.history[f"antibiotic_{ab_type}"].append(avg_concentration)
+
         # Record per-type trait averages
         for btype in BACTERIAL_TYPES.keys():
             if btype in stats["by_type"] and stats["by_type"][btype] > 0:
-                for trait in ['enzyme', 'efflux', 'membrane', 'repair']:
-                    self.history[f'{btype}_avg_{trait}'].append(stats[btype][trait])
+                for trait in ["enzyme", "efflux", "membrane", "repair"]:
+                    self.history[f"{btype}_avg_{trait}"].append(stats[btype][trait])
             else:
                 # No bacteria of this type, append 0
-                for trait in ['enzyme', 'efflux', 'membrane', 'repair']:
-                    self.history[f'{btype}_avg_{trait}'].append(0.0)
+                for trait in ["enzyme", "efflux", "membrane", "repair"]:
+                    self.history[f"{btype}_avg_{trait}"].append(0.0)
 
     # Field utilities
     def add_gaussian_patch(self, field, cx, cy, sigma, amplitude):
@@ -267,24 +292,26 @@ class BacteriaModel(Model):
 
     def apply_antibiotic(self, antibiotic_type, amount):
         """Apply antibiotic of specific type to the field
-        
+
         Args:
             antibiotic_type: The type of antibiotic to apply (must be in ANTIBIOTIC_TYPES)
             amount: The concentration to add to the field
         """
         if amount <= 0:
             return
-        
+
         if antibiotic_type not in ANTIBIOTIC_TYPES:
             print(f"Warning: Unknown antibiotic type '{antibiotic_type}'")
             return
-            
+
         self.antibiotic_fields[antibiotic_type] += float(amount)
-        print(f"Applied {amount:.3f} of {antibiotic_type} (total avg: {np.mean(self.antibiotic_fields[antibiotic_type]):.3f})")
-    
+        print(
+            f"Applied {amount:.3f} of {antibiotic_type} (total avg: {np.mean(self.antibiotic_fields[antibiotic_type]):.3f})"
+        )
+
     def get_antibiotic_concentrations_at_position(self, fx, fy):
         """Get all antibiotic concentrations at a position as a dictionary
-        
+
         Returns:
             dict: Mapping of antibiotic_type -> concentration
         """
@@ -292,10 +319,10 @@ class BacteriaModel(Model):
         for ab_type, ab_field in self.antibiotic_fields.items():
             concentrations[ab_type] = self.sample_field(ab_field, fx, fy)
         return concentrations
-    
+
     def get_total_antibiotic_at_position(self, fx, fy):
         """Get combined antibiotic concentration at a position
-        
+
         Returns the sum of all antibiotic types at the given position.
         This is used for stress calculations and general antibiotic presence.
         """
@@ -309,17 +336,21 @@ class BacteriaModel(Model):
         agents = list(self.agent_set)
         for a in agents:
             try:
-                neighbors = self.space.get_neighbors(a.pos, HGT_RADIUS, include_center=False)
+                neighbors = self.space.get_neighbors(
+                    a.pos, HGT_RADIUS, include_center=False
+                )
             except Exception:
                 neighbors = [
-                    b for b in agents
-                    if b is not a and np.hypot(b.pos[0] - a.pos[0], b.pos[1] - a.pos[1]) <= HGT_RADIUS
+                    b
+                    for b in agents
+                    if b is not a
+                    and np.hypot(b.pos[0] - a.pos[0], b.pos[1] - a.pos[1]) <= HGT_RADIUS
                 ]
-            
+
             for nb in neighbors:
                 if random.random() < HGT_PROB and a.has_hgt_gene and nb.has_hgt_gene:
                     mix = 0.3
-                    traits = ['enzyme', 'efflux', 'membrane', 'repair']
+                    traits = ["enzyme", "efflux", "membrane", "repair"]
                     for trait in traits:
                         a_val = getattr(a, trait)
                         nb_val = getattr(nb, trait)
@@ -332,10 +363,10 @@ class BacteriaModel(Model):
         """Execute one simulation step"""
         # Update fields - decay each antibiotic independently
         # self.food_field = gaussian_filter(self.food_field, sigma=FOOD_DIFFUSION_SIGMA)
-        
+
         for ab_type, ab_field in self.antibiotic_fields.items():
             decay_rate = ANTIBIOTIC_TYPES[ab_type].get("decay_rate", ANTIBIOTIC_DECAY)
-            self.antibiotic_fields[ab_type] *= (1 - decay_rate)
+            self.antibiotic_fields[ab_type] *= 1 - decay_rate
 
         # Prepare collections
         self.to_remove.clear()
@@ -347,6 +378,9 @@ class BacteriaModel(Model):
                 a.step()
             except Exception as e:
                 print(f"Exception during step for bacterium {a.unique_id}: {e}")
+
+        # Update tracking BEFORE removing dead agents (to capture final state)
+        self.individual_tracker.update_tracked_individuals(self, self.to_remove)
 
         # Remove dead agents
         for a in list(self.to_remove):
@@ -361,9 +395,10 @@ class BacteriaModel(Model):
         for child, child_pos in self.new_agents:
             try:
                 self.space.place_agent(child, child_pos)
-            except Exception:
-                pass
-            self.agent_set.add(child)
+                self.agent_set.add(child)
+            except Exception as e:
+                # If placement fails, don't add to agent_set
+                print(f"Failed to place child bacterium {child.unique_id}: {e}")
 
         # Horizontal gene transfer
         try:
@@ -373,9 +408,6 @@ class BacteriaModel(Model):
 
         self.step_count += 1
 
-        # Update tracking
-        self.individual_tracker.update_tracked_individuals(self)
-        
         # Record history every step
         self._record_history()
 
@@ -388,51 +420,51 @@ class BacteriaModel(Model):
             except Exception:
                 pass
         self.agent_set.clear()
-        
+
         # Reset ID counter
         self._next_id = 0
-        
+
         # Reset fields
         self.food_field = np.zeros((self.field_w, self.field_h), dtype=float)
-        
+
         # Reset all antibiotic fields
         self.antibiotic_fields = {
             ab_type: np.zeros((self.field_w, self.field_h), dtype=float)
             for ab_type in ANTIBIOTIC_TYPES.keys()
         }
-        
+
         self._initialize_food_patches()
-        
+
         # Clear tracking collections
         self.to_remove.clear()
         self.new_agents.clear()
-        
+
         # Reset step counter
         self.step_count = 0
-        
+
         # Reset history
         self.history = {
-            'steps': [],
-            'population': [],
-            'total_food': [],
-            'avg_energy': [],
-            'avg_energy_top': [],
-            'avg_energy_worst': []
+            "steps": [],
+            "population": [],
+            "total_food": [],
+            "avg_energy": [],
+            "avg_energy_top": [],
+            "avg_energy_worst": [],
         }
-        
+
         # Add antibiotic concentration history for each antibiotic type
         for ab_type in ANTIBIOTIC_TYPES.keys():
-            self.history[f'antibiotic_{ab_type}'] = []
-        
+            self.history[f"antibiotic_{ab_type}"] = []
+
         # Initialize per-type trait tracking in history
         for btype in BACTERIAL_TYPES.keys():
-            for trait in ['enzyme', 'efflux', 'membrane', 'repair']:
-                self.history[f'{btype}_avg_{trait}'] = []
-        
+            for trait in ["enzyme", "efflux", "membrane", "repair"]:
+                self.history[f"{btype}_avg_{trait}"] = []
+
         # Reset tracking system
         self.individual_tracker = IndividualTracker()
-        
+
         # Recreate initial population
         self._create_initial_population(self._initial_bacteria_count)
-        
+
         print("Simulation reset to initial conditions")

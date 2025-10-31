@@ -11,42 +11,38 @@ from config import BACTERIAL_TYPES, ANTIBIOTIC_TYPES, ANIMATION_FPS
 
 class SimulationVisualizer:
     """Matplotlib visualizer for bacteria simulation."""
-    
+
     def __init__(self, model, on_click_callback):
         """
         Initialize visualizer.
-        
+
         Args:
             model: The simulation model
             on_click_callback: Callback for handling clicks on bacteria
         """
         self.model = model
         self.on_click_callback = on_click_callback
-        
+
         # Color mapping for bacterial types
         self.bacterial_type_names = list(BACTERIAL_TYPES.keys())
         self.color_map = {name: i for i, name in enumerate(self.bacterial_type_names)}
-        
+
         # Colors for bacterial types in trait plots
-        self.type_colors = {
-            "E.coli": "blue",
-            "Staph": "red",
-            "Pseudomonas": "green"
-        }
-        
+        self.type_colors = {"E.coli": "blue", "Staph": "red", "Pseudomonas": "green"}
+
         # Animation settings
         self.animation_fps = ANIMATION_FPS
         self.animation_interval = int(1000 / self.animation_fps)
         self.animation = None
-        
+
         # Highlighting
         self.highlighted_bacterium_id = None
-        
+
         # Setup visualization
         self._setup_plots()
-        
+
         # Click handling
-        self.fig.canvas.mpl_connect('button_press_event', self._on_click)
+        self.fig.canvas.mpl_connect("button_press_event", self._on_click)
 
     def _setup_plots(self):
         """Setup matplotlib figure and subplots"""
@@ -61,82 +57,96 @@ class SimulationVisualizer:
         # RIGHT TOP: Four plots in 2x2 grid (Food, Population, Energy, Antibiotics)
         # Food level plot
         self.ax_food = self.fig.add_subplot(gs[0, 2])
-        self.ax_food.set_xlabel('Steps', fontsize=8)
-        self.ax_food.set_ylabel('Total Food', fontsize=8)
+        self.ax_food.set_xlabel("Steps", fontsize=8)
+        self.ax_food.set_ylabel("Total Food", fontsize=8)
         self.ax_food.tick_params(labelsize=7)
         self.ax_food.grid(True, alpha=0.3)
-        self.line_food, = self.ax_food.plot([], [], label='Food Level', color='green', linewidth=1.5)
+        (self.line_food,) = self.ax_food.plot(
+            [], [], label="Food Level", color="green", linewidth=1.5
+        )
         self.ax_food.legend(fontsize=7)
-        self.ax_food.set_title('Food Level', fontsize=9)
+        self.ax_food.set_title("Food Level", fontsize=9)
 
         # Population plot
         self.ax_pop = self.fig.add_subplot(gs[0, 3])
-        self.ax_pop.set_xlabel('Steps', fontsize=8)
-        self.ax_pop.set_ylabel('Population', fontsize=8)
+        self.ax_pop.set_xlabel("Steps", fontsize=8)
+        self.ax_pop.set_ylabel("Population", fontsize=8)
         self.ax_pop.tick_params(labelsize=7)
         self.ax_pop.grid(True, alpha=0.3)
-        self.line_pop, = self.ax_pop.plot([], [], label='Population', color='blue', linewidth=1.5)
+        (self.line_pop,) = self.ax_pop.plot(
+            [], [], label="Population", color="blue", linewidth=1.5
+        )
         self.ax_pop.legend(fontsize=7)
-        self.ax_pop.set_title('Total Population', fontsize=9)
+        self.ax_pop.set_title("Total Population", fontsize=9)
 
         # Energy plot
         self.ax_energy = self.fig.add_subplot(gs[1, 2])
-        self.ax_energy.set_xlabel('Steps', fontsize=8)
-        self.ax_energy.set_ylabel('Energy', fontsize=8)
+        self.ax_energy.set_xlabel("Steps", fontsize=8)
+        self.ax_energy.set_ylabel("Energy", fontsize=8)
         self.ax_energy.tick_params(labelsize=7)
         self.ax_energy.grid(True, alpha=0.3)
-        self.line_energy_avg, = self.ax_energy.plot([], [], label='Avg Energy', color='red', linewidth=1.5)
-        self.line_energy_worst, = self.ax_energy.plot([], [], label='Worst 10', color='green', linewidth=1.5)
-        self.line_energy_top, = self.ax_energy.plot([], [], label='Top 10', color='blue', linewidth=1.5)
-        self.ax_energy.legend(fontsize=6, loc='best')
-        self.ax_energy.set_title('Average Energy', fontsize=9)
+        (self.line_energy_avg,) = self.ax_energy.plot(
+            [], [], label="Avg Energy", color="red", linewidth=1.5
+        )
+        (self.line_energy_worst,) = self.ax_energy.plot(
+            [], [], label="Worst 10", color="green", linewidth=1.5
+        )
+        (self.line_energy_top,) = self.ax_energy.plot(
+            [], [], label="Top 10", color="blue", linewidth=1.5
+        )
+        self.ax_energy.legend(fontsize=6, loc="best")
+        self.ax_energy.set_title("Average Energy", fontsize=9)
 
         # NEW: Antibiotic concentrations plot
         self.ax_antibiotics = self.fig.add_subplot(gs[1, 3])
-        self.ax_antibiotics.set_xlabel('Steps', fontsize=8)
-        self.ax_antibiotics.set_ylabel('Concentration', fontsize=8)
+        self.ax_antibiotics.set_xlabel("Steps", fontsize=8)
+        self.ax_antibiotics.set_ylabel("Concentration", fontsize=8)
         self.ax_antibiotics.tick_params(labelsize=7)
         self.ax_antibiotics.grid(True, alpha=0.3)
-        self.ax_antibiotics.set_title('Antibiotic Concentrations', fontsize=9)
-        
+        self.ax_antibiotics.set_title("Antibiotic Concentrations", fontsize=9)
+
         # Create line for each antibiotic type
         self.antibiotic_lines = {}
         for ab_type, ab_config in ANTIBIOTIC_TYPES.items():
-            color = ab_config.get('color', 'gray')
-            line, = self.ax_antibiotics.plot([], [], label=ab_type, color=color, linewidth=1.5, alpha=0.8)
+            color = ab_config.get("color", "gray")
+            (line,) = self.ax_antibiotics.plot(
+                [], [], label=ab_type, color=color, linewidth=1.5, alpha=0.8
+            )
             self.antibiotic_lines[ab_type] = line
-        self.ax_antibiotics.legend(fontsize=6, loc='best')
+        self.ax_antibiotics.legend(fontsize=6, loc="best")
 
         # RIGHT BOTTOM: Trait evolution plots per bacterial type (4 plots in 2x2 grid)
         self.ax_enzyme = self.fig.add_subplot(gs[2, 2])
         self.ax_efflux = self.fig.add_subplot(gs[2, 3])
         self.ax_membrane = self.fig.add_subplot(gs[3, 2])
         self.ax_repair = self.fig.add_subplot(gs[3, 3])
-        
+
         # Store trait axes for easy access
         self.trait_axes = {
-            'enzyme': self.ax_enzyme,
-            'efflux': self.ax_efflux,
-            'membrane': self.ax_membrane,
-            'repair': self.ax_repair
+            "enzyme": self.ax_enzyme,
+            "efflux": self.ax_efflux,
+            "membrane": self.ax_membrane,
+            "repair": self.ax_repair,
         }
-        
+
         # Initialize trait plot lines for each bacterial type
         self.trait_lines = {}
         for trait, ax in self.trait_axes.items():
-            ax.set_xlabel('Steps', fontsize=8)
-            ax.set_ylabel(f'Avg {trait.capitalize()}', fontsize=8)
+            ax.set_xlabel("Steps", fontsize=8)
+            ax.set_ylabel(f"Avg {trait.capitalize()}", fontsize=8)
             ax.tick_params(labelsize=7)
             ax.grid(True, alpha=0.3)
-            ax.set_title(f'{trait.capitalize()} Trait Evolution', fontsize=9)
-            
+            ax.set_title(f"{trait.capitalize()} Trait Evolution", fontsize=9)
+
             self.trait_lines[trait] = {}
             for btype in self.bacterial_type_names:
-                color = self.type_colors.get(btype, 'gray')
-                line, = ax.plot([], [], label=btype, color=color, linewidth=1.5, alpha=0.8)
+                color = self.type_colors.get(btype, "gray")
+                (line,) = ax.plot(
+                    [], [], label=btype, color=color, linewidth=1.5, alpha=0.8
+                )
                 self.trait_lines[trait][btype] = line
-            
-            ax.legend(fontsize=6, loc='best')
+
+            ax.legend(fontsize=6, loc="best")
 
         # Initialize plot elements
         self.scat = None
@@ -151,24 +161,29 @@ class SimulationVisualizer:
         """Handle mouse clicks to select bacteria"""
         if event.inaxes != self.ax:
             return
-            
+
         x, y = event.xdata, event.ydata
         if x is None or y is None:
             return
-            
+
         # Find closest bacterium
-        min_dist = float('inf')
+        min_dist = float("inf")
         closest_bacterium = None
-        
+
         for bacterium in self.model.agent_set:
-            dist = np.sqrt((bacterium.pos[0] - x)**2 + (bacterium.pos[1] - y)**2)
+            # Skip bacteria that have been removed (pos is None)
+            if bacterium.pos is None:
+                continue
+            dist = np.sqrt((bacterium.pos[0] - x) ** 2 + (bacterium.pos[1] - y) ** 2)
             if dist < min_dist:
                 min_dist = dist
                 closest_bacterium = bacterium
-                
+
         if closest_bacterium and min_dist < 5.0:
             self.highlighted_bacterium_id = closest_bacterium.unique_id
-            print(f"Viewing bacterium {closest_bacterium.unique_id} ({closest_bacterium.bacterial_type})")
+            print(
+                f"Viewing bacterium {closest_bacterium.unique_id} ({closest_bacterium.bacterial_type})"
+            )
             self.on_click_callback(closest_bacterium.unique_id)
 
     def get_bacterial_colors(self, agents):
@@ -178,92 +193,101 @@ class SimulationVisualizer:
     def update_history_plots(self):
         """Update history line plots"""
         history = self.model.history
-        if len(history['steps']) > 0:
+        if len(history["steps"]) > 0:
             # Food plot
-            self.line_food.set_data(history['steps'], history['total_food'])
-            self.ax_food.set_xlim(0, max(10, max(history['steps'])))
-            self.ax_food.set_ylim(0, max(10, max(history['total_food']) * 1.1))
-            
+            self.line_food.set_data(history["steps"], history["total_food"])
+            self.ax_food.set_xlim(0, max(10, max(history["steps"])))
+            self.ax_food.set_ylim(0, max(10, max(history["total_food"]) * 1.1))
+
             # Population plot
-            self.line_pop.set_data(history['steps'], history['population'])
-            self.ax_pop.set_xlim(0, max(10, max(history['steps'])))
-            self.ax_pop.set_ylim(0, max(10, max(history['population']) * 1.1))
-            
+            self.line_pop.set_data(history["steps"], history["population"])
+            self.ax_pop.set_xlim(0, max(10, max(history["steps"])))
+            self.ax_pop.set_ylim(0, max(10, max(history["population"]) * 1.1))
+
             # Energy plot
-            self.line_energy_avg.set_data(history['steps'], history['avg_energy'])
-            self.line_energy_worst.set_data(history['steps'], history['avg_energy_worst'])
-            self.line_energy_top.set_data(history['steps'], history['avg_energy_top'])
-            self.ax_energy.set_xlim(0, max(10, max(history['steps'])))
-            self.ax_energy.set_ylim(0, max(10, max(history['avg_energy']) * 1.1))
-            
+            self.line_energy_avg.set_data(history["steps"], history["avg_energy"])
+            self.line_energy_worst.set_data(
+                history["steps"], history["avg_energy_worst"]
+            )
+            self.line_energy_top.set_data(history["steps"], history["avg_energy_top"])
+            self.ax_energy.set_xlim(0, max(10, max(history["steps"])))
+            self.ax_energy.set_ylim(0, max(10, max(history["avg_energy"]) * 1.1))
+
             # Antibiotic concentrations plot
             max_antibiotic_concentration = 0.01
             for ab_type in ANTIBIOTIC_TYPES.keys():
-                ab_key = f'antibiotic_{ab_type}'
+                ab_key = f"antibiotic_{ab_type}"
                 if ab_key in history and len(history[ab_key]) > 0:
                     data = history[ab_key]
-                    steps = history['steps'][:len(data)]
+                    steps = history["steps"][: len(data)]
                     self.antibiotic_lines[ab_type].set_data(steps, data)
                     if len(data) > 0:
-                        max_antibiotic_concentration = max(max_antibiotic_concentration, max(data))
+                        max_antibiotic_concentration = max(
+                            max_antibiotic_concentration, max(data)
+                        )
                 else:
                     self.antibiotic_lines[ab_type].set_data([], [])
-            
-            self.ax_antibiotics.set_xlim(0, max(10, max(history['steps'])))
-            self.ax_antibiotics.set_ylim(0, max(0.1, max_antibiotic_concentration * 1.1))
-            
+
+            self.ax_antibiotics.set_xlim(0, max(10, max(history["steps"])))
+            self.ax_antibiotics.set_ylim(
+                0, max(0.1, max_antibiotic_concentration * 1.1)
+            )
+
         # Update trait evolution plots
         self._update_trait_plots()
 
     def _update_trait_plots(self):
         """Update trait evolution plots for each bacterial type"""
         history = self.model.history
-        
-        if len(history['steps']) > 0:
+
+        if len(history["steps"]) > 0:
             # Update each trait plot
-            for trait in ['enzyme', 'efflux', 'membrane', 'repair']:
+            for trait in ["enzyme", "efflux", "membrane", "repair"]:
                 ax = self.trait_axes[trait]
                 max_val = 0.01
-                
+
                 for btype in self.bacterial_type_names:
                     # Get data from history
-                    trait_key = f'{btype}_avg_{trait}'
-                    
+                    trait_key = f"{btype}_avg_{trait}"
+
                     if trait_key in history and len(history[trait_key]) > 0:
                         data = history[trait_key]
-                        steps = history['steps'][:len(data)]
-                        
+                        steps = history["steps"][: len(data)]
+
                         self.trait_lines[trait][btype].set_data(steps, data)
-                        
+
                         if len(data) > 0:
                             max_val = max(max_val, max(data) * 1.1)
                     else:
                         self.trait_lines[trait][btype].set_data([], [])
-                
+
                 # Update axis limits
-                if len(history['steps']) > 0:
-                    ax.set_xlim(0, max(10, max(history['steps'])))
+                if len(history["steps"]) > 0:
+                    ax.set_xlim(0, max(10, max(history["steps"])))
                     ax.set_ylim(0, max(1.0, max_val))
 
     def update_main_plot(self):
         """Update the main simulation plot"""
         agents = list(self.model.agent_set)
-        
+
         # Separate active and persistor bacteria
         persistor_agents = [a for a in agents if a.is_persistor and a.pos is not None]
         hgt_agents = [a for a in agents if a.has_hgt_gene and a.pos is not None]
         # rest of the agents
-        active_agents = [a for a in agents if (not a.is_persistor and not a.has_hgt_gene and a.pos is not None)]
-        
+        active_agents = [
+            a
+            for a in agents
+            if (not a.is_persistor and not a.has_hgt_gene and a.pos is not None)
+        ]
+
         active_positions = [a.pos for a in active_agents]
         persistor_positions = [a.pos for a in persistor_agents]
         hgt_positions = [a.pos for a in hgt_agents]
-        
-        
+
         active_colors = self.get_bacterial_colors(active_agents)
         persistor_colors = self.get_bacterial_colors(persistor_agents)
         hgt_colors = self.get_bacterial_colors(hgt_agents)
-        
+
         # Update active bacteria scatter plot (normal border)
         if self.scat is None:
             self.scat = self.ax.scatter(
@@ -272,7 +296,7 @@ class SimulationVisualizer:
                 c=active_colors if active_colors else [],
                 cmap="viridis",
                 s=15,
-                marker='o',
+                marker="o",
                 edgecolor="k",
                 linewidths=0.5,
                 alpha=0.7,
@@ -284,7 +308,7 @@ class SimulationVisualizer:
             else:
                 self.scat.set_offsets(np.empty((0, 2)))
                 self.scat.set_array(np.array([]))
-        
+
         # Update bacteria scatter plot for stars (HGT gene)
         if self.scat_hgt is None:
             self.scat_hgt = self.ax.scatter(
@@ -293,7 +317,7 @@ class SimulationVisualizer:
                 c=hgt_colors if hgt_colors else [],
                 cmap="viridis",
                 s=50,  # Slightly larger for visibility
-                marker='*',
+                marker="*",
                 edgecolor="k",
                 alpha=0.7,
             )
@@ -304,7 +328,7 @@ class SimulationVisualizer:
             else:
                 self.scat_hgt.set_offsets(np.empty((0, 2)))
                 self.scat_hgt.set_array(np.array([]))
-        
+
         # Update persistor bacteria scatter plot (thicker border)
         if self.scat_persistors is None:
             self.scat_persistors = self.ax.scatter(
@@ -314,9 +338,9 @@ class SimulationVisualizer:
                 cmap="viridis",
                 s=15,
                 edgecolor="purple",  # Distinctive color for persistors
-                linewidths=2.5,      # Thicker border for persistors
+                linewidths=2.5,  # Thicker border for persistors
                 alpha=0.7,
-                zorder=5  # Draw on top of active bacteria
+                zorder=5,  # Draw on top of active bacteria
             )
         else:
             if len(persistor_positions) > 0:
@@ -325,7 +349,7 @@ class SimulationVisualizer:
             else:
                 self.scat_persistors.set_offsets(np.empty((0, 2)))
                 self.scat_persistors.set_array(np.array([]))
-        
+
         # Update field overlays
         if self.im_food is None:
             self.im_food = self.ax.imshow(
@@ -337,12 +361,12 @@ class SimulationVisualizer:
             )
         else:
             self.im_food.set_data(self.model.food_field.T)
-        
+
         # Combine all antibiotic fields for visualization
         combined_antibiotic_field = np.zeros_like(self.model.food_field)
         for ab_field in self.model.antibiotic_fields.values():
             combined_antibiotic_field += ab_field
-        
+
         if self.im_ab is None:
             self.im_ab = self.ax.imshow(
                 combined_antibiotic_field.T,
@@ -352,7 +376,7 @@ class SimulationVisualizer:
                 alpha=0.4,
                 vmin=0,
                 vmax=1.0,
-                interpolation='bilinear'
+                interpolation="bilinear",
             )
         else:
             self.im_ab.set_data(combined_antibiotic_field.T)
@@ -360,16 +384,16 @@ class SimulationVisualizer:
             max_ab = np.max(combined_antibiotic_field)
             if max_ab > 0:
                 self.im_ab.set_clim(vmin=0, vmax=max(0.1, max_ab))
-        
+
         # Highlight selected bacterium
         self._update_highlight(agents)
-        
+
         # Update title with persistor count
         persistor_count = len(persistor_agents)
         hgt_gene_count = len(hgt_agents)
         self.ax.set_title(
-            f"Step: {self.model.step_count} | Agents: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count}", 
-            fontsize=11
+            f"Step: {self.model.step_count} | Agents: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count}",
+            fontsize=11,
         )
         self.ax.set_xlim(0, self.model.width)
         self.ax.set_ylim(0, self.model.height)
@@ -382,25 +406,28 @@ class SimulationVisualizer:
         """Update highlighted bacterium visualization"""
         if self.highlighted_bacterium_id is not None:
             highlighted_bacterium = next(
-                (b for b in agents if b.unique_id == self.highlighted_bacterium_id), None
+                (b for b in agents if b.unique_id == self.highlighted_bacterium_id),
+                None,
             )
-            if highlighted_bacterium:
-                highlight_pos = [[highlighted_bacterium.pos[0], highlighted_bacterium.pos[1]]]
+            if highlighted_bacterium and highlighted_bacterium.pos is not None:
+                highlight_pos = [
+                    [highlighted_bacterium.pos[0], highlighted_bacterium.pos[1]]
+                ]
                 # Use star marker if bacterium has HGT gene, circle otherwise
-                marker = '*' if highlighted_bacterium.has_hgt_gene else 'o'
+                marker = "*" if highlighted_bacterium.has_hgt_gene else "o"
                 marker_size = 250 if highlighted_bacterium.has_hgt_gene else 150
-                
+
                 if self.highlight_scat is None:
                     self.highlight_scat = self.ax.scatter(
                         highlight_pos[0][0],
                         highlight_pos[0][1],
-                        c='yellow',
+                        c="yellow",
                         s=marker_size,
                         edgecolor="black",
                         linewidths=2,
                         alpha=1.0,
                         marker=marker,
-                        zorder=10
+                        zorder=10,
                     )
                 else:
                     # Need to remove and recreate if marker changes
@@ -408,13 +435,13 @@ class SimulationVisualizer:
                     self.highlight_scat = self.ax.scatter(
                         highlight_pos[0][0],
                         highlight_pos[0][1],
-                        c='yellow',
+                        c="yellow",
                         s=marker_size,
                         edgecolor="black",
                         linewidths=2,
                         alpha=1.0,
                         marker=marker,
-                        zorder=10
+                        zorder=10,
                     )
             else:
                 # Bacterium died
