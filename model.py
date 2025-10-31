@@ -117,12 +117,14 @@ class BacteriaModel(Model):
 
         bacteria_per_type = total_bacteria // len(BACTERIAL_TYPES)
         remainder = total_bacteria % len(BACTERIAL_TYPES)
-
+        epsilon = 1e-6
         for i, bacterial_type in enumerate(BACTERIAL_TYPES.keys()):
             count = bacteria_per_type + (1 if i < remainder else 0)
 
             for _ in range(count):
-                x, y = random.uniform(0, self.width), random.uniform(0, self.height)
+                # ensure positions are strictly within bounds (ContinuousSpace is non-toroidal)
+                x = random.uniform(0.0, max(0.0, self.width - epsilon))
+                y = random.uniform(0.0, max(0.0, self.height - epsilon))
                 bacterium = Bacterium(self, bacterial_type=bacterial_type)
                 self.agent_set.add(bacterium)
                 self.space.place_agent(bacterium, (x, y))
