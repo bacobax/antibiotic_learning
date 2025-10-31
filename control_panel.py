@@ -528,6 +528,12 @@ class ControlPanel:
         """Update Qt event loop"""
         if self.qt_app is not None:
             try:
+                # Process Qt events to keep UI responsive
+                # Use a try-except to handle any events that might crash
                 self.qt_app.processEvents()
+            except RuntimeError as exc:
+                # Qt can raise RuntimeError during window close
+                print(f"Qt event processing error (window may be closing): {exc}")
             except Exception as exc:
+                # Catch any other exceptions to prevent crashes
                 print(f"Error pumping Qt events: {exc}")
