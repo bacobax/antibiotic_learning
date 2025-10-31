@@ -5,6 +5,7 @@ Matplotlib visualization for bacteria simulation.
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import matplotlib.colors as mcolors
 
 from config import BACTERIAL_TYPES, ANTIBIOTIC_TYPES, ANIMATION_FPS
 
@@ -362,28 +363,111 @@ class SimulationVisualizer:
         else:
             self.im_food.set_data(self.model.food_field.T)
 
-        # Combine all antibiotic fields for visualization
-        combined_antibiotic_field = np.zeros_like(self.model.food_field)
-        for ab_field in self.model.antibiotic_fields.values():
-            combined_antibiotic_field += ab_field
+        # Render antibiotic fields by blending antibiotic colors weighted by
+        # their local concentrations. The total concentration controls how
+        # deep (saturated) the color becomes; cap total concentration at 1.0.
+        # When there are no antibiotics, render a light-gray background for
+        # the antibiotic overlay so the field is visible but unobtrusive.
+        bg_gray = np.array([0.92, 0.92, 0.92], dtype=float)
 
-        if self.im_ab is None:
-            self.im_ab = self.ax.imshow(
-                combined_antibiotic_field.T,
-                extent=[0, self.model.width, 0, self.model.height],
-                origin="lower",
-                cmap="Reds",
-                alpha=0.4,
-                vmin=0,
-                vmax=1.0,
-                interpolation="bilinear",
-            )
+        if (
+            hasattr(self.model, "antibiotic_fields")
+            and len(self.model.antibiotic_fields) > 0
+        ):
+            h, w = self.model.food_field.shape
+
+            # Convert all antibiotic fields to a consistent float array and sum
+            # them to get the total concentration per cell.
+            fields = []
+            ab_types = []
+            for ab_type, ab_field in self.model.antibiotic_fields.items():
+                field = np.array(ab_field, dtype=float)
+                if field.size == 0:
+                    continue
+                fields.append(field)
+                ab_types.append(ab_type)
+
+            if len(fields) == 0:
+                # no valid fields; draw uniform light gray
+                rgb_img = np.tile(bg_gray[None, None, :], (h, w, 1))
+            else:
+                stacked = np.stack(fields, axis=0)  # shape (N, H, W)
+
+                # Total concentration per cell (cap at 1.0)
+                total = np.sum(stacked, axis=0)
+                total_clipped = np.clip(total, 0.0, 1.0)
+
+                # Avoid division by zero
+                denom = total.copy()
+                denom[denom == 0] = 1.0
+
+                # Compute weight of each antibiotic at each cell
+                weights = stacked / denom[None, :, :]
+
+                # Build base color as weighted average of antibiotic colors
+                base_color = np.zeros((h, w, 3), dtype=float)
+                for i, ab_type in enumerate(ab_types):
+                    color = ANTIBIOTIC_TYPES.get(ab_type, {}).get("color", "gray")
+                    try:
+                        rgb = np.array(mcolors.to_rgb(color), dtype=float)
+                    except Exception:
+                        rgb = np.array(mcolors.to_rgb("gray"), dtype=float)
+
+                    base_color += weights[i, :, :, None] * rgb[None, None, :]
+
+                # Where total == 0, weights were arbitrary; force base to bg_gray
+                zero_mask = total == 0
+                if zero_mask.any():
+                    base_color[zero_mask, :] = bg_gray
+
+                # Intensity of color = total concentration (0..1)
+                intensity = total_clipped
+
+                # Control how strongly color replaces background at intensity=1.0
+                color_strength = 0.85
+
+                # Interpolate between background gray and base_color using intensity
+                rgb_img = (
+                    bg_gray[None, None, :]
+                    * (1.0 - intensity[:, :, None] * color_strength)
+                ) + (base_color * (intensity[:, :, None] * color_strength))
+
+                # Ensure values are in [0,1]
+                rgb_img = np.clip(rgb_img, 0.0, 1.0)
+
+            # Transpose to match imshow orientation used for food_field
+            rgb_display = np.transpose(rgb_img, (1, 0, 2))
+
+            if self.im_ab is None:
+                self.im_ab = self.ax.imshow(
+                    rgb_display,
+                    extent=[0, self.model.width, 0, self.model.height],
+                    origin="lower",
+                    alpha=0.6,  # allow underlying food to still show through
+                    interpolation="bilinear",
+                    zorder=2,
+                )
+            else:
+                self.im_ab.set_data(rgb_display)
         else:
-            self.im_ab.set_data(combined_antibiotic_field.T)
-            # Update color limits dynamically based on current max
-            max_ab = np.max(combined_antibiotic_field)
-            if max_ab > 0:
-                self.im_ab.set_clim(vmin=0, vmax=max(0.1, max_ab))
+            # No antibiotic fields - render uniform light gray overlay
+            if self.im_ab is None:
+                empty_rgb = np.tile(
+                    bg_gray[None, None, :], (self.model.height, self.model.width, 1)
+                )
+                self.im_ab = self.ax.imshow(
+                    np.transpose(empty_rgb, (1, 0, 2)),
+                    extent=[0, self.model.width, 0, self.model.height],
+                    origin="lower",
+                    alpha=0.6,
+                    interpolation="bilinear",
+                    zorder=2,
+                )
+            else:
+                empty_rgb = np.tile(
+                    bg_gray[None, None, :], (self.model.height, self.model.width, 1)
+                )
+                self.im_ab.set_data(np.transpose(empty_rgb, (1, 0, 2)))
 
         # Highlight selected bacterium
         self._update_highlight(agents)
