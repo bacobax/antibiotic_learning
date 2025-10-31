@@ -9,7 +9,8 @@ from mesa import Agent
 
 from config import (
     BACTERIAL_TYPES, ANTIBIOTIC_TYPES, ALLOCATION_PARAMS, 
-    GROWTH_PARAMS, MUTATION_STD, BACTERIA_SPEED, PERSISTENCE_PARAMS
+    GROWTH_PARAMS, MUTATION_STD, BACTERIA_SPEED, PERSISTENCE_PARAMS,
+    BIOFILM_PARAMS
 )
 
 
@@ -27,6 +28,10 @@ class Bacterium(Agent):
         # Initialize persistor state flag
         self.is_persistor = False
         self.has_hgt_gene = random.random() < 0.05  # 5% chance of having HGT gene
+        
+        # Initialize biofilm state
+        self.in_biofilm = False
+        self.biofilm_strength = 0.0
         
         # Initialize traits
         self._initialize_traits(bacterial_type)
@@ -404,6 +409,113 @@ class Bacterium(Agent):
             prob *= PERSISTENCE_PARAMS["favorable_exit_multiplier"]
         
         return random.random() < prob
+
+    # -------------------------
+    # Biofilm Mechanics
+    # -------------------------
+    
+    def _calculate_local_density(self):
+        """Calculate number of bacteria within biofilm radius
+        
+        Returns:
+            tuple: (total_neighbors, neighbors_in_biofilm)
+        """
+        if self.pos is None:
+            return 0, 0
+            
+        try:
+            neighbors = self.model.space.get_neighbors(
+                self.pos, 
+                BIOFILM_PARAMS["radius"], 
+                include_center=False
+            )
+            total_neighbors = len(neighbors)
+            neighbors_in_biofilm = sum(1 for n in neighbors if hasattr(n, 'in_biofilm') and n.in_biofilm)
+            return total_neighbors, neighbors_in_biofilm
+        except:
+            return 0, 0
+    
+    def _check_biofilm_formation(self, local_antibiotics):
+        """Determine if bacterium should join/form biofilm
+        
+        Args:
+            local_antibiotics: dict mapping antibiotic_type -> concentration
+            
+        Formation depends on:
+        - Local bacterial density (more neighbors = more likely)
+        - Recruitment from existing biofilm neighbors
+        - Antibiotic stress increases formation probability
+        
+        Returns:
+            bool: True if bacterium joins biofilm
+        """
+        if self.in_biofilm:
+            return False  # Already in biofilm
+            
+        total_neighbors, biofilm_neighbors = self._calculate_local_density()
+        
+        # Need minimum neighbors to form biofilm
+        if total_neighbors < BIOFILM_PARAMS["min_neighbors"]:
+            return False
+        
+        # Base formation probability
+        prob = BIOFILM_PARAMS["formation_prob"]
+        
+        # Recruitment bonus: existing biofilm neighbors increase formation
+        if biofilm_neighbors > 0:
+            recruitment_factor = min(biofilm_neighbors / BIOFILM_PARAMS["optimal_size"], 1.0)
+            prob += recruitment_factor * 0.1  # Up to 10% bonus from recruitment
+        
+        # Antibiotic stress bonus
+        total_threat = sum(
+            conc * ANTIBIOTIC_TYPES[ab_type]["toxicity_constant"]
+            for ab_type, conc in local_antibiotics.items()
+            if conc > 0
+        )
+        if total_threat > 0:
+            prob += BIOFILM_PARAMS["stress_bonus"]
+        
+        return random.random() < prob
+    
+    def _update_biofilm_strength(self):
+        """Update biofilm strength based on cluster size
+        
+        Strength scales with cluster size using a Hill-like function:
+        - Small clusters: low strength
+        - Optimal size clusters: maximum strength (1.0)
+        - Isolated bacteria: lose biofilm status
+        """
+        if not self.in_biofilm:
+            self.biofilm_strength = 0.0
+            return
+        
+        total_neighbors, biofilm_neighbors = self._calculate_local_density()
+        
+        # Auto-exit if isolated
+        if biofilm_neighbors == 0:
+            self.in_biofilm = False
+            self.biofilm_strength = 0.0
+            return
+        
+        # Hill function for strength scaling
+        n = biofilm_neighbors + 1  # Include self
+        K = BIOFILM_PARAMS["optimal_size"]
+        hill_coeff = 2.0
+        
+        self.biofilm_strength = (n ** hill_coeff) / (K ** hill_coeff + n ** hill_coeff)
+    
+    def _calculate_biofilm_protection(self):
+        """Calculate antibiotic protection multiplier from biofilm
+        
+        Returns:
+            float: Protection factor (1.0 = no protection, 3.0 = 3x protection)
+        """
+        if not self.in_biofilm or self.biofilm_strength == 0:
+            return 1.0
+        
+        # Linear scaling from 1.0 to max_protection based on strength
+        max_prot = BIOFILM_PARAMS["max_protection"]
+        return 1.0 + (max_prot - 1.0) * self.biofilm_strength
 
     def step(self):
         """Execute one step of the bacterium lifecycle"""

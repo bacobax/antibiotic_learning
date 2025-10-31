@@ -184,3 +184,17 @@ ANTIBIOTIC_TYPES = {
         "decay_rate": 0.07         # per sim step
     }
 }
+
+# -----------------------
+# Biofilm Parameters
+# -----------------------
+BIOFILM_PARAMS = {
+    "radius": 2.5,                  # Detection radius for neighboring bacteria
+    "min_neighbors": 3,             # Minimum neighbors required for biofilm formation
+    "optimal_size": 8,              # Optimal cluster size for maximum strength
+    "max_protection": 3.0,          # Maximum antibiotic protection multiplier
+    "formation_prob": 0.01,         # Base probability of joining biofilm per step
+    "stress_bonus": 0.15,           # Additional formation probability under antibiotic stress
+    "energy_cost": 0.02,            # Energy cost per step for maintaining biofilm
+    "movement_penalty": 0.5         # Movement speed multiplier (0.5 = 50% slower)
+}
