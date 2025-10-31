@@ -1,17 +1,19 @@
 """
-Matplotlib visualization for bacteria simulation.
+Matplotlib visualization for bacteria simulation - FIXED for PyQt5 integration.
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import matplotlib.colors as mcolors
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 from config import BACTERIAL_TYPES, ANTIBIOTIC_TYPES, ANIMATION_FPS
 
 
 class SimulationVisualizer:
-    """Matplotlib visualizer for bacteria simulation."""
+    """Matplotlib visualizer for bacteria simulation with proper PyQt5 integration."""
 
     def __init__(self, model, on_click_callback):
         """
@@ -39,16 +41,21 @@ class SimulationVisualizer:
         # Highlighting
         self.highlighted_bacterium_id = None
 
-        # Setup visualization
+        # Setup visualization - use Figure() instead of plt.figure()
+        # This prevents matplotlib from creating a window manager thread
         self._setup_plots()
 
-        # Click handling
-        self.fig.canvas.mpl_connect("button_press_event", self._on_click)
+        # Click handling - connect AFTER plots are setup
+        try:
+            self.fig.canvas.mpl_connect("button_press_event", self._on_click)
+        except Exception as e:
+            print(f"Warning: Could not connect click handler: {e}")
 
     def _setup_plots(self):
-        """Setup matplotlib figure and subplots"""
-        # Larger figure for more content
-        self.fig = plt.figure(figsize=(20, 10))
+        """Setup matplotlib figure and subplots using non-interactive backend"""
+        # Use Figure() directly instead of plt.figure()
+        # This prevents matplotlib from managing its own window
+        self.fig = Figure(figsize=(20, 10))
         gs = self.fig.add_gridspec(5, 4, hspace=0.3, wspace=0.3)
 
         # LEFT SIDE: Main simulation view (50% width, full height)
@@ -151,8 +158,7 @@ class SimulationVisualizer:
 
         # Initialize plot elements
         self.scat = None
-        self.scat_persistors = None  # Separate scatter for persistor bacteria
-        # Initialize plot elements - now we need separate scatter plots for circles and stars
+        self.scat_persistors = None
         self.scat_hgt = None
         self.highlight_scat = None
         self.im_food = None
@@ -167,26 +173,26 @@ class SimulationVisualizer:
         if x is None or y is None:
             return
 
-        # Find closest bacterium
-        # CRITICAL: Make a copy of agent_set to avoid iterator issues
-        # when agents are being modified during iteration
+        # Find closest bacterium - with safe copy
         try:
-            agents = list(self.model.agent_set)  # Create a safe copy
+            agents = list(self.model.agent_set)
         except Exception:
-            # If accessing agent_set fails, return gracefully
             return
-        
+
         min_dist = float("inf")
         closest_bacterium = None
 
         for bacterium in agents:
-            # Skip bacteria that have been removed (pos is None)
             if bacterium.pos is None:
                 continue
-            dist = np.sqrt((bacterium.pos[0] - x) ** 2 + (bacterium.pos[1] - y) ** 2)
-            if dist < min_dist:
-                min_dist = dist
-                closest_bacterium = bacterium
+            try:
+                dist = np.sqrt((bacterium.pos[0] - x) ** 2 + (bacterium.pos[1] - y) ** 2)
+                if dist < min_dist:
+                    min_dist = dist
+                    closest_bacterium = bacterium
+            except Exception:
+                # Skip bacteria with invalid positions
+                continue
 
         if closest_bacterium and min_dist < 5.0:
             self.highlighted_bacterium_id = closest_bacterium.unique_id
@@ -201,178 +207,204 @@ class SimulationVisualizer:
 
     def update_history_plots(self):
         """Update history line plots"""
-        history = self.model.history
-        if len(history["steps"]) > 0:
-            # Food plot
-            self.line_food.set_data(history["steps"], history["total_food"])
-            self.ax_food.set_xlim(0, max(10, max(history["steps"])))
-            self.ax_food.set_ylim(0, max(10, max(history["total_food"]) * 1.1))
+        try:
+            history = self.model.history
+            if len(history["steps"]) > 0:
+                # Food plot
+                self.line_food.set_data(history["steps"], history["total_food"])
+                self.ax_food.set_xlim(0, max(10, max(history["steps"])))
+                self.ax_food.set_ylim(0, max(10, max(history["total_food"]) * 1.1))
 
-            # Population plot
-            self.line_pop.set_data(history["steps"], history["population"])
-            self.ax_pop.set_xlim(0, max(10, max(history["steps"])))
-            self.ax_pop.set_ylim(0, max(10, max(history["population"]) * 1.1))
+                # Population plot
+                self.line_pop.set_data(history["steps"], history["population"])
+                self.ax_pop.set_xlim(0, max(10, max(history["steps"])))
+                self.ax_pop.set_ylim(0, max(10, max(history["population"]) * 1.1))
 
-            # Energy plot
-            self.line_energy_avg.set_data(history["steps"], history["avg_energy"])
-            self.line_energy_worst.set_data(
-                history["steps"], history["avg_energy_worst"]
-            )
-            self.line_energy_top.set_data(history["steps"], history["avg_energy_top"])
-            self.ax_energy.set_xlim(0, max(10, max(history["steps"])))
-            self.ax_energy.set_ylim(0, max(10, max(history["avg_energy"]) * 1.1))
+                # Energy plot
+                self.line_energy_avg.set_data(history["steps"], history["avg_energy"])
+                self.line_energy_worst.set_data(
+                    history["steps"], history["avg_energy_worst"]
+                )
+                self.line_energy_top.set_data(history["steps"], history["avg_energy_top"])
+                self.ax_energy.set_xlim(0, max(10, max(history["steps"])))
+                self.ax_energy.set_ylim(0, max(10, max(history["avg_energy"]) * 1.1))
 
-            # Antibiotic concentrations plot
-            max_antibiotic_concentration = 0.01
-            for ab_type in ANTIBIOTIC_TYPES.keys():
-                ab_key = f"antibiotic_{ab_type}"
-                if ab_key in history and len(history[ab_key]) > 0:
-                    data = history[ab_key]
-                    steps = history["steps"][: len(data)]
-                    self.antibiotic_lines[ab_type].set_data(steps, data)
-                    if len(data) > 0:
-                        max_antibiotic_concentration = max(
-                            max_antibiotic_concentration, max(data)
-                        )
-                else:
-                    self.antibiotic_lines[ab_type].set_data([], [])
+                # Antibiotic concentrations plot
+                max_antibiotic_concentration = 0.01
+                for ab_type in ANTIBIOTIC_TYPES.keys():
+                    ab_key = f"antibiotic_{ab_type}"
+                    if ab_key in history and len(history[ab_key]) > 0:
+                        data = history[ab_key]
+                        steps = history["steps"][: len(data)]
+                        self.antibiotic_lines[ab_type].set_data(steps, data)
+                        if len(data) > 0:
+                            max_antibiotic_concentration = max(
+                                max_antibiotic_concentration, max(data)
+                            )
+                    else:
+                        self.antibiotic_lines[ab_type].set_data([], [])
 
-            self.ax_antibiotics.set_xlim(0, max(10, max(history["steps"])))
-            self.ax_antibiotics.set_ylim(
-                0, max(0.1, max_antibiotic_concentration * 1.1)
-            )
+                self.ax_antibiotics.set_xlim(0, max(10, max(history["steps"])))
+                self.ax_antibiotics.set_ylim(
+                    0, max(0.1, max_antibiotic_concentration * 1.1)
+                )
 
-        # Update trait evolution plots
-        self._update_trait_plots()
+            # Update trait evolution plots
+            self._update_trait_plots()
+        except Exception as e:
+            print(f"Error updating history plots: {e}")
 
     def _update_trait_plots(self):
         """Update trait evolution plots for each bacterial type"""
-        history = self.model.history
+        try:
+            history = self.model.history
 
-        if len(history["steps"]) > 0:
-            # Update each trait plot
-            for trait in ["enzyme", "efflux", "membrane", "repair"]:
-                ax = self.trait_axes[trait]
-                max_val = 0.01
+            if len(history["steps"]) > 0:
+                # Update each trait plot
+                for trait in ["enzyme", "efflux", "membrane", "repair"]:
+                    ax = self.trait_axes[trait]
+                    max_val = 0.01
 
-                for btype in self.bacterial_type_names:
-                    # Get data from history
-                    trait_key = f"{btype}_avg_{trait}"
+                    for btype in self.bacterial_type_names:
+                        # Get data from history
+                        trait_key = f"{btype}_avg_{trait}"
 
-                    if trait_key in history and len(history[trait_key]) > 0:
-                        data = history[trait_key]
-                        steps = history["steps"][: len(data)]
+                        if trait_key in history and len(history[trait_key]) > 0:
+                            data = history[trait_key]
+                            steps = history["steps"][: len(data)]
 
-                        self.trait_lines[trait][btype].set_data(steps, data)
+                            self.trait_lines[trait][btype].set_data(steps, data)
 
-                        if len(data) > 0:
-                            max_val = max(max_val, max(data) * 1.1)
-                    else:
-                        self.trait_lines[trait][btype].set_data([], [])
+                            if len(data) > 0:
+                                max_val = max(max_val, max(data) * 1.1)
+                        else:
+                            self.trait_lines[trait][btype].set_data([], [])
 
-                # Update axis limits
-                if len(history["steps"]) > 0:
-                    ax.set_xlim(0, max(10, max(history["steps"])))
-                    ax.set_ylim(0, max(1.0, max_val))
+                    # Update axis limits
+                    if len(history["steps"]) > 0:
+                        ax.set_xlim(0, max(10, max(history["steps"])))
+                        ax.set_ylim(0, max(1.0, max_val))
+        except Exception as e:
+            print(f"Error updating trait plots: {e}")
 
     def update_main_plot(self):
-        """Update the main simulation plot"""
+        """Update the main simulation plot - with comprehensive error handling"""
         try:
             agents = list(self.model.agent_set)
         except Exception:
-            # If we can't access agent_set safely, skip this update
             return
 
-        # Separate active and persistor bacteria
-        persistor_agents = [a for a in agents if a.is_persistor and a.pos is not None]
-        hgt_agents = [a for a in agents if a.has_hgt_gene and a.pos is not None]
-        # rest of the agents
-        active_agents = [
-            a
-            for a in agents
-            if (not a.is_persistor and not a.has_hgt_gene and a.pos is not None)
-        ]
+        try:
+            # Separate active and persistor bacteria
+            persistor_agents = [a for a in agents if a.is_persistor and a.pos is not None]
+            hgt_agents = [a for a in agents if a.has_hgt_gene and a.pos is not None]
+            active_agents = [
+                a
+                for a in agents
+                if (not a.is_persistor and not a.has_hgt_gene and a.pos is not None)
+            ]
 
-        active_positions = [a.pos for a in active_agents]
-        persistor_positions = [a.pos for a in persistor_agents]
-        hgt_positions = [a.pos for a in hgt_agents]
+            active_positions = [a.pos for a in active_agents]
+            persistor_positions = [a.pos for a in persistor_agents]
+            hgt_positions = [a.pos for a in hgt_agents]
 
-        active_colors = self.get_bacterial_colors(active_agents)
-        persistor_colors = self.get_bacterial_colors(persistor_agents)
-        hgt_colors = self.get_bacterial_colors(hgt_agents)
+            active_colors = self.get_bacterial_colors(active_agents)
+            persistor_colors = self.get_bacterial_colors(persistor_agents)
+            hgt_colors = self.get_bacterial_colors(hgt_agents)
 
-        # Update active bacteria scatter plot (normal border)
-        if self.scat is None:
-            self.scat = self.ax.scatter(
-                [pos[0] for pos in active_positions] if active_positions else [],
-                [pos[1] for pos in active_positions] if active_positions else [],
-                c=active_colors if active_colors else [],
-                cmap="viridis",
-                s=15,
-                marker="o",
-                edgecolor="k",
-                linewidths=0.5,
-                alpha=0.7,
+            # Update scatter plots with error handling
+            self._update_scatter_plot("active", self.scat, active_positions, active_colors)
+            self._update_scatter_plot("hgt", self.scat_hgt, hgt_positions, hgt_colors)
+            self._update_scatter_plot("persistor", self.scat_persistors, persistor_positions, persistor_colors)
+
+            # Update field overlays
+            self._update_field_overlays()
+
+            # Highlight selected bacterium
+            self._update_highlight(agents)
+
+            # Update title
+            persistor_count = len(persistor_agents)
+            hgt_gene_count = len(hgt_agents)
+            self.ax.set_title(
+                f"Step: {self.model.step_count} | Agents: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count}",
+                fontsize=11,
             )
-        else:
-            try:
-                if len(active_positions) > 0:
-                    self.scat.set_offsets(active_positions)
-                    self.scat.set_array(np.array(active_colors))
-                else:
-                    self.scat.set_offsets(np.empty((0, 2)))
-                    self.scat.set_array(np.array([]))
-            except Exception as e:
-                print(f"Error updating active scatter plot: {e}")
+            self.ax.set_xlim(0, self.model.width)
+            self.ax.set_ylim(0, self.model.height)
 
-        # Update bacteria scatter plot for stars (HGT gene)
-        if self.scat_hgt is None:
-            self.scat_hgt = self.ax.scatter(
-                [pos[0] for pos in hgt_positions] if hgt_positions else [],
-                [pos[1] for pos in hgt_positions] if hgt_positions else [],
-                c=hgt_colors if hgt_colors else [],
-                cmap="viridis",
-                s=50,  # Slightly larger for visibility
-                marker="*",
-                edgecolor="k",
-                alpha=0.7,
-            )
-        else:
-            try:
-                if len(hgt_positions) > 0:
-                    self.scat_hgt.set_offsets(hgt_positions)
-                    self.scat_hgt.set_array(np.array(hgt_colors))
-                else:
-                    self.scat_hgt.set_offsets(np.empty((0, 2)))
-                    self.scat_hgt.set_array(np.array([]))
-            except Exception as e:
-                print(f"Error updating HGT scatter plot: {e}")
+        except Exception as e:
+            print(f"Error in update_main_plot: {e}")
 
-        # Update persistor bacteria scatter plot (thicker border)
-        if self.scat_persistors is None:
-            self.scat_persistors = self.ax.scatter(
-                [pos[0] for pos in persistor_positions] if persistor_positions else [],
-                [pos[1] for pos in persistor_positions] if persistor_positions else [],
-                c=persistor_colors if persistor_colors else [],
-                cmap="viridis",
-                s=15,
-                edgecolor="purple",  # Distinctive color for persistors
-                linewidths=2.5,  # Thicker border for persistors
-                alpha=0.7,
-                zorder=5,  # Draw on top of active bacteria
-            )
-        else:
-            try:
-                if len(persistor_positions) > 0:
-                    self.scat_persistors.set_offsets(persistor_positions)
-                    self.scat_persistors.set_array(np.array(persistor_colors))
+    def _update_scatter_plot(self, plot_type, scat, positions, colors):
+        """Helper to safely update scatter plots"""
+        try:
+            if plot_type == "active":
+                if self.scat is None:
+                    self.scat = self.ax.scatter(
+                        [pos[0] for pos in positions] if positions else [],
+                        [pos[1] for pos in positions] if positions else [],
+                        c=colors if colors else [],
+                        cmap="viridis",
+                        s=15,
+                        marker="o",
+                        edgecolor="k",
+                        linewidths=0.5,
+                        alpha=0.7,
+                    )
                 else:
-                    self.scat_persistors.set_offsets(np.empty((0, 2)))
-                    self.scat_persistors.set_array(np.array([]))
-            except Exception as e:
-                print(f"Error updating persistor scatter plot: {e}")
+                    if len(positions) > 0:
+                        self.scat.set_offsets(positions)
+                        self.scat.set_array(np.array(colors))
+                    else:
+                        self.scat.set_offsets(np.empty((0, 2)))
+                        self.scat.set_array(np.array([]))
 
-        # Update field overlays - with error handling
+            elif plot_type == "hgt":
+                if self.scat_hgt is None:
+                    self.scat_hgt = self.ax.scatter(
+                        [pos[0] for pos in positions] if positions else [],
+                        [pos[1] for pos in positions] if positions else [],
+                        c=colors if colors else [],
+                        cmap="viridis",
+                        s=50,
+                        marker="*",
+                        edgecolor="k",
+                        alpha=0.7,
+                    )
+                else:
+                    if len(positions) > 0:
+                        self.scat_hgt.set_offsets(positions)
+                        self.scat_hgt.set_array(np.array(colors))
+                    else:
+                        self.scat_hgt.set_offsets(np.empty((0, 2)))
+                        self.scat_hgt.set_array(np.array([]))
+
+            elif plot_type == "persistor":
+                if self.scat_persistors is None:
+                    self.scat_persistors = self.ax.scatter(
+                        [pos[0] for pos in positions] if positions else [],
+                        [pos[1] for pos in positions] if positions else [],
+                        c=colors if colors else [],
+                        cmap="viridis",
+                        s=15,
+                        edgecolor="purple",
+                        linewidths=2.5,
+                        alpha=0.7,
+                        zorder=5,
+                    )
+                else:
+                    if len(positions) > 0:
+                        self.scat_persistors.set_offsets(positions)
+                        self.scat_persistors.set_array(np.array(colors))
+                    else:
+                        self.scat_persistors.set_offsets(np.empty((0, 2)))
+                        self.scat_persistors.set_array(np.array([]))
+        except Exception as e:
+            print(f"Error updating {plot_type} scatter plot: {e}")
+
+    def _update_field_overlays(self):
+        """Update food and antibiotic field overlays"""
         try:
             if self.im_food is None:
                 self.im_food = self.ax.imshow(
@@ -387,24 +419,18 @@ class SimulationVisualizer:
         except Exception as e:
             print(f"Error updating food field: {e}")
 
-        # Render antibiotic fields by blending antibiotic colors weighted by
-        # their local concentrations. The total concentration controls how
-        # deep (saturated) the color becomes; cap total concentration at 1.0.
-        # When there are no antibiotics, render a light-gray background for
-        # the antibiotic overlay so the field is visible but unobtrusive.
-        bg_gray = np.array([0.92, 0.92, 0.92], dtype=float)
-
+        # Antibiotic field overlay
         try:
+            bg_gray = np.array([0.92, 0.92, 0.92], dtype=float)
+
             if (
                 hasattr(self.model, "antibiotic_fields")
                 and len(self.model.antibiotic_fields) > 0
             ):
                 h, w = self.model.food_field.shape
-
-                # Convert all antibiotic fields to a consistent float array and sum
-                # them to get the total concentration per cell.
                 fields = []
                 ab_types = []
+
                 for ab_type, ab_field in self.model.antibiotic_fields.items():
                     field = np.array(ab_field, dtype=float)
                     if field.size == 0:
@@ -413,23 +439,16 @@ class SimulationVisualizer:
                     ab_types.append(ab_type)
 
                 if len(fields) == 0:
-                    # no valid fields; draw uniform light gray
                     rgb_img = np.tile(bg_gray[None, None, :], (h, w, 1))
                 else:
-                    stacked = np.stack(fields, axis=0)  # shape (N, H, W)
-
-                    # Total concentration per cell (cap at 1.0)
+                    stacked = np.stack(fields, axis=0)
                     total = np.sum(stacked, axis=0)
                     total_clipped = np.clip(total, 0.0, 1.0)
 
-                    # Avoid division by zero
                     denom = total.copy()
                     denom[denom == 0] = 1.0
-
-                    # Compute weight of each antibiotic at each cell
                     weights = stacked / denom[None, :, :]
 
-                    # Build base color as weighted average of antibiotic colors
                     base_color = np.zeros((h, w, 3), dtype=float)
                     for i, ab_type in enumerate(ab_types):
                         color = ANTIBIOTIC_TYPES.get(ab_type, {}).get("color", "gray")
@@ -437,30 +456,19 @@ class SimulationVisualizer:
                             rgb = np.array(mcolors.to_rgb(color), dtype=float)
                         except Exception:
                             rgb = np.array(mcolors.to_rgb("gray"), dtype=float)
-
                         base_color += weights[i, :, :, None] * rgb[None, None, :]
 
-                    # Where total == 0, weights were arbitrary; force base to bg_gray
                     zero_mask = total == 0
                     if zero_mask.any():
                         base_color[zero_mask, :] = bg_gray
 
-                    # Intensity of color = total concentration (0..1)
                     intensity = total_clipped
-
-                    # Control how strongly color replaces background at intensity=1.0
                     color_strength = 0.85
-
-                    # Interpolate between background gray and base_color using intensity
                     rgb_img = (
-                        bg_gray[None, None, :]
-                        * (1.0 - intensity[:, :, None] * color_strength)
+                        bg_gray[None, None, :] * (1.0 - intensity[:, :, None] * color_strength)
                     ) + (base_color * (intensity[:, :, None] * color_strength))
-
-                    # Ensure values are in [0,1]
                     rgb_img = np.clip(rgb_img, 0.0, 1.0)
 
-                # Transpose to match imshow orientation used for food_field
                 rgb_display = np.transpose(rgb_img, (1, 0, 2))
 
                 if self.im_ab is None:
@@ -468,14 +476,13 @@ class SimulationVisualizer:
                         rgb_display,
                         extent=[0, self.model.width, 0, self.model.height],
                         origin="lower",
-                        alpha=0.6,  # allow underlying food to still show through
+                        alpha=0.6,
                         interpolation="bilinear",
                         zorder=2,
                     )
                 else:
                     self.im_ab.set_data(rgb_display)
             else:
-                # No antibiotic fields - render uniform light gray overlay
                 if self.im_ab is None:
                     empty_rgb = np.tile(
                         bg_gray[None, None, :], (self.model.height, self.model.width, 1)
@@ -496,67 +503,26 @@ class SimulationVisualizer:
         except Exception as e:
             print(f"Error updating antibiotic field: {e}")
 
-        # Highlight selected bacterium
-        self._update_highlight(agents)
-
-        # Update title with persistor count
-        try:
-            persistor_count = len(persistor_agents)
-            hgt_gene_count = len(hgt_agents)
-            self.ax.set_title(
-                f"Step: {self.model.step_count} | Agents: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count}",
-                fontsize=11,
-            )
-            self.ax.set_xlim(0, self.model.width)
-            self.ax.set_ylim(0, self.model.height)
-        except Exception as e:
-            print(f"Error updating title/limits: {e}")
-
     def update_graphs(self):
-        """Update only the history plots (separate from main plot for performance mode)"""
+        """Update only the history plots"""
         self.update_history_plots()
 
     def _update_highlight(self, agents):
         """Update highlighted bacterium visualization"""
-        if self.highlighted_bacterium_id is not None:
-            highlighted_bacterium = next(
-                (b for b in agents if b.unique_id == self.highlighted_bacterium_id),
-                None,
-            )
-            if highlighted_bacterium and highlighted_bacterium.pos is not None:
-                highlight_pos = [
-                    [highlighted_bacterium.pos[0], highlighted_bacterium.pos[1]]
-                ]
-                # Use star marker if bacterium has HGT gene, circle otherwise
-                marker = "*" if highlighted_bacterium.has_hgt_gene else "o"
-                marker_size = 250 if highlighted_bacterium.has_hgt_gene else 150
+        try:
+            if self.highlighted_bacterium_id is not None:
+                highlighted_bacterium = next(
+                    (b for b in agents if b.unique_id == self.highlighted_bacterium_id),
+                    None,
+                )
+                if highlighted_bacterium and highlighted_bacterium.pos is not None:
+                    highlight_pos = [
+                        [highlighted_bacterium.pos[0], highlighted_bacterium.pos[1]]
+                    ]
+                    marker = "*" if highlighted_bacterium.has_hgt_gene else "o"
+                    marker_size = 250 if highlighted_bacterium.has_hgt_gene else 150
 
-                if self.highlight_scat is None:
-                    self.highlight_scat = self.ax.scatter(
-                        highlight_pos[0][0],
-                        highlight_pos[0][1],
-                        c="yellow",
-                        s=marker_size,
-                        edgecolor="black",
-                        linewidths=2,
-                        alpha=1.0,
-                        marker=marker,
-                        zorder=10,
-                    )
-                else:
-                    # Update position and check if marker type changed
-                    try:
-                        # Try to update offsets first (safer than remove/recreate)
-                        self.highlight_scat.set_offsets(highlight_pos)
-                        self.highlight_scat.set_sizes([marker_size])
-                        # Update marker if it changed
-                        self.highlight_scat.set_marker(marker)
-                    except Exception:
-                        # If update fails, remove and recreate
-                        try:
-                            self.highlight_scat.remove()
-                        except Exception:
-                            pass
+                    if self.highlight_scat is None:
                         self.highlight_scat = self.ax.scatter(
                             highlight_pos[0][0],
                             highlight_pos[0][1],
@@ -568,21 +534,43 @@ class SimulationVisualizer:
                             marker=marker,
                             zorder=10,
                         )
-            else:
-                # Bacterium died
-                if self.highlight_scat is not None:
-                    try:
-                        self.highlight_scat.remove()
-                    except Exception:
-                        pass
-                    self.highlight_scat = None
-                self.highlighted_bacterium_id = None
-        elif self.highlight_scat is not None:
-            try:
-                self.highlight_scat.remove()
-            except Exception:
-                pass
-            self.highlight_scat = None
+                    else:
+                        try:
+                            self.highlight_scat.set_offsets(highlight_pos)
+                            self.highlight_scat.set_sizes([marker_size])
+                            self.highlight_scat.set_marker(marker)
+                        except Exception:
+                            try:
+                                self.highlight_scat.remove()
+                            except Exception:
+                                pass
+                            self.highlight_scat = self.ax.scatter(
+                                highlight_pos[0][0],
+                                highlight_pos[0][1],
+                                c="yellow",
+                                s=marker_size,
+                                edgecolor="black",
+                                linewidths=2,
+                                alpha=1.0,
+                                marker=marker,
+                                zorder=10,
+                            )
+                else:
+                    if self.highlight_scat is not None:
+                        try:
+                            self.highlight_scat.remove()
+                        except Exception:
+                            pass
+                        self.highlight_scat = None
+                    self.highlighted_bacterium_id = None
+            elif self.highlight_scat is not None:
+                try:
+                    self.highlight_scat.remove()
+                except Exception:
+                    pass
+                self.highlight_scat = None
+        except Exception as e:
+            print(f"Error updating highlight: {e}")
 
     def clear_highlight(self):
         """Clear highlighted bacterium"""
@@ -601,17 +589,18 @@ class SimulationVisualizer:
     def draw(self):
         """Redraw the canvas"""
         try:
-            # Add exception handling for plot updates during resize/interaction
             self.update_history_plots()
             if self.fig and self.fig.canvas:
                 try:
                     self.fig.canvas.draw_idle()
-                except Exception as canvas_error:
-                    # Sometimes canvas.draw_idle can fail during window events
-                    print(f"Canvas draw error (non-critical): {canvas_error}")
+                except Exception:
+                    # Canvas might not be available if window is closing
+                    pass
         except Exception as e:
-            print(f"Plot update error: {e}")
+            print(f"Error in draw: {e}")
 
     def show(self):
-        """Show the matplotlib figure"""
-        plt.show()
+        """Show the matplotlib figure - DOES NOT block when embedded in PyQt5"""
+        # Don't call plt.show() - it blocks and causes segfaults
+        # Instead, matplotlib will be shown through PyQt5 embedding
+        pass

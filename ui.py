@@ -15,7 +15,7 @@ from config import (
 )
 from tracking import IndividualPlotter
 from control_panel import ControlPanel
-from visualization_fixed import SimulationVisualizer
+from visualization import SimulationVisualizer
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 
