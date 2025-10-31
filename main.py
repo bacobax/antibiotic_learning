@@ -2,7 +2,7 @@
 Main entry point for the bacteria simulation.
 
 Run: python main.py
-Dependencies: mesa, numpy, scipy, matplotlib, tkinter (optional)
+Dependencies: mesa, numpy, scipy, matplotlib, PyQt5
 """
 
 from model import BacteriaModel
