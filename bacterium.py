@@ -85,15 +85,11 @@ class Bacterium(Agent):
         Args:
             local_antibiotics: dict mapping antibiotic_type -> concentration
         
-        TODO: Currently uses sum of all antibiotics as temporary solution.
-        Should be updated to respond differently to each antibiotic type.
+        Each antibiotic induces expression based on its specific threat level,
+        weighted by which resistance mechanisms are most effective against it.
         
         Persistors maintain minimal expression states to reduce energy costs.
         """
-        # TEMPORARY: Sum all antibiotic concentrations
-        # TODO: Each antibiotic should induce different expression patterns
-        local_ab = sum(local_antibiotics.values()) if local_antibiotics else 0.0
-        
         # Persistors don't actively respond to antibiotics (dormant metabolism)
         if self.is_persistor:
             # Slow decay of existing expression
@@ -103,16 +99,44 @@ class Bacterium(Agent):
                 self.expression[k] = max(0.0, X + dX)
             return
         
-        # Normal expression dynamics for active bacteria
-        if local_ab > 0:
-            S_A = (local_ab**GROWTH_PARAMS["n_ind"]) / \
-                  (GROWTH_PARAMS["k_i"]**GROWTH_PARAMS["n_ind"] + local_ab**GROWTH_PARAMS["n_ind"])
-        else:
-            S_A = 0.0
+        # Calculate weighted antibiotic signal for each resistance mechanism
+        # Different antibiotics induce different expression patterns
+        mechanism_signals = {
+            "enzyme": 0.0,
+            "efflux": 0.0,
+            "membrane": 0.0,
+            "repair": 0.0
+        }
         
+        for ab_type, ab_conc in local_antibiotics.items():
+            if ab_conc <= 0:
+                continue
+            
+            ab_params = ANTIBIOTIC_TYPES[ab_type]
+            
+            # Each antibiotic contributes to expression based on its concentration
+            # and how effective each mechanism is against it
+            # Weighted by toxicity to represent threat level
+            threat_level = ab_conc * ab_params["toxicity_constant"]
+            
+            mechanism_signals["enzyme"] += threat_level * ab_params["enzyme_weight"]
+            mechanism_signals["efflux"] += threat_level * ab_params["efflux_weight"]
+            mechanism_signals["membrane"] += threat_level * ab_params["membrane_weight"]
+            mechanism_signals["repair"] += threat_level * ab_params["repair_weight"]
+        
+        # Update expression for each mechanism based on its signal
         for k in self.expression:
             g_i = getattr(self, k)
             X = self.expression[k]
+            
+            # Calculate induction signal with Hill function
+            signal = mechanism_signals[k]
+            if signal > 0:
+                S_A = (signal**GROWTH_PARAMS["n_ind"]) / \
+                      (GROWTH_PARAMS["k_i"]**GROWTH_PARAMS["n_ind"] + signal**GROWTH_PARAMS["n_ind"])
+            else:
+                S_A = 0.0
+            
             dX = (GROWTH_PARAMS["ks"][k] * g_i * S_A - GROWTH_PARAMS["kd"][k] * X) * GROWTH_PARAMS["dt"]
             self.expression[k] = max(0.0, min(1.0, X + dX))
 
@@ -294,11 +318,11 @@ class Bacterium(Agent):
         Args:
             local_antibiotics: dict mapping antibiotic_type -> concentration
         
-        TODO: Currently uses sum of all antibiotics as temporary solution.
-        Should be updated to have antibiotic-specific stress responses.
+        Entry probability increases with antibiotic threat level,
+        which depends on both concentration and toxicity of each antibiotic.
         
         Entry probability increases continuously with stress conditions:
-        - Scales with antibiotic concentration (dose-dependent)
+        - Scales with antibiotic threat (concentration × toxicity)
         - Inversely proportional to energy (starvation stress)
         
         Returns:
@@ -307,18 +331,24 @@ class Bacterium(Agent):
         if self.is_persistor:
             return False  # Already a persistor
         
-        # TEMPORARY: Sum all antibiotic concentrations
-        # TODO: Different antibiotics should cause different stress levels
-        local_ab = sum(local_antibiotics.values()) if local_antibiotics else 0.0
+        # Calculate total antibiotic threat (weighted by toxicity)
+        total_threat = 0.0
+        for ab_type, ab_conc in local_antibiotics.items():
+            if ab_conc > 0:
+                ab_params = ANTIBIOTIC_TYPES[ab_type]
+                # More toxic antibiotics contribute more to stress
+                total_threat += ab_conc * ab_params["toxicity_constant"]
         
         # Base probability
         prob = PERSISTENCE_PARAMS["base_entry_prob"]
         
         # Antibiotic stress: Hill-function style dose-dependent response
-        # Probability increases sigmoidally with antibiotic concentration
-        if local_ab > 0:
-            ab_factor = (local_ab ** 2) / (PERSISTENCE_PARAMS["antibiotic_stress_threshold"] ** 2 + local_ab ** 2)
-            prob += ab_factor * PERSISTENCE_PARAMS["stress_entry_multiplier"] * PERSISTENCE_PARAMS["base_entry_prob"]
+        # Probability increases sigmoidally with antibiotic threat
+        if total_threat > 0:
+            ab_factor = (total_threat ** 2) / \
+                       (PERSISTENCE_PARAMS["antibiotic_stress_threshold"] ** 2 + total_threat ** 2)
+            prob += ab_factor * PERSISTENCE_PARAMS["stress_entry_multiplier"] * \
+                   PERSISTENCE_PARAMS["base_entry_prob"]
         
         # Energy stress: probability increases as energy decreases
         # Normalized energy (0 = no energy, 1 = well-fed at e_div threshold)
@@ -326,7 +356,8 @@ class Bacterium(Agent):
         if normalized_energy < 1.0:
             # Inverse relationship: lower energy -> higher probability
             energy_stress_factor = (1.0 - normalized_energy) ** 2  # Quadratic to emphasize low energy
-            prob += energy_stress_factor * PERSISTENCE_PARAMS["stress_entry_multiplier"] * PERSISTENCE_PARAMS["base_entry_prob"]
+            prob += energy_stress_factor * PERSISTENCE_PARAMS["stress_entry_multiplier"] * \
+                   PERSISTENCE_PARAMS["base_entry_prob"]
         
         # Cap probability at reasonable maximum
         prob = min(prob, PERSISTENCE_PARAMS["max_entry_prob"])
@@ -339,11 +370,11 @@ class Bacterium(Agent):
         Args:
             local_antibiotics: dict mapping antibiotic_type -> concentration
         
-        TODO: Currently uses sum of all antibiotics as temporary solution.
-        Should be updated to consider specific antibiotic threats.
+        Exit probability depends on whether antibiotic threat is low enough,
+        considering both concentration and toxicity of each antibiotic type.
         
         Exit probability increases under favorable conditions:
-        - No antibiotics present
+        - Low antibiotic threat
         - Sufficient energy reserves
         
         Returns:
@@ -352,16 +383,19 @@ class Bacterium(Agent):
         if not self.is_persistor:
             return False  # Not a persistor
         
-        # TEMPORARY: Sum all antibiotic concentrations
-        # TODO: Different antibiotics should have different thresholds for "safe" exit
-        local_ab = sum(local_antibiotics.values()) if local_antibiotics else 0.0
+        # Calculate total antibiotic threat (weighted by toxicity)
+        total_threat = 0.0
+        for ab_type, ab_conc in local_antibiotics.items():
+            if ab_conc > 0:
+                ab_params = ANTIBIOTIC_TYPES[ab_type]
+                total_threat += ab_conc * ab_params["toxicity_constant"]
         
         # Force exit if energy too low (starvation override)
         if self.energy < PERSISTENCE_PARAMS["min_persistor_energy"]:
             return True
         
         # Calculate favorable conditions
-        no_antibiotics = local_ab < PERSISTENCE_PARAMS["antibiotic_stress_threshold"]
+        no_antibiotics = total_threat < PERSISTENCE_PARAMS["antibiotic_stress_threshold"]
         sufficient_energy = self.energy > PERSISTENCE_PARAMS["energy_favorable_threshold"]
         
         # Base probability with favorable condition multiplier
