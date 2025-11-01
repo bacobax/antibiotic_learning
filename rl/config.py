@@ -74,7 +74,7 @@ class PPOConfig:
         assert self.dose_action_index < self.n_discrete, "dose_action_index out of range"
         assert self.k_doses > 0, "Must have at least one antibiotic type"
         assert self.obs_dim > 0, "obs_dim must be positive"
-        assert self.device in ["cpu", "cuda"], "device must be 'cpu' or 'cuda'"
+        assert self.device in ["cpu", "cuda", "mps"], "device must be 'cpu' or 'cuda'"
 
 
 def set_global_seed(seed: int) -> None:

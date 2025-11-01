@@ -39,9 +39,10 @@ class PetriEnvWrapper:
         dose_cost_per_unit: float = 0.2,
         # shaping & norms
         target_population: int = 500,   # P*
-        w_pop: float = 1.0,             # weight for population term
-        w_genome: float = 0.5,          # weight for resistance term
-        w_cost: float = 0.05,           # weight for monetary penalty
+        w_pop: float = 1.0,             # weight for population term in dose reward
+        w_genome: float = 0.5,          # weight for resistance term in dose reward
+        w_cost: float = 0.05,           # weight for monetary penalty in dose reward
+        w_population_maintenance: float = 0.01,  # per-step penalty for being far from target
         budget_init: float = 100.0,
         budget_norm: float = 100.0,     # divisor for budget normalization
         population_norm: float = 1000.0, # to map counts to ~[0,1]
@@ -61,6 +62,7 @@ class PetriEnvWrapper:
         self.w_pop = w_pop
         self.w_genome = w_genome
         self.w_cost = w_cost
+        self.w_population_maintenance = w_population_maintenance
 
         # normalization/display
         self.budget_init = budget_init
@@ -143,8 +145,11 @@ class PetriEnvWrapper:
         true_population = self._read_true_population()
         done = (true_population == 0) or (self.t >= self.max_steps) or (self.budget < 0.0)
 
-        # 6) Reward is now just immediate (dose efficacy computed at admin time)
-        reward = immediate_reward
+        # 6) Compute total reward: immediate action reward + step-wise population maintenance penalty
+        # This ensures the agent is incentivized to maintain population near target EVERY step,
+        # not just when dosing.
+        pop_maintenance_penalty = -(abs(true_population - self.target_population) / max(1.0, self.population_norm)) * self.w_population_maintenance
+        reward = immediate_reward + pop_maintenance_penalty
         self.episode_return += reward
 
         info = {
@@ -447,3 +452,9 @@ class PetriEnvWrapper:
         # Build once without stepping sim
         dummy = self._build_observation()
         return int(dummy.shape[0])
+    
+    def get_bacteria_population(self) -> int:
+        """Get the current bacteria population count from the model."""
+        if self.model is None:
+            return 0
+        return self._read_true_population()

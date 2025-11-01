@@ -1,0 +1,52 @@
+# Action Configuration for Bacteria Simulation RL Agent
+# Defines available actions and their costs/durations
+
+actions:
+  noop:
+    id: 0
+    name: "No operation"
+    cost: 0.01
+    duration: 0
+    description: "Wait without taking action"
+  
+  count_bacteria:
+    id: 1
+    name: "Count bacteria"
+    cost: 0.0
+    duration: 0
+    description: "Measure current bacteria population (instant, no cost)"
+  
+  sequencing:
+    id: 2
+    name: "Genome sequencing"
+    cost: 1.0
+    duration: 5
+    description: "Sequence bacteria genome to detect resistance (takes 5 steps)"
+  
+  dose:
+    id: 3
+    name: "Administer antibiotics"
+    cost_per_unit: 0.5
+    duration: 0
+    description: "Dose antibiotics (continuous action, 0-1 for each antibiotic)"
+
+# Environment parameters
+environment:
+  target_population: 500
+  budget_init: 2
+  max_steps: 1000
+  
+  # Reward shaping weights
+  reward_weights:
+    population: 1.0      # weight for population control term
+    resistance: 0.5      # weight for resistance reduction term
+    cost: 0.05          # weight for cost penalty
+
+# Example with custom costs:
+# You can uncomment and modify these sections to change behavior
+
+# custom_costs:
+#   sequencing:
+#     cost: 2.0          # More expensive sequencing
+#   dose:
+#     cost_per_unit: 0.5 # More expensive antibiotics

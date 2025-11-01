@@ -1,0 +1,39 @@
+# Test Configuration: Stronger Population Maintenance
+# This helps the agent learn to maintain population near target
+
+actions:
+  noop:
+    id: 0
+    name: "No operation"
+    cost: 0.01
+    duration: 0
+  
+  count_bacteria:
+    id: 1
+    name: "Count bacteria"
+    cost: 0.0
+    duration: 0
+  
+  sequencing:
+    id: 2
+    name: "Genome sequencing"
+    cost: 1.0
+    duration: 20
+  
+  dose:
+    id: 3
+    name: "Administer antibiotics"
+    cost_per_unit: 0.5      # Increased from 0.2 to discourage constant dosing
+    duration: 100
+
+environment:
+  target_population: 500
+  budget_init: 100.0
+  max_steps: 1000
+  
+  # STRONGER MAINTENANCE INCENTIVE:
+  reward_weights:
+    population: 1.0
+    resistance: 0.5
+    cost: 0.5               # Increased from 0.05 (10x)
+    population_maintenance: 0.05  # Per-step penalty for straying from target (NEW!)
