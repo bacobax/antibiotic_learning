@@ -5,7 +5,7 @@ actions:
   noop:
     id: 0
     name: "No operation"
-    cost: 0.01
+    cost: 0.00
     duration: 0
     description: "Wait without taking action"
   
@@ -32,14 +32,14 @@ actions:
 
 # Environment parameters
 environment:
-  target_population: 500
-  budget_init: 2
+  target_population: 100
+  budget_init: 5
   max_steps: 1000
   
   # Reward shaping weights
   reward_weights:
     population: 1.0      # weight for population control term
-    resistance: 0.5      # weight for resistance reduction term
+    resistance: 0.05      # weight for resistance reduction term
     cost: 0.05          # weight for cost penalty
 
 # Example with custom costs:

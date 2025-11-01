@@ -87,6 +87,11 @@ class PetriEnvWrapper:
         # pending dose ledger (evaluated when a measurement lands)
         self.pending_dose: Optional[Dict[str, Any]] = None
 
+        noop_band = 0.02 * population_norm   # ~2% deadband around target
+        noop_mag  = 0.01                     # small shaping magnitude
+        self.noop_band = noop_band
+        self.noop_mag  = noop_mag
+
     # -------------------------
     # Public API
     # -------------------------
@@ -175,7 +180,17 @@ class PetriEnvWrapper:
         This improves PPO training stability vs. delayed rewards.
         """
         if a_discrete == ACTION_NOOP:
-            return -0.01
+            bonus = 0.0
+            if self.last_count_obs is not None:
+                diff = self.last_count_obs - self.target_population
+                if abs(diff) <= self.noop_band:
+                    bonus = 0.0  # in band: neutral
+                elif diff < 0:
+                    bonus = +self.noop_mag   # below target → doing nothing is good
+                else:
+                    bonus = -self.noop_mag   # above target → doing nothing is bad
+            # if we have no measurement yet, stay neutral
+            return bonus
 
         if a_discrete == ACTION_COUNT_BACTERIA:
             # As per spec: 0 cost, duration 0, reward 0 now
