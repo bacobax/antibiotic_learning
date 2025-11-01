@@ -33,12 +33,12 @@ actions:
 # Environment parameters
 environment:
   target_population: 100
-  budget_init: 5
+  budget_init: 100
   max_steps: 1000
   
   # Reward shaping weights
   reward_weights:
-    population: 1.0      # weight for population control term
+    population: 0.5      # weight for population control term
     resistance: 0.05      # weight for resistance reduction term
     cost: 0.05          # weight for cost penalty
 

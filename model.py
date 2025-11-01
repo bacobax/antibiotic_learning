@@ -413,7 +413,7 @@ class BacteriaModel(Model):
 
         self.step_count += 1
 
-        # print(f"Step {self.step_count}: Population = {len(self.agent_set)}")
+        #print(f"Step {self.step_count}: Population = {len(self.agent_set)}", flush=True)
         # Record history every step
         self._record_history()
 

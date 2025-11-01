@@ -151,10 +151,18 @@ class PetriEnvWrapper:
         done = (true_population == 0) or (self.t >= self.max_steps) or (self.budget < 0.0)
 
         # 6) Compute total reward: immediate action reward + step-wise population maintenance penalty
-        # This ensures the agent is incentivized to maintain population near target EVERY step,
-        # not just when dosing.
-        pop_maintenance_penalty = -(abs(true_population - self.target_population) / max(1.0, self.population_norm)) * self.w_population_maintenance
-        reward = immediate_reward + pop_maintenance_penalty
+        # ASYMMETRIC: penalize overshooting target more than undershooting
+        # This keeps population NEAR target, not at zero
+        above_target = max(0, true_population - self.target_population)
+        below_target = max(0, self.target_population - true_population)
+        
+        # Penalize overshooting 3x more than undershooting
+        # This discourages the agent from overdosing to zero
+        asymmetric_penalty = -(
+            3.0 * above_target + 0.3 * below_target
+        ) / max(1.0, self.population_norm) * self.w_population_maintenance
+        
+        reward = immediate_reward + asymmetric_penalty
         self.episode_return += reward
 
         info = {
@@ -238,6 +246,8 @@ class PetriEnvWrapper:
         Compute dose efficacy reward using CURRENT cached observations.
         This reward is assigned immediately to the timestep where the dose was administered.
         
+        Reward the agent for *approaching* target, not for massive kill-offs.
+        
         This design encourages the agent to:
           1. Dose when it has fresh population & genome information
           2. Avoid dosing on stale/blind data (via staleness penalty)
@@ -251,7 +261,7 @@ class PetriEnvWrapper:
         """
         
         # --- Population term ---
-        # Reward is based on *current* cached population relative to target
+        # Reward CLOSENESS to target, not killing everything
         P_star = self.target_population
         count_now = self.last_count_obs
         
@@ -260,6 +270,11 @@ class PetriEnvWrapper:
             # Closeness to target (agent wants pop near P*)
             gap = abs(count_now - P_star)
             pop_term = -gap / max(1.0, self.population_norm)  # negative of distance
+            
+            # Bonus for being in "good" zone (±20% of target)
+            good_zone_width = 0.2 * self.target_population
+            if abs(count_now - P_star) <= good_zone_width:
+                pop_term += 0.1  # bonus for being close
         else:
             # No population data yet → neutral signal (agent will learn not to dose blind)
             pop_term = 0.0
@@ -395,6 +410,7 @@ class PetriEnvWrapper:
           - model.apply_antibiotic(name, amount)
         Only non-trivial (> 1e-3) doses are applied.
         """
+        # print(f"APPLY ANTIBIOTICS: ", scaled_doses)
         ab_names = list(self.model.antibiotic_fields.keys())
         K = min(self.k_doses, len(ab_names))
         for i in range(K):

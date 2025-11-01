@@ -59,81 +59,7 @@ from .buffer import RolloutBuffer
 from .ppo import PPOTrainer
 from .logger import TrainingLogger
 from .action_config import load_action_config, get_default_action_config
-
-
-# ============================================================================
-# Mock environment for smoke testing
-# ============================================================================
-
-class MockMesaModel:
-    """Minimal mock of Mesa model for testing without full simulation."""
-    
-    def __init__(self):
-        self.step_count = 0
-        self.agent_set = set(range(50))  # Mock population
-        self.food_field = np.random.rand(32, 32) * 10.0
-        self.antibiotic_fields = {
-            "Penicillin": np.zeros((32, 32)),
-            "Tetracycline": np.zeros((32, 32)),
-            "Ciprofloxacin": np.zeros((32, 32)),
-        }
-        self.width = 100.0
-        self.height = 100.0
-    
-    def step(self):
-        """Advance one simulation step."""
-        self.step_count += 1
-        # Randomly remove some agents (population dynamics)
-        if len(self.agent_set) > 10 and np.random.rand() < 0.1:
-            self.agent_set.pop()
-        # Decay antibiotics
-        for field in self.antibiotic_fields.values():
-            field *= 0.95
-        # Regenerate food slightly
-        self.food_field += np.random.rand(32, 32) * 0.1
-    
-    def apply_antibiotic(self, antibiotic_type: str, amount: float):
-        """Apply antibiotic to field."""
-        if antibiotic_type in self.antibiotic_fields:
-            self.antibiotic_fields[antibiotic_type] += amount
-
-
-def build_mock_observation(model: MockMesaModel) -> np.ndarray:
-    """Build observation from mock model."""
-    obs = []
-    obs.append(len(model.agent_set) / 100.0)  # Population
-    obs.append(np.mean(model.food_field) / 10.0)  # Food
-    # Antibiotic concentrations
-    for field in model.antibiotic_fields.values():
-        obs.append(np.mean(field))
-    obs.append(model.step_count / 1000.0)  # Time
-    return np.array(obs, dtype=np.float32)
-
-
-def create_mock_env(k_doses: int = 3, target_population: int = 500, action_config: Dict = None) -> PetriEnvWrapper:
-    """Create mock environment for testing."""
-    # Extract parameters from action_config or use defaults
-    if action_config is None:
-        action_config = get_default_action_config()
-    
-    env_cfg = action_config.get("environment", {})
-    actions_cfg = action_config.get("actions", {})
-    
-    return PetriEnvWrapper(
-        mesa_model_factory=MockMesaModel,
-        k_doses=k_doses,
-        obs_builder=build_mock_observation,
-        scale_dose=lambda x: x * 2.0,  # Scale [0,1] to [0,2]
-        max_steps=env_cfg.get("max_steps", 500),
-        target_population=target_population or env_cfg.get("target_population", 500),
-        sequencing_cost=actions_cfg.get("sequencing", {}).get("cost", 1.0),
-        sequencing_duration=actions_cfg.get("sequencing", {}).get("duration", 5),
-        dose_cost_per_unit=actions_cfg.get("dose", {}).get("cost", 0.2),
-        budget_init=env_cfg.get("budget_init", 100.0),
-        w_pop=env_cfg.get("w_pop", 1.0),
-        w_genome=env_cfg.get("w_genome", 0.5),
-        w_cost=env_cfg.get("w_cost", 0.05),
-    )
+from model import BacteriaModel
 
 
 # ============================================================================
@@ -163,7 +89,7 @@ def rollout(
         h_state: Final hidden state
         metrics: Rollout statistics (includes mean_population_per_episode)
     """
-    from .env_wrapper import ACTION_DOSE
+    from .env_wrapper import ACTION_DOSE, ACTION_COUNT_BACTERIA, ACTION_NOOP, ACTION_SEQUENCING
     
     obs = env.reset()
     episode_rewards = []
@@ -172,6 +98,10 @@ def rollout(
     current_episode_reward = 0.0
     current_episode_length = 0
     dose_action_count = 0  # Track number of DOSE actions
+    sequencing_action_count = 0  # Track number of SEQUENCING actions
+    count_action_count = 0  # Track number of COUNT actions
+    noop_action_count = 0  # Track number of NOOP actions
+
     total_actions = 0  # Track total actions
     
     model.eval()
@@ -199,6 +129,13 @@ def rollout(
         # Track dose actions
         if a_disc == ACTION_DOSE:
             dose_action_count += 1
+        if a_disc == ACTION_SEQUENCING:
+            sequencing_action_count += 1
+        if a_disc == ACTION_COUNT_BACTERIA:
+            count_action_count += 1
+        if a_disc == ACTION_NOOP:
+            noop_action_count += 1
+            
         total_actions += 1
         
         # Environment step
@@ -238,6 +175,14 @@ def rollout(
     
     # Compute metrics
     dose_action_percentage = (dose_action_count / total_actions * 100) if total_actions > 0 else 0.0
+    sequencing_action_percentage = (sequencing_action_count / total_actions * 100) if total_actions > 0 else 0.0
+    count_action_percentage = (count_action_count / total_actions * 100) if total_actions > 0 else 0.0
+    noop_action_percentage = (noop_action_count / total_actions * 100) if total_actions > 0 else 0.0
+
+    print(f"APPLY ANTIBIOTIC RATE: {dose_action_percentage:.2f}%")
+    print(f"SEQUENCING ACTION RATE: {sequencing_action_percentage:.2f}%")
+    print(f"COUNT BACTERIA ACTION RATE: {count_action_percentage:.2f}%")
+    print(f"NOOP ACTION RATE: {noop_action_percentage:.2f}%")
     metrics = {
         "mean_episode_reward": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
         "std_episode_reward": float(np.std(episode_rewards)) if episode_rewards else 0.0,
@@ -449,46 +394,30 @@ def main():
     logger.log_debug(f"Random seed set to: {args.seed}")
     
     # Create environment
-    if args.mock:
-        logger.log_info("Using MOCK environment for smoke testing")
-        env = create_mock_env(
+
+    logger.log_info("Using REAL Mesa environment")
+    # Import real Mesa model (only when not mocking)
+  
+        
+  
+    
+    env = PetriEnvWrapper(
+            mesa_model_factory=BacteriaModel,
             k_doses=args.k_doses,
-            target_population=args.target_population,
-            action_config=action_config
-        )
-    else:
-        logger.log_info("Using REAL Mesa environment")
-        # Import real Mesa model (only when not mocking)
-        try:
-            from model import BacteriaModel
-            
-            def build_real_env():
-                return PetriEnvWrapper(
-                    mesa_model_factory=BacteriaModel,
-                    k_doses=args.k_doses,
-                    scale_dose=lambda x: x * 2.0,
-                    # Extract from config
-                    max_steps=env_cfg.get("max_steps", 1000),
-                    target_population=args.target_population or env_cfg.get("target_population", 500),
-                    sequencing_cost=actions_cfg.get("sequencing", {}).get("cost", 1.0),
-                    sequencing_duration=actions_cfg.get("sequencing", {}).get("duration", 5),
-                    dose_cost_per_unit=actions_cfg.get("dose", {}).get("cost", 0.2),
-                    budget_init=env_cfg.get("budget_init", 100.0),
-                    w_pop=env_cfg.get("w_pop", 1.0),
-                    w_genome=env_cfg.get("w_genome", 0.5),
-                    w_cost=env_cfg.get("w_cost", 0.05),
-                )
-            
-            env = build_real_env()
-            logger.log_debug("Successfully loaded BacteriaModel")
-        except ImportError as e:
-            logger.log_error(f"Failed to import Mesa model: {e}")
-            logger.log_warning("Falling back to mock environment")
-            env = create_mock_env(
-                k_doses=args.k_doses,
-                target_population=args.target_population,
-                action_config=action_config
-            )
+            scale_dose=lambda x: x / 2 / args.k_doses,
+            # Extract from config
+            max_steps=env_cfg.get("max_steps", 1000),
+            target_population=args.target_population or env_cfg.get("target_population", 500),
+            sequencing_cost=actions_cfg.get("sequencing", {}).get("cost", 1.0),
+            sequencing_duration=actions_cfg.get("sequencing", {}).get("duration", 5),
+            dose_cost_per_unit=actions_cfg.get("dose", {}).get("cost", 0.2),
+            budget_init=env_cfg.get("budget_init", 100.0),
+            w_pop=env_cfg.get("w_pop", 1.0),
+            w_genome=env_cfg.get("w_genome", 0.5),
+            w_cost=env_cfg.get("w_cost", 0.05),
+    )
+    logger.log_debug("Successfully loaded BacteriaModel")
+   
     
     # Infer observation dimension
     obs_dim = env.get_obs_dim()
