@@ -25,19 +25,17 @@ To integrate with the existing Mesa bacteria simulation:
        return np.array([...], dtype=np.float32)
 
 3. Run training:
-   
-   python -m rl.train \\
-       --k-doses 3 \\
-       --total-updates 100 \\
-       --steps-per-rollout 2048 \\
-       --device cpu
+
+   python -m rl.train --k-doses 3 --total-updates 100 --steps-per-rollout 2048 --device cpu
 
 The wrapper in env_wrapper.py handles all Mesa interaction.
 No changes needed to existing simulation code!
 """
 import argparse
 import json
+import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict
 
@@ -51,10 +49,50 @@ except ImportError:
     HAS_TQDM = False
 
 from .config import PPOConfig, set_global_seed
-from .env_wrapper import PetriEnvWrapper, build_observation_simple
+from .env_wrapper import PetriEnvWrapper
 from .models import RecurrentActorCritic
 from .buffer import RolloutBuffer
 from .ppo import PPOTrainer
+
+
+# ============================================================================
+# Logging Setup
+# ============================================================================
+
+def setup_logging(log_file: Path) -> logging.Logger:
+    """
+    Set up logging to file and console with appropriate levels.
+    
+    Args:
+        log_file: Path to save training logs
+    
+    Returns:
+        Configured logger instance
+    """
+    logger = logging.getLogger("PPO_Training")
+    logger.setLevel(logging.DEBUG)
+    
+    # Clear existing handlers
+    logger.handlers.clear()
+    
+    # File handler - detailed logs
+    fh = logging.FileHandler(log_file)
+    fh.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    fh.setFormatter(file_formatter)
+    logger.addHandler(fh)
+    
+    # Console handler - only important info
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('[%(levelname)s] %(message)s')
+    ch.setFormatter(console_formatter)
+    logger.addHandler(ch)
+    
+    return logger
 
 
 # ============================================================================
@@ -128,6 +166,7 @@ def rollout(
     num_steps: int,
     h_state: torch.Tensor,
     cfg: PPOConfig,
+    logger: logging.Logger = None,
 ) -> tuple[torch.Tensor, Dict[str, float]]:
     """
     Collect rollout trajectory.
@@ -139,6 +178,7 @@ def rollout(
         num_steps: Number of steps to collect
         h_state: Initial hidden state [layers, 1, hidden_dim]
         cfg: PPO config
+        logger: Logger instance
     
     Returns:
         h_state: Final hidden state
@@ -207,6 +247,9 @@ def rollout(
     # Compute metrics
     metrics = {
         "mean_episode_reward": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
+        "std_episode_reward": float(np.std(episode_rewards)) if episode_rewards else 0.0,
+        "max_episode_reward": float(np.max(episode_rewards)) if episode_rewards else 0.0,
+        "min_episode_reward": float(np.min(episode_rewards)) if episode_rewards else 0.0,
         "mean_episode_length": float(np.mean(episode_lengths)) if episode_lengths else 0.0,
         "num_episodes": int(len(episode_rewards)),
     }
@@ -214,15 +257,16 @@ def rollout(
     return h_state, metrics
 
 
-def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: int):
+def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: int, logger: logging.Logger):
     """
-    Main training loop.
+    Main training loop with comprehensive logging.
     
     Args:
         cfg: PPO configuration
         env: Environment wrapper
         save_dir: Directory to save checkpoints
         total_updates: Number of PPO updates to perform
+        logger: Logger instance
     """
     # Create model
     model = RecurrentActorCritic(
@@ -242,14 +286,27 @@ def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: i
     # Initialize hidden state
     h_state = model.init_hidden(batch_size=1, device=cfg.device)
     
+    logger.info(f"Starting PPO training for {total_updates} updates")
+    logger.info(f"Config: obs_dim={cfg.obs_dim}, hidden_dim={cfg.hidden_dim}, "
+                f"rnn_layers={cfg.rnn_layers}, k_doses={cfg.k_doses}")
+    logger.info(f"Hyperparams: lr={cfg.lr}, gamma={cfg.gamma}, gae_lambda={cfg.gae_lambda}")
+    logger.info(f"Rollout steps per update: {cfg.rollout_steps}, PPO epochs: {cfg.epochs}")
+    logger.debug(f"Using device: {cfg.device}")
+    
     # Progress bar
     iterator = tqdm(range(total_updates), desc="Training") if HAS_TQDM else range(total_updates)
+    
+    # Tracking for convergence monitoring
+    reward_history = []
+    loss_history = []
+    start_time = time.time()
+    best_reward = float('-inf')
     
     for update_idx in iterator:
         # Collect rollout
         buffer = RolloutBuffer()
         h_state, rollout_metrics = rollout(
-            env, model, buffer, cfg.rollout_steps, h_state, cfg
+            env, model, buffer, cfg.rollout_steps, h_state, cfg, logger
         )
         
         # PPO update
@@ -265,18 +322,53 @@ def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: i
         }
         log_data.append(log_entry)
         
-        # Print stats
-        if update_idx % 10 == 0:
-            print(f"\n[Update {update_idx}/{total_updates}]")
-            print(f"  Episode Reward: {rollout_metrics['mean_episode_reward']:.2f}")
-            print(f"  Episode Length: {rollout_metrics['mean_episode_length']:.1f}")
-            print(f"  Actor Loss: {train_stats['loss_actor']:.4f}")
-            print(f"  Critic Loss: {train_stats['loss_critic']:.4f}")
-            print(f"  Entropy: {train_stats['entropy']:.4f}")
-            print(f"  Clip Frac: {train_stats['clip_fraction']:.3f}")
+        # Track metrics
+        reward_history.append(rollout_metrics['mean_episode_reward'])
+        loss_history.append(train_stats['loss_actor'])
         
-        # Save checkpoint
-        if (update_idx + 1) % 50 == 0 or (update_idx + 1) == total_updates:
+        # Monitor for improvements
+        if rollout_metrics['mean_episode_reward'] > best_reward:
+            best_reward = rollout_metrics['mean_episode_reward']
+            logger.debug(f"New best reward: {best_reward:.4f}")
+        
+        # Periodic detailed logging (every 10 updates)
+        if update_idx % 10 == 0 and update_idx > 0:
+            elapsed = time.time() - start_time
+            updates_per_sec = (update_idx + 1) / elapsed
+            eta_sec = (total_updates - update_idx - 1) / updates_per_sec if updates_per_sec > 0 else 0
+            
+            logger.info(
+                f"UPDATE {update_idx:4d}/{total_updates} | "
+                f"Reward: {rollout_metrics['mean_episode_reward']:7.2f} "
+                f"(±{rollout_metrics['std_episode_reward']:5.2f}) | "
+                f"Episodes: {rollout_metrics['num_episodes']:3d} | "
+                f"Actor Loss: {train_stats['loss_actor']:.4f} | "
+                f"Critic Loss: {train_stats['loss_critic']:.4f}"
+            )
+            logger.debug(
+                f"  Entropy: {train_stats['entropy']:.4f} | "
+                f"Clip Frac: {train_stats['clip_fraction']:.3f} | "
+                f"Grad Norm: {train_stats['grad_norm']:.4f} | "
+                f"Value Mean: {train_stats['value_mean']:.4f}"
+            )
+            logger.debug(f"  ETA: {eta_sec/60:.1f} min ({updates_per_sec:.2f} updates/sec)")
+        
+        # Check for training issues
+        if np.isnan(train_stats['loss_actor']):
+            logger.error(f"NaN detected in actor loss at update {update_idx}!")
+            break
+        
+        if train_stats['clip_fraction'] > 0.5:
+            logger.warning(
+                f"High clipping fraction at update {update_idx}: {train_stats['clip_fraction']:.3f}. "
+                "Consider reducing learning rate or increasing PPO clip epsilon."
+            )
+        
+        if rollout_metrics['num_episodes'] == 0:
+            logger.warning(f"No episodes completed at update {update_idx}!")
+        
+        # Save checkpoint every 50 updates
+        if (update_idx + 1) % 50 == 0:
             checkpoint_path = save_dir / f"checkpoint_{update_idx+1}.pt"
             torch.save({
                 "update": update_idx + 1,
@@ -284,13 +376,43 @@ def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: i
                 "optimizer_state_dict": trainer.optimizer.state_dict(),
                 "config": cfg,
             }, checkpoint_path)
-            print(f"Saved checkpoint: {checkpoint_path}")
+            logger.debug(f"Saved checkpoint: {checkpoint_path}")
+        
+        # Save final checkpoint
+        if (update_idx + 1) == total_updates:
+            checkpoint_path = save_dir / f"checkpoint_final_{update_idx+1}.pt"
+            torch.save({
+                "update": update_idx + 1,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": trainer.optimizer.state_dict(),
+                "config": cfg,
+            }, checkpoint_path)
+            logger.info(f"Saved final checkpoint: {checkpoint_path}")
     
     # Save final log
     log_path = save_dir / "training_log.json"
     with open(log_path, "w") as f:
         json.dump(log_data, f, indent=2)
-    print(f"Saved training log: {log_path}")
+    logger.info(f"Saved training log: {log_path}")
+    
+    # Training summary
+    total_time = time.time() - start_time
+    logger.info("="*70)
+    logger.info("TRAINING SUMMARY")
+    logger.info("="*70)
+    logger.info(f"Total time: {total_time/60:.1f} minutes ({total_time/3600:.2f} hours)")
+    logger.info(f"Best reward achieved: {best_reward:.4f}")
+    logger.info(f"Final reward: {reward_history[-1]:.4f}")
+    logger.info(f"Final actor loss: {loss_history[-1]:.4f}")
+    
+    # Compute reward trend (last 10 vs first 10 updates)
+    if len(reward_history) > 20:
+        early_avg = np.mean(reward_history[:10])
+        late_avg = np.mean(reward_history[-10:])
+        improvement = late_avg - early_avg
+        logger.info(f"Reward improvement (first 10 vs last 10 updates): {improvement:+.4f}")
+    
+    logger.info("="*70)
 
 
 # ============================================================================
@@ -328,42 +450,51 @@ def main():
     
     args = parser.parse_args()
     
-    # Set seed
-    set_global_seed(args.seed)
-    
     # Create save directory
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
     
+    # Setup logging
+    logger = setup_logging(save_dir / "training.log")
+    
+    # Log startup info
+    logger.info("="*70)
+    logger.info("PPO Training Started")
+    logger.info("="*70)
+    logger.info(f"Command: {' '.join(['python', '-m', 'rl.train'] + [f'--{k.replace('_', '-')} {v}' for k, v in vars(args).items()])}")
+    
+    # Set seed
+    set_global_seed(args.seed)
+    logger.debug(f"Random seed set to: {args.seed}")
+    
     # Create environment
     if args.mock:
-        print("Using MOCK environment for smoke testing...")
+        logger.info("Using MOCK environment for smoke testing")
         env = create_mock_env(k_doses=args.k_doses)
     else:
-        print("Using REAL Mesa environment...")
+        logger.info("Using REAL Mesa environment")
         # Import real Mesa model (only when not mocking)
         try:
             from model import BacteriaModel
-            from .env_wrapper import build_observation_simple
             
             def build_real_env():
                 return PetriEnvWrapper(
                     mesa_model_factory=BacteriaModel,
                     k_doses=args.k_doses,
-                    obs_builder=build_observation_simple,
                     scale_dose=lambda x: x * 2.0,
                     max_steps=1000,
                 )
             
             env = build_real_env()
+            logger.debug("Successfully loaded BacteriaModel")
         except ImportError as e:
-            print(f"Failed to import Mesa model: {e}")
-            print("Falling back to mock environment...")
+            logger.error(f"Failed to import Mesa model: {e}")
+            logger.warning("Falling back to mock environment")
             env = create_mock_env(k_doses=args.k_doses)
     
     # Infer observation dimension
     obs_dim = env.get_obs_dim()
-    print(f"Observation dimension: {obs_dim}")
+    logger.info(f"Observation dimension: {obs_dim}")
     
     # Build config
     cfg = PPOConfig(
@@ -388,12 +519,13 @@ def main():
     config_path = save_dir / "config.json"
     with open(config_path, "w") as f:
         json.dump(vars(args), f, indent=2)
-    print(f"Saved config: {config_path}")
+    logger.debug(f"Saved config to: {config_path}")
     
     # Train
-    print("\nStarting training...")
-    train(cfg, env, save_dir, args.total_updates)
-    print("\nTraining complete!")
+    logger.info("="*70)
+    train(cfg, env, save_dir, args.total_updates, logger)
+    logger.info("="*70)
+    logger.info("Training complete! Logs saved to training.log and training_log.json")
 
 
 if __name__ == "__main__":

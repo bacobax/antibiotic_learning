@@ -1,274 +1,449 @@
-"""
-Thin environment wrapper around Mesa bacteria simulation.
-
-This wrapper exposes a Gym-like API without requiring Gym as a dependency.
-It maintains clean separation between RL code and simulation code.
-"""
-from typing import Any, Callable, Dict, Tuple
-
+from typing import Any, Callable, Dict, Tuple, Optional
 import numpy as np
 
-
-# Discrete action space mapping
+# Discrete actions
 ACTION_NOOP = 0
 ACTION_COUNT_BACTERIA = 1
 ACTION_SEQUENCING = 2
 ACTION_DOSE = 3
 
-
 class PetriEnvWrapper:
     """
-    Thin wrapper around Mesa bacteria simulation for RL training.
+    Thin wrapper around a Mesa bacteria simulation for RL:
+      - Partial observability: agent only "knows" what it measures.
+      - Action durations: sequencing has latency; count is instant.
+      - Delayed rewards: dose efficacy is evaluated when a measurement lands.
     
-    Exposes a Gym-like interface (reset, step) without requiring Gym.
-    Supports hybrid action space: discrete action selection + continuous dose vector.
-    
-    Attributes:
-        mesa_model_factory: Callable that returns a fresh Mesa model instance
-        k_doses: Number of antibiotic types (dimension of continuous action)
-        obs_builder: Callable that extracts observation from Mesa model
-        scale_dose: Callable to scale [0,1] doses to simulation units
+    Observation vector (gated, not the true state):
+      [ budget_norm,
+        last_count_norm,                          # -1 if never observed
+        last_seq_avg_enzyme, last_seq_avg_efflux,
+        last_seq_avg_repair, last_seq_avg_membrane,  # 0 if never observed
+        last_seq_prop_0 .. last_seq_prop_{K-1},      # 0 if never observed
+        time_since_last_measure_norm,
+        is_seq_pending (0/1),
+        steps_until_seq_result_norm
+      ]
+    Length = 1 (budget) + 1 (count) + 4 (genome avgs) + K (proportions) + 3 meta = 9 + K
     """
-    
+
     def __init__(
         self,
         mesa_model_factory: Callable[[], Any],
         k_doses: int,
-        obs_builder: Callable[[Any], np.ndarray],
-        scale_dose: Callable[[np.ndarray], np.ndarray] = None,
+        scale_dose: Optional[Callable[[np.ndarray], np.ndarray]] = None,
         max_steps: int = 1000,
+        # costs & durations
+        sequencing_cost: float = 1.0,
+        sequencing_duration: int = 5,   # steps to finish
+        dose_cost_per_unit: float = 0.2,
+        # shaping & norms
+        target_population: int = 500,   # P*
+        w_pop: float = 1.0,             # weight for population term
+        w_genome: float = 0.5,          # weight for resistance term
+        w_cost: float = 0.05,           # weight for monetary penalty
+        budget_init: float = 100.0,
+        budget_norm: float = 100.0,     # divisor for budget normalization
+        population_norm: float = 1000.0, # to map counts to ~[0,1]
     ):
-        """
-        Initialize environment wrapper.
-        
-        Args:
-            mesa_model_factory: Function that returns a fresh Mesa model/environment
-            k_doses: Number of antibiotic types (K in [0,1]^K)
-            obs_builder: Function that builds observation from model
-                         Signature: model -> np.ndarray with shape [obs_dim]
-            scale_dose: Optional function to scale [0,1] doses to simulation units
-                        Default: identity (no scaling)
-            max_steps: Maximum steps per episode before truncation
-        """
         self.mesa_model_factory = mesa_model_factory
         self.k_doses = k_doses
-        self.obs_builder = obs_builder
-        self.scale_dose = scale_dose if scale_dose is not None else lambda x: x
+        self.scale_dose = scale_dose if scale_dose is not None else (lambda x: x)
         self.max_steps = max_steps
-        
-        # Internal state
-        self.model = None
+
+        # economics & timing
+        self.sequencing_cost = sequencing_cost
+        self.sequencing_duration = sequencing_duration
+        self.dose_cost_per_unit = dose_cost_per_unit
+
+        # reward shaping
+        self.target_population = target_population
+        self.w_pop = w_pop
+        self.w_genome = w_genome
+        self.w_cost = w_cost
+
+        # normalization/display
+        self.budget_init = budget_init
+        self.budget_norm = budget_norm
+        self.population_norm = population_norm
+
+        # runtime state
+        self.model: Any = None
         self.t = 0
         self.episode_return = 0.0
-        
-        # Pending events (for COUNT_BACTERIA, SEQUENCING with delays)
-        self.pending_count = False
-        self.pending_sequencing = False
-        self.count_cooldown = 0
-        self.sequencing_cooldown = 0
-        
-        # Action tracking for rewards
-        self.last_population = 0
-        self.last_action = ACTION_NOOP
-    
+        self.budget = budget_init
+
+        # observation cache (what the agent "knows")
+        self.last_count_obs: Optional[int] = None
+        self.last_seq_obs: Optional[Dict[str, Any]] = None
+        self.ts_last_measure: Optional[int] = None
+
+        # sequencing pipeline
+        self.seq_pending = False
+        self.seq_eta = 0  # steps until result is ready
+
+        # pending dose ledger (evaluated when a measurement lands)
+        self.pending_dose: Optional[Dict[str, Any]] = None
+
+    # -------------------------
+    # Public API
+    # -------------------------
+
     def reset(self) -> np.ndarray:
-        """
-        Reset environment to initial state.
-        
-        Returns:
-            obs: Initial observation, shape [obs_dim]
-        """
-        # Create fresh Mesa model
         self.model = self.mesa_model_factory()
-        
-        # Reset internal counters
         self.t = 0
         self.episode_return = 0.0
-        self.pending_count = False
-        self.pending_sequencing = False
-        self.count_cooldown = 0
-        self.sequencing_cooldown = 0
-        self.last_population = len(self.model.agent_set)
-        self.last_action = ACTION_NOOP
-        
-        # Build initial observation
-        obs = self.obs_builder(self.model)
-        assert isinstance(obs, np.ndarray), "obs_builder must return np.ndarray"
-        assert obs.ndim == 1, f"Expected 1D obs, got shape {obs.shape}"
-        
-        return obs.astype(np.float32)
-    
-    def step(
-        self, 
-        a_discrete: int, 
-        a_cont: np.ndarray
-    ) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
-        """
-        Execute one environment step.
-        
-        Args:
-            a_discrete: Discrete action index (0=NOOP, 1=COUNT, 2=SEQ, 3=DOSE)
-            a_cont: Continuous dose vector in [0,1]^K (only used if a_discrete == DOSE)
-        
-        Returns:
-            obs: Next observation, shape [obs_dim]
-            reward: Scalar reward for this step
-            done: Whether episode is terminated
-            info: Dict containing {"budget": float, "t": int, "population": int}
-        """
-        assert isinstance(a_discrete, (int, np.integer)), "a_discrete must be int"
-        assert isinstance(a_cont, np.ndarray), "a_cont must be np.ndarray"
-        assert a_cont.shape == (self.k_doses,), f"Expected a_cont shape ({self.k_doses},), got {a_cont.shape}"
-        assert 0 <= a_discrete < 4, f"a_discrete must be in [0, 3], got {a_discrete}"
-        
-        # Execute action
-        reward = self._execute_action(a_discrete, a_cont)
-        
-        # Step Mesa simulation once
+        self.budget = self.budget_init
+
+        # clear caches
+        self.last_count_obs = None
+        self.last_seq_obs = None
+        self.ts_last_measure = None
+
+        # clear pipelines
+        self.seq_pending = False
+        self.seq_eta = 0
+        self.pending_dose = None
+
+        return self._build_observation()
+
+    def step(self, a_discrete: int, a_cont: np.ndarray) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+        assert 0 <= a_discrete <= 3, f"a_discrete out of range: {a_discrete}"
+        assert isinstance(a_cont, np.ndarray) and a_cont.shape == (self.k_doses,), \
+            f"a_cont must be np.ndarray shape ({self.k_doses},)"
+
+        # 1) Execute action: computes immediate reward (dose reward computed here now)
+        immediate_reward = self._execute_action(a_discrete, a_cont)
+
+        # 2) Advance simulation one base step
         self.model.step()
         self.t += 1
-        
-        # Update cooldowns
-        if self.count_cooldown > 0:
-            self.count_cooldown -= 1
-        if self.sequencing_cooldown > 0:
-            self.sequencing_cooldown -= 1
-        
-        # Build next observation
-        obs = self.obs_builder(self.model)
-        obs = obs.astype(np.float32)
-        
-        # Check termination
-        population = len(self.model.agent_set)
-        done = (population == 0) or (self.t >= self.max_steps)
-        
-        # Build info dict (no large objects)
-        info = {
-            "budget": 1.0,  # Placeholder budget value
-            "t": self.t,
-            "population": population,
-            "episode_return": self.episode_return,
-        }
-        
+
+        # 3) Progress sequencing countdown; when it finishes, publish result
+        # Note: We no longer use delayed dose rewards here
+        if self.seq_pending:
+            self.seq_eta -= 1
+            if self.seq_eta <= 0:
+                # Sequencing result lands NOW
+                seq_result = self._read_true_sequencing()
+                self._cache_sequencing_obs(seq_result)
+                self.seq_pending = False
+                self.seq_eta = 0
+
+        # COUNT has duration 0 → if the agent performed COUNT this step, cache count obs immediately
+        if a_discrete == ACTION_COUNT_BACTERIA:
+            # We just performed a count → cache count obs immediately
+            count_now = self._read_true_population()
+            self._cache_count_obs(count_now)
+
+        # 4) Build obs from what the agent knows (cached), never from the hidden true state directly
+        obs = self._build_observation()
+
+        # 5) Termination conditions
+        true_population = self._read_true_population()
+        done = (true_population == 0) or (self.t >= self.max_steps) or (self.budget < 0.0)
+
+        # 6) Reward is now just immediate (dose efficacy computed at admin time)
+        reward = immediate_reward
         self.episode_return += reward
-        self.last_population = population
-        self.last_action = a_discrete
-        
-        return obs, reward, done, info
-    
+
+        info = {
+            "t": self.t,
+            "true_population": true_population,  # diagnostic only (agent doesn't see it)
+            "episode_return": self.episode_return,
+            "budget": self.budget,
+            "seq_pending": self.seq_pending,
+            "seq_eta": self.seq_eta,
+        }
+        return obs, float(reward), bool(done), info
+
+    # -------------------------
+    # Action execution
+    # -------------------------
+
     def _execute_action(self, a_discrete: int, a_cont: np.ndarray) -> float:
         """
-        Execute discrete action and return immediate reward.
+        Applies the chosen action. Returns *immediate* reward.
+        
+        For ACTION_DOSE: reward is computed immediately using cached observations,
+        aligning credit assignment with the timestep where the decision was made.
+        This improves PPO training stability vs. delayed rewards.
+        """
+        if a_discrete == ACTION_NOOP:
+            return -0.01
+
+        if a_discrete == ACTION_COUNT_BACTERIA:
+            # As per spec: 0 cost, duration 0, reward 0 now
+            return 0.0
+
+        if a_discrete == ACTION_SEQUENCING:
+            # Cost now, reward 0 now; result later
+            self.budget -= self.sequencing_cost
+            if not self.seq_pending:
+                self.seq_pending = True
+                self.seq_eta = int(self.sequencing_duration)
+            # If sequencing is already pending, we just paid again (your call: you could block or queue)
+            return 0.0
+
+        if a_discrete == ACTION_DOSE:
+            # Cost now; efficacy reward computed immediately using cached obs
+            scaled = self.scale_dose(np.clip(a_cont, 0.0, 1.0))
+            self._apply_antibiotics(scaled)
+
+            cost = float(np.sum(scaled) * self.dose_cost_per_unit)
+            self.budget -= cost
+
+            # ✅ Compute efficacy reward IMMEDIATELY using cached observations
+            # This aligns credit with the timestep where the dose decision was made
+            efficacy_reward = self._compute_dose_reward_immediate(scaled)
+
+            # Store for diagnosis/debugging (but don't wait for delayed settling)
+            self.pending_dose = {
+                "t_admin": self.t,
+                "dose_vector": scaled.copy(),
+                "cost": cost,
+                "baseline_count": self.last_count_obs,
+                "baseline_seq": self.last_seq_obs,
+                "settled": True,  # ← Already settled at admin time!
+            }
+            return float(efficacy_reward)
+        
+        raise ValueError(f"Unknown discrete action: {a_discrete}")
+
+        # Should never reach here
+        return 0.0
+
+    def _compute_dose_reward_immediate(self, dose_vector: np.ndarray) -> float:
+        """
+        Compute dose efficacy reward using CURRENT cached observations.
+        This reward is assigned immediately to the timestep where the dose was administered.
+        
+        This design encourages the agent to:
+          1. Dose when it has fresh population & genome information
+          2. Avoid dosing on stale/blind data (via staleness penalty)
+          3. Trade off measurement costs against effectiveness
         
         Args:
-            a_discrete: Discrete action index
-            a_cont: Continuous dose vector (only used for DOSE action)
-        
+            dose_vector: scaled dose amounts [0, 1] for each antibiotic
+            
         Returns:
-            reward: Immediate reward for this action
+            Immediate reward signal
         """
-        reward = 0.0
         
-        if a_discrete == ACTION_NOOP:
-            # Do nothing, small negative reward for passing time
-            reward = -0.01
+        # --- Population term ---
+        # Reward is based on *current* cached population relative to target
+        P_star = self.target_population
+        count_now = self.last_count_obs
         
-        elif a_discrete == ACTION_COUNT_BACTERIA:
-            # Count bacteria (assume instant or use cooldown)
-            if self.count_cooldown == 0:
-                # Schedule count (in real implementation, this might have a delay)
-                self.pending_count = True
-                self.count_cooldown = 5  # 5 step cooldown
-                reward = -0.05  # Small cost for counting
-            else:
-                # Action on cooldown
-                reward = -0.1
+        pop_term = 0.0
+        if count_now is not None:
+            # Closeness to target (agent wants pop near P*)
+            gap = abs(count_now - P_star)
+            pop_term = -gap / max(1.0, self.population_norm)  # negative of distance
+        else:
+            # No population data yet → neutral signal (agent will learn not to dose blind)
+            pop_term = 0.0
         
-        elif a_discrete == ACTION_SEQUENCING:
-            # Genome sequencing (expensive, longer cooldown)
-            if self.sequencing_cooldown == 0:
-                self.pending_sequencing = True
-                self.sequencing_cooldown = 20  # 20 step cooldown
-                reward = -0.2  # Higher cost for sequencing
-            else:
-                # Action on cooldown
-                reward = -0.15
+        # --- Genome term ---
+        # Reward is based on *current* cached genome (or zeros if none)
+        # Lower resistance traits are better
+        genome_term = 0.0
+        if self.last_seq_obs is not None:
+            avg = self.last_seq_obs["avg_genome"]  # [enzyme, efflux, repair, membrane]
+            genome_term = -float(np.mean(avg))  # penalize high resistance
+        else:
+            # No sequencing data yet → neutral
+            genome_term = 0.0
         
-        elif a_discrete == ACTION_DOSE:
-            # Apply antibiotic doses
-            # a_cont is in [0, 1]^K, scale if needed
-            scaled_doses = self.scale_dose(a_cont)
-            
-            # Apply each antibiotic type to the model
-            # Assume model has apply_antibiotic(antibiotic_type, amount) method
-            antibiotic_types = list(self.model.antibiotic_fields.keys())
-            
-            for i, ab_type in enumerate(antibiotic_types[:self.k_doses]):
-                dose_amount = float(scaled_doses[i])
-                if dose_amount > 0.01:  # Only apply significant doses
-                    self.model.apply_antibiotic(ab_type, dose_amount)
-            
-            # Reward based on dose amount (negative cost)
-            total_dose = np.sum(scaled_doses)
-            reward = -0.1 * total_dose
+        # --- Staleness penalty ---
+        # Discourage dosing on very old information
+        if self.ts_last_measure is not None:
+            ts_since = self.t - self.ts_last_measure
+            staleness_factor = min(1.0, ts_since / 100.0)
+            staleness_penalty = -staleness_factor * 0.1  # small penalty for old data
+        else:
+            staleness_penalty = -0.2  # penalty for dosing completely blind
         
-        return reward
-    
+        # --- Cost term ---
+        cost_term = -float(np.sum(dose_vector) * self.dose_cost_per_unit)
+        
+        # Weighted combination
+        reward = (
+            self.w_pop * pop_term +
+            self.w_genome * genome_term +
+            self.w_cost * cost_term +
+            staleness_penalty
+        )
+        
+        return float(reward)
+
+    # -------------------------
+    # Reward computation
+    # -------------------------
+
+    def _settle_pending_dose_reward(self, measure_type: str) -> float:
+        """
+        Computes and releases the efficacy reward for the *last pending dose*,
+        using the most recent observation that just arrived.
+        measure_type: "count" or "sequencing"
+        """
+        rec = self.pending_dose
+        if rec is None or rec.get("settled", False):
+            return 0.0
+
+        # Current observed indicators
+        count_now = self.last_count_obs
+        seq_now = self.last_seq_obs  # may be None if measure_type == "count"
+
+        # If we don't even have a count, avoid producing reward
+        if count_now is None:
+            return 0.0
+
+        # --- Population term ---
+        # Encourage moving toward the target P* (closer is better) and reward reductions if above target
+        P_star = self.target_population
+        baseline_count = rec["baseline_count"]
+        pop_term = 0.0
+        if baseline_count is not None:
+            # Signed improvement toward target (bounded)
+            prev_gap = abs(baseline_count - P_star)
+            now_gap = abs(count_now - P_star)
+            pop_term = (prev_gap - now_gap) / max(1.0, self.population_norm)  # improvement normalized
+        else:
+            # If we had no baseline, use a simple closeness term
+            now_gap = abs(count_now - P_star)
+            pop_term = -now_gap / max(1.0, self.population_norm)
+
+        # --- Genome term (only if sequencing) ---
+        genome_term = 0.0
+        if measure_type == "sequencing" and seq_now is not None:
+            # Example: penalize higher averaged resistances after dosing
+            # You can refine with your antibiotic-type weights here.
+            avg = seq_now["avg_genome"]  # (enzyme, efflux, repair, membrane)
+            # Lower is better → negative of mean
+            genome_term = -(float(np.mean(avg)))
+
+        # --- Cost term ---
+        cost_term = -rec["cost"]  # spending should reduce reward
+
+        # Weighted sum
+        reward = self.w_pop * pop_term + self.w_genome * genome_term + self.w_cost * cost_term
+
+        # Mark settled (one-shot)
+        rec["settled"] = True
+        self.pending_dose = rec
+        return float(reward)
+
+    # -------------------------
+    # Reading true state (hidden from agent)
+    # -------------------------
+
+    def _read_true_population(self) -> int:
+        # Assumes the Mesa model exposes agent set
+        return int(len(self.model.agent_set))
+
+    def _read_true_sequencing(self) -> Dict[str, Any]:
+        """
+        Build a sequencing summary from the true state (hidden),
+        shaped like:
+          { "avg_genome": np.array([enzyme, efflux, repair, membrane], dtype=float32),
+            "proportions": np.array([p_0..p_{K-1}], dtype=float32) }
+        """
+        # --- Average genome traits ---
+        pop = self._read_true_population()
+        if pop > 0:
+            enzyme = np.mean([b.enzyme for b in self.model.agent_set])
+            efflux = np.mean([b.efflux for b in self.model.agent_set])
+            repair = np.mean([b.repair for b in self.model.agent_set])
+            membrane = np.mean([b.membrane for b in self.model.agent_set])
+        else:
+            enzyme = efflux = repair = membrane = 0.0
+
+        # --- Type proportions ---
+        # You can compute these from your model taxonomy; here we default to zeros
+        proportions = np.zeros((self.k_doses,), dtype=np.float32)
+
+        return {
+            "avg_genome": np.array([enzyme, efflux, repair, membrane], dtype=np.float32),
+            "proportions": proportions,
+        }
+
+    def _apply_antibiotics(self, scaled_doses: np.ndarray) -> None:
+        """
+        Applies antibiotics into the Mesa model. Expects the model to have:
+          - model.antibiotic_fields: Dict[name -> field]
+          - model.apply_antibiotic(name, amount)
+        Only non-trivial (> 1e-3) doses are applied.
+        """
+        ab_names = list(self.model.antibiotic_fields.keys())
+        K = min(self.k_doses, len(ab_names))
+        for i in range(K):
+            amt = float(scaled_doses[i])
+            if amt > 1e-3:
+                self.model.apply_antibiotic(ab_names[i], amt)
+
+    # -------------------------
+    # Observation management (gated)
+    # -------------------------
+
+    def _cache_count_obs(self, population: int) -> None:
+        self.last_count_obs = int(population)
+        self.ts_last_measure = self.t
+
+    def _cache_sequencing_obs(self, seq: Dict[str, Any]) -> None:
+        self.last_seq_obs = {
+            "avg_genome": seq["avg_genome"].astype(np.float32),
+            "proportions": seq["proportions"].astype(np.float32),
+            "t": self.t,
+        }
+        self.ts_last_measure = self.t
+
+    def _build_observation(self) -> np.ndarray:
+        """
+        Assemble what the agent is allowed to see (cached measurements + meta).
+        """
+        budget_norm = np.clip(self.budget / max(1.0, self.budget_norm), -1.0, 1.0)
+
+        # Count
+        if self.last_count_obs is None:
+            last_count_norm = -1.0  # sentinel for unknown
+        else:
+            last_count_norm = float(self.last_count_obs) / max(1.0, self.population_norm)
+
+        # Sequencing
+        if self.last_seq_obs is None:
+            avg_genome = np.zeros((4,), dtype=np.float32)
+            props = np.zeros((self.k_doses,), dtype=np.float32)
+        else:
+            avg_genome = self.last_seq_obs["avg_genome"]
+            props = self.last_seq_obs["proportions"]
+
+        # Meta
+        if self.ts_last_measure is None:
+            ts_since = 0
+        else:
+            ts_since = self.t - self.ts_last_measure
+
+        time_since_last_measure_norm = min(1.0, ts_since / 100.0)
+        seq_pending_flag = 1.0 if self.seq_pending else 0.0
+        seq_eta_norm = min(1.0, max(0, self.seq_eta) / max(1, self.sequencing_duration))
+
+        obs_parts = [
+            budget_norm,
+            last_count_norm,
+            *avg_genome.tolist(),
+            *props.tolist(),
+            time_since_last_measure_norm,
+            seq_pending_flag,
+            seq_eta_norm,
+        ]
+        return np.asarray(obs_parts, dtype=np.float32)
+
+    # -------------------------
+    # Convenience
+    # -------------------------
+
     def get_obs_dim(self) -> int:
-        """
-        Get observation dimension by running a dummy reset.
-        
-        Returns:
-            obs_dim: Dimensionality of observation space
-        """
-        obs = self.reset()
-        return obs.shape[0]
-
-
-def build_observation_simple(model: Any) -> np.ndarray:
-    """
-    Simple observation builder for bacteria simulation.
-    
-    Constructs a flat observation vector from model state:
-    - Current population count
-    - Average resistance traits
-    - Food level
-    - Antibiotic concentrations
-    - Time step
-    
-    Args:
-        model: Mesa bacteria model instance
-    
-    Returns:
-        obs: Flat observation vector as np.ndarray
-    """
-    obs_parts = []
-    
-    # Population count (normalized by initial population)
-    population = len(model.agent_set)
-    obs_parts.append(population / 100.0)  # Normalize
-    
-    # Average traits (if population exists)
-    if population > 0:
-        avg_enzyme = np.mean([b.enzyme for b in model.agent_set])
-        avg_efflux = np.mean([b.efflux for b in model.agent_set])
-        avg_membrane = np.mean([b.membrane for b in model.agent_set])
-        avg_repair = np.mean([b.repair for b in model.agent_set])
-    else:
-        avg_enzyme = avg_efflux = avg_membrane = avg_repair = 0.0
-    
-    obs_parts.extend([avg_enzyme, avg_efflux, avg_membrane, avg_repair])
-    
-    # Total food level (normalized)
-    total_food = np.sum(model.food_field)
-    obs_parts.append(total_food / 1000.0)  # Normalize
-    
-    # Average antibiotic concentrations for each type
-    for ab_field in model.antibiotic_fields.values():
-        avg_ab = np.mean(ab_field)
-        obs_parts.append(avg_ab)
-    
-    # Time step (normalized)
-    obs_parts.append(model.step_count / 1000.0)
-    
-    return np.array(obs_parts, dtype=np.float32)
+        # Build once without stepping sim
+        dummy = self._build_observation()
+        return int(dummy.shape[0])

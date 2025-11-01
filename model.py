@@ -291,24 +291,28 @@ class BacteriaModel(Model):
         gy *= self.field_h / self.height
         return gx, gy
 
-    def apply_antibiotic(self, antibiotic_type, amount):
+    def apply_antibiotic(self, antibiotic_type, amount, verbose=False):
         """Apply antibiotic of specific type to the field
 
         Args:
             antibiotic_type: The type of antibiotic to apply (must be in ANTIBIOTIC_TYPES)
             amount: The concentration to add to the field
+            verbose: If True, print application details (default: False for cleaner logs)
         """
         if amount <= 0:
             return
 
         if antibiotic_type not in ANTIBIOTIC_TYPES:
-            print(f"Warning: Unknown antibiotic type '{antibiotic_type}'")
+            if verbose:
+                print(f"Warning: Unknown antibiotic type '{antibiotic_type}'")
             return
 
         self.antibiotic_fields[antibiotic_type] += float(amount)
-        print(
-            f"Applied {amount:.3f} of {antibiotic_type} (total avg: {np.mean(self.antibiotic_fields[antibiotic_type]):.3f})"
-        )
+        
+        # Only log if explicitly requested to avoid console spam during RL training
+        if verbose:
+            avg_conc = float(np.mean(self.antibiotic_fields[antibiotic_type]))
+            print(f"Applied {amount:.3f} of {antibiotic_type} (total avg: {avg_conc:.3f})")
 
     def get_antibiotic_concentrations_at_position(self, fx, fy):
         """Get all antibiotic concentrations at a position as a dictionary
