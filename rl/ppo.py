@@ -119,8 +119,7 @@ class PPOTrainer:
                 
                 # Evaluate actions with current policy
                 eval_dict = self.model.evaluate_actions(
-                    obs_chunk, h_init, a_disc_chunk, a_cont_chunk,
-                    dose_action_index=self.cfg.dose_action_index,
+                    obs_chunk, h_init, a_disc_chunk, a_cont_chunk
                 )
                 
                 new_logp_disc = eval_dict["logp_disc"]

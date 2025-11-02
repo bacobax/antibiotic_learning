@@ -53,6 +53,7 @@ class RecurrentActorCritic(nn.Module):
         k_doses: int,
         hidden_dim: int = 256,
         rnn_layers: int = 1,
+        dose_action_index: int = 3,
     ):
         """
         Initialize Recurrent Actor-Critic.
@@ -71,6 +72,7 @@ class RecurrentActorCritic(nn.Module):
         self.k_doses = k_doses
         self.hidden_dim = hidden_dim
         self.rnn_layers = rnn_layers
+        self.dose_action_index = dose_action_index
         
         # GRU core
         self.gru = nn.GRU(
@@ -143,7 +145,6 @@ class RecurrentActorCritic(nn.Module):
         self,
         obs: torch.Tensor,
         h_prev: torch.Tensor,
-        dose_action_index: int = 3,
         deterministic: bool = False,
     ) -> Dict[str, torch.Tensor]:
         """
@@ -188,7 +189,7 @@ class RecurrentActorCritic(nn.Module):
         logp_cont_raw = dist_cont.log_prob(a_cont_raw).sum(dim=-1)  # [B]
         
         # Mask: only use continuous log-prob if discrete action is DOSE
-        is_dose = (a_disc == dose_action_index).float()  # [B]
+        is_dose = (a_disc == self.dose_action_index).float()  # [B]
         logp_cont = logp_cont_raw * is_dose
         
         return {
@@ -206,7 +207,6 @@ class RecurrentActorCritic(nn.Module):
         h_init: torch.Tensor,
         a_disc: torch.Tensor,
         a_cont: torch.Tensor,
-        dose_action_index: int = 3,
     ) -> Dict[str, torch.Tensor]:
         """
         Evaluate log-probs and values for given actions over a sequence.
@@ -255,7 +255,7 @@ class RecurrentActorCritic(nn.Module):
         entropy_cont = dist_cont.entropy().sum(dim=-1)  # [T, B]
         
         # Mask by DOSE action
-        is_dose = (a_disc == dose_action_index).float()  # [T, B]
+        is_dose = (a_disc == self.dose_action_index).float()  # [T, B]
         logp_cont = logp_cont_raw * is_dose
         entropy_cont = entropy_cont * is_dose
         
