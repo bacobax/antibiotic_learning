@@ -163,6 +163,8 @@ class SimulationVisualizer:
         self.highlight_scat = None
         self.im_food = None
         self.im_ab = None
+        self.biofilm_lines = []  # List to hold biofilm connection lines
+
 
     def _on_click(self, event):
         """Handle mouse clicks to select bacteria"""
@@ -209,6 +211,36 @@ class SimulationVisualizer:
     def get_bacterial_colors(self, agents):
         """Get numerical colors for bacterial types"""
         return [self.color_map.get(a.bacterial_type, 0) for a in agents]
+
+    @staticmethod
+    def _convex_hull(points):
+        """Compute 2D convex hull of a set of points using Andrew's monotone chain.
+
+        points: iterable of (x, y)
+        Returns a list of hull vertices in counter-clockwise order (no duplicate endpoint).
+        """
+        pts = sorted(set(points))
+        if len(pts) <= 1:
+            return pts
+
+        def cross(o, a, b):
+            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+        lower = []
+        for p in pts:
+            while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+                lower.pop()
+            lower.append(p)
+
+        upper = []
+        for p in reversed(pts):
+            while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+                upper.pop()
+            upper.append(p)
+
+        # Concatenate lower and upper to get full hull (omitting last point of each)
+        return lower[:-1] + upper[:-1]
+
 
     def update_history_plots(self):
         """Update history line plots"""
@@ -331,14 +363,19 @@ class SimulationVisualizer:
             # Update field overlays
             self._update_field_overlays()
 
+            # Update biofilm
+            self._update_biofilm(agents)
+
             # Highlight selected bacterium
             self._update_highlight(agents)
 
             # Update title
             persistor_count = len(persistor_agents)
             hgt_gene_count = len(hgt_agents)
+            # Count active biofilm clusters (groups with more than one member)
+            biofilm_count = sum(1 for members in self.biofilm_groups.values() if len(members) > 1)
             self.ax.set_title(
-                f"Step: {self.model.step_count} | Agents: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count}",
+                f"Step: {self.model.step_count} | Agents: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count} | Biofilms: {biofilm_count}",
                 fontsize=11,
             )
             self.ax.set_xlim(0, self.model.width)
@@ -346,6 +383,91 @@ class SimulationVisualizer:
 
         except Exception as e:
             print(f"Error in update_main_plot: {e}")
+    
+    # Draw boundary (outer layer) connecting bacteria in each biofilm
+    # For each biofilm group we compute the convex hull of member positions
+    # and draw only the hull edges (outer layer). For groups of two, draw
+    # a single segment between the two members.
+    def _convex_hull(points):
+        """Compute 2D convex hull of a set of points using Andrew's monotone chain."""
+        # points: list of (x, y)
+        pts = sorted(set(points))
+        if len(pts) <= 1:
+            return pts
+
+        def cross(o, a, b):
+            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+        lower = []
+        for p in pts:
+            while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+                lower.pop()
+            lower.append(p)
+
+        upper = []
+        for p in reversed(pts):
+            while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+                upper.pop()
+            upper.append(p)
+
+        # Concatenate lower and upper to get full hull (omitting last point of each)
+        return lower[:-1] + upper[:-1]
+    
+    def _update_biofilm(self, agents):
+        # Draw biofilm connection lines
+        # Remove old lines
+        for line in self.biofilm_lines:
+            line.remove()
+        self.biofilm_lines = []
+        
+        # Group bacteria by biofilm_id
+        self.biofilm_groups = {}
+        for agent in agents:
+            if hasattr(agent, 'biofilm_id') and agent.biofilm_id is not None and agent.pos is not None:
+                if agent.biofilm_id not in self.biofilm_groups:
+                    self.biofilm_groups[agent.biofilm_id] = []
+                self.biofilm_groups[agent.biofilm_id].append(agent)
+        
+
+        for biofilm_id, members in self.biofilm_groups.items():
+            n = len(members)
+            if n <= 1:
+                continue
+
+            pts = [(m.pos[0], m.pos[1]) for m in members]
+
+            if n == 2:
+                # Just draw the single segment between the two members
+                x_coords = [pts[0][0], pts[1][0]]
+                y_coords = [pts[0][1], pts[1][1]]
+                line, = self.ax.plot(
+                    x_coords,
+                    y_coords,
+                    color="deepskyblue",
+                    linewidth=1.0,
+                    alpha=0.4,
+                    zorder=1,
+                )
+                self.biofilm_lines.append(line)
+            else:
+                # Compute hull and draw polygon edges
+                hull = self._convex_hull(pts)
+                if len(hull) >= 2:
+                    for i in range(len(hull)):
+                        a = hull[i]
+                        b = hull[(i + 1) % len(hull)]
+                        x_coords = [a[0], b[0]]
+                        y_coords = [a[1], b[1]]
+                        line, = self.ax.plot(
+                            x_coords,
+                            y_coords,
+                            color="deepskyblue",
+                            linewidth=1.0,
+                            alpha=0.4,
+                            zorder=1,
+                        )
+                        self.biofilm_lines.append(line)
+
 
     def _update_scatter_plot(self, plot_type, scat, positions, colors):
         """Helper to safely update scatter plots"""

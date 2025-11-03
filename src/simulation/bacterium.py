@@ -8,13 +8,9 @@ import numpy as np
 from mesa import Agent
 
 from simulation.simulation_config import (
-    BACTERIAL_TYPES,
-    ANTIBIOTIC_TYPES,
-    ALLOCATION_PARAMS,
-    GROWTH_PARAMS,
-    MUTATION_STD,
-    BACTERIA_SPEED,
-    PERSISTENCE_PARAMS,
+    BACTERIAL_TYPES, ANTIBIOTIC_TYPES, ALLOCATION_PARAMS, 
+    GROWTH_PARAMS, MUTATION_STD, BACTERIA_SPEED, PERSISTENCE_PARAMS,
+    BIOFILM_PARAMS
 )
 
 
@@ -32,7 +28,10 @@ class Bacterium(Agent):
         # Initialize persistor state flag
         self.is_persistor = False
         self.has_hgt_gene = random.random() < 0.05  # 5% chance of having HGT gene
-
+        
+        # Initialize biofilm state - now uses unique biofilm ID
+        self.biofilm_id = None  # None = not in biofilm, integer = biofilm cluster ID
+        
         # Initialize traits
         self._initialize_traits(bacterial_type)
 
@@ -190,10 +189,14 @@ class Bacterium(Agent):
             local_antibiotics: dict mapping antibiotic_type -> concentration
 
         Persistors have greatly reduced susceptibility to antibiotics.
+        Biofilm provides physical protection barrier reducing effective antibiotic concentration.
         """
         if not local_antibiotics or sum(local_antibiotics.values()) <= 0:
             return False
-
+        
+        # Get biofilm protection factor (1.0 to 3.0)
+        biofilm_protection = self._calculate_biofilm_protection()
+        
         # Calculate effective concentration and kill probability for each antibiotic
         total_kappa = 0.0
 
@@ -220,6 +223,10 @@ class Bacterium(Agent):
 
             # Calculate effective antibiotic concentration after resistance
             A_eff = ab_concentration * (1 - resistance_reduction)
+            
+            # Apply biofilm protection (reduces effective antibiotic penetration)
+            A_eff = A_eff / biofilm_protection
+            
             A_eff = max(0.0, A_eff)
 
             # Calculate kill rate for this antibiotic using its toxicity constant
@@ -256,6 +263,7 @@ class Bacterium(Agent):
         """Move bacterium towards nutrient gradient
 
         Persistors move randomly with significantly reduced speed (no chemotaxis).
+        Biofilm bacteria have reduced movement speed due to matrix attachment.
         """
         # Persistors move randomly without chemotaxis
         if self.is_persistor:
@@ -288,6 +296,10 @@ class Bacterium(Agent):
             direction /= np.linalg.norm(direction) + 1e-9
 
             effective_speed = self.speed * BACTERIA_SPEED
+        
+        # Apply biofilm movement penalty
+        if self.biofilm_id is not None:
+            effective_speed *= BIOFILM_PARAMS["movement_penalty"]
 
         # Calculate new position with proper boundary clamping
         new_x = self.pos[0] + direction[0] * effective_speed
@@ -452,6 +464,140 @@ class Bacterium(Agent):
 
         return random.random() < prob
 
+    # -------------------------
+    # Biofilm Mechanics (Cluster-Based)
+    # -------------------------
+    
+    def _check_biofilm_formation(self, local_antibiotics):
+        """Check if this bacterium should initiate biofilm formation
+        
+        Args:
+            local_antibiotics: dict mapping antibiotic_type -> concentration
+            
+        Formation requires:
+        - Not already in a biofilm
+        - Minimum number of neighbors (5+) within formation radius
+        - Probabilistic check (base + stress bonus)
+        
+        Returns:
+            bool: True if should create biofilm
+        """
+        if self.biofilm_id is not None:
+            return False  # Already in biofilm
+            
+        if self.pos is None:
+            return False
+        
+        # Count neighbors within formation radius
+        try:
+            neighbors = self.model.space.get_neighbors(
+                self.pos,
+                BIOFILM_PARAMS["formation_radius"],
+                include_center=True  # Include self in count
+            )
+        except:
+            return False
+        
+        # Need minimum neighbors to create biofilm (including self)
+        if len(neighbors) < BIOFILM_PARAMS["min_neighbors"]:
+            return False
+        
+        # Calculate antibiotic stress
+        total_threat = sum(
+            conc * ANTIBIOTIC_TYPES[ab_type]["toxicity_constant"]
+            for ab_type, conc in local_antibiotics.items()
+            if conc > 0
+        )
+        
+        # Formation probability: base + stress bonus
+        prob = BIOFILM_PARAMS["formation_base_prob"]
+        if total_threat > 0:
+            prob += BIOFILM_PARAMS["formation_stress_bonus"]
+        
+        return random.random() < prob
+    
+    def _get_biofilm_size(self):
+        """Get the number of bacteria in this bacterium's biofilm
+        
+        Returns:
+            int: Number of bacteria in same biofilm cluster
+        """
+        if self.biofilm_id is None:
+            return 0
+        
+        return sum(
+            1 for agent in self.model.agent_set
+            if hasattr(agent, 'biofilm_id') and agent.biofilm_id == self.biofilm_id
+        )
+    
+    def _calculate_biofilm_protection(self):
+        """Calculate antibiotic protection multiplier from biofilm
+        
+        Protection scales with biofilm size:
+        - Base protection at minimum
+        - Increases with size up to optimal
+        - Caps at max_protection
+        
+        Returns:
+            float: Protection factor (1.0 = no protection, up to max_protection)
+        """
+        if self.biofilm_id is None:
+            return 1.0
+        
+        biofilm_size = self._get_biofilm_size()
+        
+        if biofilm_size == 0:
+            return 1.0
+        
+        # Linear scaling from base to max protection based on size
+        base_prot = BIOFILM_PARAMS["base_protection"]
+        max_prot = BIOFILM_PARAMS["max_protection"]
+        optimal_size = BIOFILM_PARAMS["optimal_size"]
+        
+        size_factor = min(1.0, biofilm_size / optimal_size)
+        protection = base_prot + (max_prot - base_prot) * size_factor
+        
+        return protection
+    
+    def _check_biofilm_exit(self, local_food, local_antibiotics):
+        """Check if bacterium should exit biofilm
+        
+        Exit conditions:
+        - Low energy (< threshold)
+        - Low food (< threshold)
+        - Low antibiotic threat (safe to leave)
+        
+        Args:
+            local_food: local nutrient concentration
+            local_antibiotics: dict of antibiotic concentrations
+        
+        Returns:
+            bool: True if should exit biofilm
+        """
+        if self.biofilm_id is None:
+            return False  # Not in biofilm
+        
+        # Exit if energy too low (starvation)
+        if self.energy < BIOFILM_PARAMS["exit_energy_threshold"]:
+            return True
+        
+        # Exit if food too low (better to seek nutrients)
+        if local_food < BIOFILM_PARAMS["exit_food_threshold"]:
+            return True
+        
+        # Calculate antibiotic threat
+        total_threat = sum(
+            conc * ANTIBIOTIC_TYPES[ab_type]["toxicity_constant"]
+            for ab_type, conc in local_antibiotics.items()
+            if conc > 0
+        )
+        
+        # Exit if threat is low (biofilm protection not needed)
+        if total_threat < BIOFILM_PARAMS["exit_threat_threshold"]:
+            return True
+        
+        return False
+
     def step(self):
         """Execute one step of the bacterium lifecycle"""
         # Safety check: skip if position is None (being removed)
@@ -490,6 +636,21 @@ class Bacterium(Agent):
 
         # Consume nutrients and update energy
         self._consume_nutrients(local_food, fx, fy)
+        
+        # Biofilm mechanics: check formation and create cluster
+        if self._check_biofilm_formation(local_antibiotics):
+            # Create new biofilm and assign all nearby bacteria to it
+            self.model.create_biofilm(self)
+        
+        # Check for biofilm exit
+        if self._check_biofilm_exit(local_food, local_antibiotics):
+            # Exit biofilm
+            self.biofilm_id = None
+            self.energy -= BIOFILM_PARAMS["detachment_cost"]
+        
+        # Apply biofilm energy cost
+        if self.biofilm_id is not None:
+            self.energy -= BIOFILM_PARAMS["energy_cost"]
 
         # Check for starvation
         if self.energy <= 0:

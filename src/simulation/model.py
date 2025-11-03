@@ -77,6 +77,9 @@ class BacteriaModel(Model):
 
         # Tracking system
         self.individual_tracker = IndividualTracker()
+        
+        # Biofilm tracking
+        self._next_biofilm_id = 0  # Counter for unique biofilm IDs
 
         # History for plotting
         self.history = {
@@ -365,6 +368,37 @@ class BacteriaModel(Model):
             total += self.sample_field(ab_field, fx, fy)
         return total
 
+    def create_biofilm(self, initiator):
+        """Create a new biofilm cluster with initiator and nearby bacteria
+        
+        Args:
+            initiator: The bacterium that triggered biofilm formation
+        """
+        from config import BIOFILM_PARAMS
+        
+        # Generate unique biofilm ID
+        biofilm_id = self._next_biofilm_id
+        self._next_biofilm_id += 1
+        
+        # Get neighbors within formation radius
+        try:
+            neighbors = self.space.get_neighbors(
+                initiator.pos,
+                BIOFILM_PARAMS["formation_radius"],
+                include_center=True  # Include initiator
+            )
+        except:
+            neighbors = [initiator]
+        
+        # Assign all neighbors to this biofilm
+        biofilm_members = []
+        for bacterium in neighbors:
+            if hasattr(bacterium, 'biofilm_id') and bacterium.biofilm_id is None:
+                bacterium.biofilm_id = biofilm_id
+                biofilm_members.append(bacterium)
+        
+        print(f"Biofilm {biofilm_id} created with {len(biofilm_members)} members")
+    
     def horizontal_gene_transfer(self):
         """Exchange resistance traits between nearby bacteria"""
         agents = list(self.agent_set)
