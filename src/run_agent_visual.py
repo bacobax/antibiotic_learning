@@ -14,8 +14,8 @@ import sys
 from pathlib import Path
 from PyQt5 import QtWidgets
 
-from model import BacteriaModel
-from simulation_ui_agent import AgentSimulatorUI
+from simulation.model import BacteriaModel
+from simulation.simulation_ui_agent import AgentSimulatorUI
 
 
 def main():

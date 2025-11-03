@@ -13,7 +13,7 @@ environment:
   w_genome: 0.5
   w_cost: 0.05
   w_population_maintenance: 0.01
-  device: "mps"
+  device: "cpu"
   dtype: "float32"
 
 actions:

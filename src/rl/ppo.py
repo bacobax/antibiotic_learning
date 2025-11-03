@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from .config import PPOConfig
+from .training_config import PPOConfig
 from .models import RecurrentActorCritic
 from .utils import gae_advantages, normalize, clip_grad_norm_
 

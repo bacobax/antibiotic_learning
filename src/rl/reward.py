@@ -9,7 +9,7 @@ from typing import Optional, Union
 import torch
 import torch.nn as nn
 import numpy as np
-from config import TOX_TIMES_DOSE_MAX, antibiotic_resistances
+from simulation.simulation_config import TOX_TIMES_DOSE_MAX, antibiotic_resistances
 
 
 class AgeNormalizer(nn.Module):

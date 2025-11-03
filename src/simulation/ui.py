@@ -7,15 +7,15 @@ import matplotlib.animation as animation
 import time
 from PyQt5 import QtWidgets, QtCore
 
-from config import (
+from simulation.simulation_config import (
     DEFAULT_STEPS_PER_FRAME, 
     MIN_STEPS_PER_FRAME, MAX_STEPS_PER_FRAME,
     SLOW_MODE_FRAME_SKIP, PERFORMANCE_MODE,
     STATS_UPDATE_INTERVAL, VISUALIZATION_UPDATE_INTERVAL
 )
-from tracking import IndividualPlotter
-from control_panel import ControlPanel
-from visualization_fixed import SimulationVisualizer
+from simulation.tracking import IndividualPlotter
+from simulation.control_panel import ControlPanel
+from simulation.visualization import SimulationVisualizer
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 

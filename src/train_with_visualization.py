@@ -6,8 +6,8 @@ in real-time. You can watch the agent learn and see how it interacts with
 the environment during training.
 
 Usage:
-    python train_with_visualization.py --config training_config.yaml
-    python train_with_visualization.py --config training_config_fast.yaml
+    python src/train_with_visualization.py --config src/rl/configs/training_config.yaml
+    python src/train_with_visualization.py --config src/rl/configs/training_config_fast.yaml
 """
 
 import argparse
@@ -29,7 +29,7 @@ from rl.env_wrapper import PetriEnvWrapper, ACTION_DOSE, ACTION_COUNT_BACTERIA, 
 from rl.models import RecurrentActorCritic
 from rl.buffer import RolloutBuffer
 from rl.logger import TrainingLogger
-from rl.train import (
+from rl.training_utils import (
     _initialize_agent,
     _log_training_start,
     _handle_checkpoint,
@@ -39,7 +39,7 @@ from rl.train import (
     _build_ppo_config,
     _save_configs,
 )
-from visualization_fixed import SimulationVisualizer
+from simulation.visualization import SimulationVisualizer
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.animation as animation
 
@@ -217,7 +217,7 @@ class TrainingVisualizer:
         # Now env.model exists and we can set up tracking and visualization
         # Individual tracking setup
         if self.enable_tracking:
-            from tracking import IndividualPlotter
+            from simulation.tracking import IndividualPlotter
             self.individual_plotter = IndividualPlotter(
                 self.env.model.individual_tracker,
                 on_close_callback=self.on_individual_window_close
@@ -594,7 +594,7 @@ Examples:
     
     # Create QApplication
     app = QtWidgets.QApplication.instance()
-    if app is None:
+    if (app is None):
         app = QtWidgets.QApplication(sys.argv)
     
     # Create and run training visualizer

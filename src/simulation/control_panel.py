@@ -8,7 +8,7 @@ except Exception:  # pragma: no cover - optional dependency fallback
     QtWidgets = None
     QtCore = None
 
-from config import (
+from simulation.simulation_config import (
     BACTERIAL_TYPES,
     DEFAULT_STEPS_PER_FRAME,
     MIN_STEPS_PER_FRAME,

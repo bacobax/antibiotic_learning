@@ -9,7 +9,7 @@ import matplotlib.colors as mcolors
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from config import BACTERIAL_TYPES, ANTIBIOTIC_TYPES, ANIMATION_FPS
+from simulation.simulation_config import BACTERIAL_TYPES, ANTIBIOTIC_TYPES, ANIMATION_FPS
 
 
 class SimulationVisualizer:

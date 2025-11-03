@@ -3,15 +3,15 @@ Main entry point for the bacteria simulation - FIXED VERSION.
 
 Properly integrates PyQt5 and Matplotlib to prevent segmentation faults.
 
-Run: python main_fixed.py
+Run: python simulation_run.py
 Dependencies: mesa, numpy, scipy, matplotlib, PyQt5
 """
 
 from PyQt5 import QtWidgets
 import sys
 
-from model import BacteriaModel
-from ui import SimulatorUI
+from simulation.model import BacteriaModel
+from simulation.ui import SimulatorUI
 
 
 def main():

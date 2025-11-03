@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, Tuple, Optional, Union
 import numpy as np
 import torch
-from config import ANTIBIOTIC_TYPES, antibiotic_resistances, TOX_TIMES_DOSE_MAX, N_TRAITS, N_BACTERIA_TYPES
+from simulation.simulation_config import ANTIBIOTIC_TYPES, antibiotic_resistances, TOX_TIMES_DOSE_MAX, N_TRAITS, N_BACTERIA_TYPES
 from rl.reward import (
     PopulationReward,
     GenomeReward,

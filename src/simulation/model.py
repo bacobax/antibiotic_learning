@@ -8,7 +8,7 @@ from mesa import Model
 from mesa.space import ContinuousSpace
 import heapq
 
-from config import (
+from simulation.simulation_config import (
     WIDTH,
     HEIGHT,
     GRID_RES,
@@ -25,8 +25,8 @@ from config import (
     FOOD_PATCH_SIGMA_MIN,
     FOOD_PATCH_SIGMA_MAX,
 )
-from bacterium import Bacterium
-from tracking import IndividualTracker
+from simulation.bacterium import Bacterium
+from simulation.tracking import IndividualTracker
 
 
 class BacteriaModel(Model):

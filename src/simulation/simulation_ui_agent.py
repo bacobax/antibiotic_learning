@@ -11,7 +11,7 @@ import time
 from PyQt5 import QtWidgets, QtCore
 from pathlib import Path
 
-from config import (
+from simulation.simulation_config import (
     DEFAULT_STEPS_PER_FRAME,
     MIN_STEPS_PER_FRAME,
     MAX_STEPS_PER_FRAME,
@@ -20,8 +20,8 @@ from config import (
     STATS_UPDATE_INTERVAL,
     VISUALIZATION_UPDATE_INTERVAL
 )
-from tracking import IndividualPlotter
-from visualization_fixed import SimulationVisualizer
+from simulation.tracking import IndividualPlotter
+from simulation.visualization import SimulationVisualizer
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 from rl.agent import RLAgent

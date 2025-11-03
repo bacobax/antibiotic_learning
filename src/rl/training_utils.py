@@ -1,32 +1,17 @@
 """
-Training entrypoint for Recurrent PPO on bacteria simulation.
+Training utilities for Recurrent PPO on bacteria simulation.
 
-USAGE:
-======
+This module provides reusable training functions and helpers used by:
+  - src/train.py (headless training entry point)
+  - src/train_with_visualization.py (training with live visualization)
 
-All hyperparameters are configured via YAML files. No command-line arguments needed.
-
-Basic usage:
-   python -m rl.train --config training_config.yaml
-
-This loads all parameters from the YAML file including:
-  - Environment: k_doses, max_steps, target_population, reward weights, etc.
-  - Model: hidden_dim, rnn_layers, etc.
-  - PPO: gamma, gae_lambda, clip_eps, learning rate, etc.
-  - Training: total_updates, seed, save_dir, etc.
-
-Example configurations provided:
-  - training_config.yaml: Default configuration
-  - training_config_fast.yaml: Quick testing (10 updates)
-  - training_config_production.yaml: Full training (200 updates)
+All hyperparameters are configured via YAML files.
 
 View TensorBoard during/after training:
    tensorboard --logdir=./checkpoints --port=6006
 
 The wrapper in env_wrapper.py handles all Mesa interaction.
-No changes needed to existing simulation code!
 """
-import argparse
 import json
 import time
 from pathlib import Path
@@ -48,8 +33,8 @@ from .models import RecurrentActorCritic
 from .buffer import RolloutBuffer
 from .ppo import PPOTrainer
 from .logger import TrainingLogger
-from .config import PPOConfig, set_global_seed
-from model import BacteriaModel
+from .training_config import PPOConfig, set_global_seed
+from simulation.model import BacteriaModel
 from .env_wrapper import ACTION_DOSE, ACTION_COUNT_BACTERIA, ACTION_NOOP, ACTION_SEQUENCING
 
 
@@ -349,10 +334,6 @@ def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: i
     _finalize_training(log_data, reward_history, loss_history, total_updates, total_time, save_dir, logger)
 
 
-# ============================================================================
-# CLI Setup and Main
-# ============================================================================
-
 def _setup_logger_and_log_startup(
     save_dir: Path,
     config: CompleteConfig,
@@ -509,89 +490,3 @@ def _save_configs(
         logger.log_debug(f"✓ Saved complete config to: {config_path}")
     except Exception as e:
         logger.log_debug(f"Warning: Could not save config: {e}")
-
-
-def main():
-    """Main entrypoint - load config from YAML and run training."""
-    # ========================================================================
-    # PARSE ARGUMENTS
-    # ========================================================================
-    parser = argparse.ArgumentParser(
-        description="Train Recurrent PPO on bacteria simulation",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Use default configuration (from rl/configs/training_config.yaml)
-  python -m rl.train
-
-  # Use custom configuration
-  python -m rl.train --config rl/configs/training_config.yaml
-
-  # Use fast config for testing
-  python -m rl.train --config rl/configs/training_config_fast.yaml
-
-  # Use production config
-  python -m rl.train --config rl/configs/training_config_production.yaml
-  
-  # Use config file from anywhere (absolute path)
-  python -m rl.train --config /path/to/my_config.yaml
-        """
-    )
-    
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="training_config.yaml",
-        help="Path to YAML configuration file (default: training_config.yaml from rl/configs/)"
-    )
-    
-    args = parser.parse_args()
-    
-    # ========================================================================
-    # LOAD CONFIGURATION
-    # ========================================================================
-    try:
-        config = load_config(args.config)
-    except Exception as e:
-        print(f"❌ Error loading configuration: {e}")
-        return 1
-    
-    # ========================================================================
-    # SETUP
-    # ========================================================================
-    save_dir = Path(config.training.save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Setup logger
-    logger = _setup_logger_and_log_startup(save_dir, config)
-    
-    # Set seed
-    set_global_seed(config.training.seed)
-    logger.log_debug(f"✓ Random seed set to: {config.training.seed}")
-    
-    # Create environment
-    env = _create_environment(config, logger)
-    logger.log_info(f"Observation dimension: {env.get_obs_dim()}")
-    
-    # Build PPO configuration
-    ppo_config = _build_ppo_config(env, config)
-    
-    # Save all configurations
-    _save_configs(save_dir, config, logger)
-    
-    # ========================================================================
-    # TRAIN
-    # ========================================================================
-    logger.log_info("="*70)
-    train(ppo_config, env, save_dir, config.training.total_updates, logger)
-    logger.log_info("="*70)
-    logger.log_info("✓ Training complete!")
-    logger.log_info(f"Logs: {save_dir / 'training.log'}")
-    logger.log_info(f"Metrics: {save_dir / 'metrics.json'}")
-    logger.log_info(f"TensorBoard: tensorboard --logdir={save_dir / config.training.experiment_name} --port=6006")
-    
-    return 0
-
-
-if __name__ == "__main__":
-    main()

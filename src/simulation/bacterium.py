@@ -7,7 +7,7 @@ import random
 import numpy as np
 from mesa import Agent
 
-from config import (
+from simulation.simulation_config import (
     BACTERIAL_TYPES,
     ANTIBIOTIC_TYPES,
     ALLOCATION_PARAMS,

@@ -4,7 +4,7 @@ import torch
 from .models import RecurrentActorCritic
 from .ppo import PPOTrainer
 from .buffer import RolloutBuffer
-from .config import PPOConfig
+from .training_config import PPOConfig
 
 class RLAgent:
     def __init__(self, model: RecurrentActorCritic, device = "cuda"):
