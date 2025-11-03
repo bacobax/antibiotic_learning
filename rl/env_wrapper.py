@@ -1,5 +1,14 @@
-from typing import Any, Callable, Dict, Tuple, Optional
+from typing import Any, Callable, Dict, Tuple, Optional, Union
 import numpy as np
+import torch
+from config import ANTIBIOTIC_TYPES, antibiotic_resistances, TOX_TIMES_DOSE_MAX, N_TRAITS, N_BACTERIA_TYPES
+from rl.reward import (
+    PopulationReward,
+    GenomeReward,
+    CostReward,
+    DoseRewardCompound,
+    PopulationMaintenanceReward,
+)
 
 # Discrete actions
 ACTION_NOOP = 0
@@ -46,6 +55,8 @@ class PetriEnvWrapper:
         budget_init: float = 100.0,
         budget_norm: float = 100.0,     # divisor for budget normalization
         population_norm: float = 1000.0, # to map counts to ~[0,1]
+        device: str = "cpu",
+        dtype: torch.dtype = torch.float32,
     ):
         self.mesa_model_factory = mesa_model_factory
         self.k_doses = k_doses
@@ -68,6 +79,10 @@ class PetriEnvWrapper:
         self.budget_init = budget_init
         self.budget_norm = budget_norm
         self.population_norm = population_norm
+        
+        # device & dtype for reward modules
+        self.device = device
+        self.dtype = dtype
 
         # runtime state
         self.model: Any = None
@@ -78,19 +93,40 @@ class PetriEnvWrapper:
         # observation cache (what the agent "knows")
         self.last_count_obs: Optional[int] = None
         self.last_seq_obs: Optional[Dict[str, Any]] = None
-        self.ts_last_measure: Optional[int] = None
+        self.ts_last_seq: Optional[int] = None
+        self.ts_last_count: Optional[int] = None
 
         # sequencing pipeline
         self.seq_pending = False
         self.seq_eta = 0  # steps until result is ready
 
         # pending dose ledger (evaluated when a measurement lands)
-        self.pending_dose: Optional[Dict[str, Any]] = None
 
         noop_band = 0.02 * population_norm   # ~2% deadband around target
         noop_mag  = 0.01                     # small shaping magnitude
         self.noop_band = noop_band
         self.noop_mag  = noop_mag
+        
+        # ========== Reward Modules ==========
+        # Initialize reward computation modules
+        self.dose_reward_compound = DoseRewardCompound(
+            target_population=target_population,
+            population_norm=population_norm,
+            dose_cost_per_unit=dose_cost_per_unit,
+            w_pop=w_pop,
+            w_genome=w_genome,
+            w_cost=w_cost,
+            device=device,
+            dtype=dtype,
+            aging_type="sqrt",
+        )
+        
+        self.pop_maintenance_reward = PopulationMaintenanceReward(
+            target_population=target_population,
+            population_norm=population_norm,
+            asymmetry_factor=3.0,
+            weight=w_population_maintenance,
+        )
 
     # -------------------------
     # Public API
@@ -105,12 +141,13 @@ class PetriEnvWrapper:
         # clear caches
         self.last_count_obs = None
         self.last_seq_obs = None
-        self.ts_last_measure = None
+        self.ts_last_count = None
+        self.ts_last_seq = None
 
         # clear pipelines
         self.seq_pending = False
         self.seq_eta = 0
-        self.pending_dose = None
+
 
         return self._build_observation()
 
@@ -138,11 +175,12 @@ class PetriEnvWrapper:
                 self.seq_eta = 0
 
         # COUNT has duration 0 → if the agent performed COUNT this step, cache count obs immediately
-        if a_discrete == ACTION_COUNT_BACTERIA:
+        if a_discrete == ACTION_COUNT_BACTERIA or a_discrete == ACTION_DOSE:
             # We just performed a count → cache count obs immediately
             count_now = self._read_true_population()
             self._cache_count_obs(count_now)
 
+        # 4) Build obs from what the agent knows (cached), never from the hidden true state directly
         # 4) Build obs from what the agent knows (cached), never from the hidden true state directly
         obs = self._build_observation()
 
@@ -151,18 +189,10 @@ class PetriEnvWrapper:
         done = (true_population == 0) or (self.t >= self.max_steps) or (self.budget < 0.0)
 
         # 6) Compute total reward: immediate action reward + step-wise population maintenance penalty
-        # ASYMMETRIC: penalize overshooting target more than undershooting
-        # This keeps population NEAR target, not at zero
-        above_target = max(0, true_population - self.target_population)
-        below_target = max(0, self.target_population - true_population)
+        # Use PopulationMaintenanceReward module for consistent asymmetric penalty
+        maintenance_penalty = self.pop_maintenance_reward(true_population)
         
-        # Penalize overshooting 3x more than undershooting
-        # This discourages the agent from overdosing to zero
-        asymmetric_penalty = -(
-            3.0 * above_target + 0.3 * below_target
-        ) / max(1.0, self.population_norm) * self.w_population_maintenance
-        
-        reward = immediate_reward + asymmetric_penalty
+        reward = immediate_reward + maintenance_penalty
         self.episode_return += reward
 
         info = {
@@ -181,11 +211,14 @@ class PetriEnvWrapper:
 
     def _execute_action(self, a_discrete: int, a_cont: np.ndarray) -> float:
         """
-        Applies the chosen action. Returns *immediate* reward.
+        Applies the chosen action. Returns *immediate* reward as float.
         
         For ACTION_DOSE: reward is computed immediately using cached observations,
         aligning credit assignment with the timestep where the decision was made.
         This improves PPO training stability vs. delayed rewards.
+        
+        Returns:
+            Immediate reward (float)
         """
         if a_discrete == ACTION_NOOP:
             bonus = 0.0
@@ -210,7 +243,9 @@ class PetriEnvWrapper:
             if not self.seq_pending:
                 self.seq_pending = True
                 self.seq_eta = int(self.sequencing_duration)
-            # If sequencing is already pending, we just paid again (your call: you could block or queue)
+            else:
+                # If sequencing is already pending, we just paid again
+                return -0.001
             return 0.0
 
         if a_discrete == ACTION_DOSE:
@@ -226,25 +261,17 @@ class PetriEnvWrapper:
             efficacy_reward = self._compute_dose_reward_immediate(scaled)
 
             # Store for diagnosis/debugging (but don't wait for delayed settling)
-            self.pending_dose = {
-                "t_admin": self.t,
-                "dose_vector": scaled.copy(),
-                "cost": cost,
-                "baseline_count": self.last_count_obs,
-                "baseline_seq": self.last_seq_obs,
-                "settled": True,  # ← Already settled at admin time!
-            }
+
             return float(efficacy_reward)
         
         raise ValueError(f"Unknown discrete action: {a_discrete}")
 
-        # Should never reach here
-        return 0.0
-
     def _compute_dose_reward_immediate(self, dose_vector: np.ndarray) -> float:
         """
         Compute dose efficacy reward using CURRENT cached observations.
+        
         This reward is assigned immediately to the timestep where the dose was administered.
+        Uses the DoseRewardCompound module to orchestrate all reward components.
         
         Reward the agent for *approaching* target, not for massive kill-offs.
         
@@ -257,118 +284,35 @@ class PetriEnvWrapper:
             dose_vector: scaled dose amounts [0, 1] for each antibiotic
             
         Returns:
-            Immediate reward signal
+            Immediate reward signal (float)
         """
+        # Compute age of measurements
+        age_pop = 0 if self.ts_last_count is None else (self.t - self.ts_last_count)
+        age_genome = 0 if self.ts_last_seq is None else (self.t - self.ts_last_seq)
         
-        # --- Population term ---
-        # Reward CLOSENESS to target, not killing everything
-        P_star = self.target_population
-        count_now = self.last_count_obs
-        
-        pop_term = 0.0
-        if count_now is not None:
-            # Closeness to target (agent wants pop near P*)
-            gap = abs(count_now - P_star)
-            pop_term = -gap / max(1.0, self.population_norm)  # negative of distance
-            
-            # Bonus for being in "good" zone (±20% of target)
-            good_zone_width = 0.2 * self.target_population
-            if abs(count_now - P_star) <= good_zone_width:
-                pop_term += 0.1  # bonus for being close
-        else:
-            # No population data yet → neutral signal (agent will learn not to dose blind)
-            pop_term = 0.0
-        
-        # --- Genome term ---
-        # Reward is based on *current* cached genome (or zeros if none)
-        # Lower resistance traits are better
-        genome_term = 0.0
+        # Prepare genome tensor for reward computation
+        avg_genome = None
         if self.last_seq_obs is not None:
-            avg = self.last_seq_obs["avg_genome"]  # [enzyme, efflux, repair, membrane]
-            genome_term = -float(np.mean(avg))  # penalize high resistance
-        else:
-            # No sequencing data yet → neutral
-            genome_term = 0.0
+            avg_genome = torch.tensor(
+                self.last_seq_obs["avg_genome"],
+                dtype=self.dtype,
+                device=self.device,
+            )
         
-        # --- Staleness penalty ---
-        # Discourage dosing on very old information
-        if self.ts_last_measure is not None:
-            ts_since = self.t - self.ts_last_measure
-            staleness_factor = min(1.0, ts_since / 100.0)
-            staleness_penalty = -staleness_factor * 0.1  # small penalty for old data
-        else:
-            staleness_penalty = -0.2  # penalty for dosing completely blind
+        # Prepare dose tensor
+        doses = torch.tensor(dose_vector, dtype=self.dtype, device=self.device)
         
-        # --- Cost term ---
-        cost_term = -float(np.sum(dose_vector) * self.dose_cost_per_unit)
-        
-        # Weighted combination
-        reward = (
-            self.w_pop * pop_term +
-            self.w_genome * genome_term +
-            self.w_cost * cost_term +
-            staleness_penalty
+        # Use compound reward module to compute total reward
+        reward = self.dose_reward_compound(
+            last_count_obs=self.last_count_obs,
+            age_pop=age_pop,
+            avg_genome=avg_genome,
+            doses=doses,
+            age_genome=age_genome,
         )
         
         return float(reward)
-
-    # -------------------------
-    # Reward computation
-    # -------------------------
-
-    def _settle_pending_dose_reward(self, measure_type: str) -> float:
-        """
-        Computes and releases the efficacy reward for the *last pending dose*,
-        using the most recent observation that just arrived.
-        measure_type: "count" or "sequencing"
-        """
-        rec = self.pending_dose
-        if rec is None or rec.get("settled", False):
-            return 0.0
-
-        # Current observed indicators
-        count_now = self.last_count_obs
-        seq_now = self.last_seq_obs  # may be None if measure_type == "count"
-
-        # If we don't even have a count, avoid producing reward
-        if count_now is None:
-            return 0.0
-
-        # --- Population term ---
-        # Encourage moving toward the target P* (closer is better) and reward reductions if above target
-        P_star = self.target_population
-        baseline_count = rec["baseline_count"]
-        pop_term = 0.0
-        if baseline_count is not None:
-            # Signed improvement toward target (bounded)
-            prev_gap = abs(baseline_count - P_star)
-            now_gap = abs(count_now - P_star)
-            pop_term = (prev_gap - now_gap) / max(1.0, self.population_norm)  # improvement normalized
-        else:
-            # If we had no baseline, use a simple closeness term
-            now_gap = abs(count_now - P_star)
-            pop_term = -now_gap / max(1.0, self.population_norm)
-
-        # --- Genome term (only if sequencing) ---
-        genome_term = 0.0
-        if measure_type == "sequencing" and seq_now is not None:
-            # Example: penalize higher averaged resistances after dosing
-            # You can refine with your antibiotic-type weights here.
-            avg = seq_now["avg_genome"]  # (enzyme, efflux, repair, membrane)
-            # Lower is better → negative of mean
-            genome_term = -(float(np.mean(avg)))
-
-        # --- Cost term ---
-        cost_term = -rec["cost"]  # spending should reduce reward
-
-        # Weighted sum
-        reward = self.w_pop * pop_term + self.w_genome * genome_term + self.w_cost * cost_term
-
-        # Mark settled (one-shot)
-        rec["settled"] = True
-        self.pending_dose = rec
-        return float(reward)
-
+    
     # -------------------------
     # Reading true state (hidden from agent)
     # -------------------------
@@ -385,21 +329,14 @@ class PetriEnvWrapper:
             "proportions": np.array([p_0..p_{K-1}], dtype=float32) }
         """
         # --- Average genome traits ---
-        pop = self._read_true_population()
-        if pop > 0:
-            enzyme = np.mean([b.enzyme for b in self.model.agent_set])
-            efflux = np.mean([b.efflux for b in self.model.agent_set])
-            repair = np.mean([b.repair for b in self.model.agent_set])
-            membrane = np.mean([b.membrane for b in self.model.agent_set])
-        else:
-            enzyme = efflux = repair = membrane = 0.0
+        genome_matrix = self.model.get_population_stats()["traits_matrix"]
 
         # --- Type proportions ---
         # You can compute these from your model taxonomy; here we default to zeros
         proportions = np.zeros((self.k_doses,), dtype=np.float32)
 
         return {
-            "avg_genome": np.array([enzyme, efflux, repair, membrane], dtype=np.float32),
+            "avg_genome": np.array(genome_matrix, dtype=np.float32),
             "proportions": proportions,
         }
 
@@ -408,15 +345,13 @@ class PetriEnvWrapper:
         Applies antibiotics into the Mesa model. Expects the model to have:
           - model.antibiotic_fields: Dict[name -> field]
           - model.apply_antibiotic(name, amount)
-        Only non-trivial (> 1e-3) doses are applied.
         """
         # print(f"APPLY ANTIBIOTICS: ", scaled_doses)
         ab_names = list(self.model.antibiotic_fields.keys())
         K = min(self.k_doses, len(ab_names))
         for i in range(K):
             amt = float(scaled_doses[i])
-            if amt > 1e-3:
-                self.model.apply_antibiotic(ab_names[i], amt)
+            self.model.apply_antibiotic(ab_names[i], amt)
 
     # -------------------------
     # Observation management (gated)
@@ -424,7 +359,7 @@ class PetriEnvWrapper:
 
     def _cache_count_obs(self, population: int) -> None:
         self.last_count_obs = int(population)
-        self.ts_last_measure = self.t
+        self.ts_last_count = self.t
 
     def _cache_sequencing_obs(self, seq: Dict[str, Any]) -> None:
         self.last_seq_obs = {
@@ -432,7 +367,7 @@ class PetriEnvWrapper:
             "proportions": seq["proportions"].astype(np.float32),
             "t": self.t,
         }
-        self.ts_last_measure = self.t
+        self.ts_last_seq = self.t
 
     def _build_observation(self) -> np.ndarray:
         """
@@ -448,21 +383,32 @@ class PetriEnvWrapper:
 
         # Sequencing
         if self.last_seq_obs is None:
-            avg_genome = np.zeros((4,), dtype=np.float32)
+            avg_genome = np.zeros((N_BACTERIA_TYPES, N_TRAITS), dtype=np.float32)
             props = np.zeros((self.k_doses,), dtype=np.float32)
         else:
             avg_genome = self.last_seq_obs["avg_genome"]
             props = self.last_seq_obs["proportions"]
 
         # Meta
-        if self.ts_last_measure is None:
-            ts_since = 0
+        if self.ts_last_seq is None:
+            ts_since_seq = 0
         else:
-            ts_since = self.t - self.ts_last_measure
+            ts_since_seq = self.t - self.ts_last_seq
+        if self.ts_last_count is None:
+            ts_since_count = 0
+        else:
+            ts_since_count = self.t - self.ts_last_count
 
+        ts_since_measure = min(ts_since_seq, ts_since_count)
+
+        ts_since =  self.t - ts_since_measure
         time_since_last_measure_norm = min(1.0, ts_since / 100.0)
         seq_pending_flag = 1.0 if self.seq_pending else 0.0
         seq_eta_norm = min(1.0, max(0, self.seq_eta) / max(1, self.sequencing_duration))
+
+
+        avg_genome = avg_genome.flatten()
+
 
         obs_parts = [
             budget_norm,

@@ -6,6 +6,10 @@ Contains all constants, growth parameters, and bacterial/antibiotic definitions.
 # -----------------------
 # Spatial Configuration
 # -----------------------
+from typing import Tuple
+import numpy as np
+import torch
+
 WIDTH = 100.0                       # continuous width
 HEIGHT = 100.0
 GRID_RES = 200                      # resolution for nutrient & antibiotic fields (square grid)
@@ -184,3 +188,41 @@ ANTIBIOTIC_TYPES = {
         "decay_rate": 0.07         # per sim step
     }
 }
+
+TRAIT_KEYS = ["enzyme_weight" , "efflux_weight", "membrane_weight", "repair_weight"]
+N_TRAITS = len(TRAIT_KEYS)
+N_BACTERIA_TYPES = len(BACTERIAL_TYPES)
+TOXICITY_MAX = max([ANTIBIOTIC_TYPES[ab]["toxicity_constant"] for ab in ANTIBIOTIC_TYPES.keys()])
+DOSE_MAX = 3
+TOX_TIMES_DOSE_MAX = TOXICITY_MAX * DOSE_MAX
+def antibiotic_resistances(sequencing_results, dtype, device)->Tuple[torch.Tensor, torch.Tensor, list[str]]:
+    # sequency_results -> [K, M]
+    ab_names = list(ANTIBIOTIC_TYPES.keys()) # [A]
+    G = torch.as_tensor(sequencing_results, dtype=dtype, device=device)
+    G = torch.clamp(G, 0.0, 1.0)  # optional safety
+    W_rows = []
+    tox_list = []
+    for name in ab_names:
+        ab = ANTIBIOTIC_TYPES[name]
+        w = torch.tensor([ab[k] for k in TRAIT_KEYS], dtype=dtype, device=device)
+        # normalize so sum=1 to keep dot products in [0,1]
+        w = w / (w.sum() + 1e-8)
+        W_rows.append(w)
+        tox_list.append(ab["toxicity_constant"])
+    W = torch.stack(W_rows, dim=0) 
+
+    resistances = torch.clamp(G @ W.T, 0.0, 1.0)
+    toxicities = torch.tensor(tox_list, dtype=dtype, device=device)  # [A]
+
+    return resistances, toxicities, ab_names
+
+
+
+if __name__ == "__main__":
+    seq_res_test = np.array([
+        [1,2,3,4],
+        [4,3,2,1],
+        [2,2,2,2],
+        [1,1,1,1]
+    ])
+    antibiotic_resistencess(seq_res_test)

@@ -1,0 +1,74 @@
+# Fast Training Configuration
+# For quick testing and debugging - fewer updates, shorter rollouts
+# Run with: python -m rl.train --config rl/configs/training_config_fast.yaml
+
+environment:
+  max_steps: 200
+  k_doses: 3
+  target_population: 500
+  population_norm: 1000.0
+  budget_init: 100.0
+  budget_norm: 100.0
+  w_pop: 1.0
+  w_genome: 0.5
+  w_cost: 0.05
+  w_population_maintenance: 0.01
+  device: "mps"
+  dtype: "float32"
+
+actions:
+  noop:
+    id: 0
+    name: "No operation"
+    cost: 0.0
+    duration: 0
+    description: "Wait without taking action"
+  
+  count_bacteria:
+    id: 1
+    name: "Count bacteria"
+    cost: 0.0
+    duration: 0
+    description: "Measure current bacteria population"
+  
+  sequencing:
+    id: 2
+    name: "Genome sequencing"
+    cost: 5.0
+    duration: 5
+    description: "Sequence bacteria genome"
+  
+  dose:
+    id: 3
+    name: "Administer antibiotics"
+    cost_per_unit: 0.5
+    duration: 0
+    description: "Dose antibiotics"
+
+model:
+  hidden_dim: 128
+  rnn_layers: 1
+  n_discrete: 4
+  dose_action_index: 3
+  k_doses: 3
+
+ppo:
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_eps: 0.2
+  vf_coef: 0.5
+  ent_coef: 0.01
+  max_grad_norm: 1.0
+  rollout_steps: 512
+  epochs: 4
+  seq_len: 32
+  batch_seq_len: 32
+  lr: 0.0003
+
+training:
+  total_updates: 10
+  seed: 42
+  checkpoint_interval: 5
+  log_interval: 1
+  save_dir: "./checkpoints"
+  experiment_name: "fast_test"

@@ -1,8 +1,15 @@
 """
-Action configuration loading from YAML files.
-Defines actions available to the agent and their associated costs.
+DEPRECATED: Action configuration has been consolidated into training_config.yaml
+
+This module is kept for backwards compatibility only.
+All configuration is now handled by config_loader.py and training_config.yaml
+
+For new code, use:
+    from rl.config_loader import load_config
+    config = load_config("training_config.yaml")
 """
 
+import warnings
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -15,6 +22,8 @@ except ImportError:
 
 def load_action_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     """
+    DEPRECATED: Use load_config() from config_loader instead.
+    
     Load action configuration from YAML file.
     
     If config_path is None, returns default configuration.
@@ -25,6 +34,12 @@ def load_action_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     Returns:
         Dict with action configuration
     """
+    warnings.warn(
+        "load_action_config() is deprecated. Use config_loader.load_config() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    
     if config_path is None:
         return get_default_action_config()
     
@@ -51,9 +66,17 @@ def get_default_action_config() -> Dict[str, Any]:
     """
     Get default action configuration.
     
+    DEPRECATED: Use config_loader.load_config() instead.
+    
     Returns:
         Default configuration dict
     """
+    warnings.warn(
+        "get_default_action_config() is deprecated. Use config_loader.load_config() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    
     return {
         "actions": {
             "noop": {
@@ -89,20 +112,31 @@ def get_default_action_config() -> Dict[str, Any]:
             "target_population": 500,
             "budget_init": 100.0,
             "max_steps": 1000,
-            "w_pop": 1.0,           # weight for population term in reward
-            "w_genome": 0.5,        # weight for resistance term
-            "w_cost": 0.05,         # weight for cost penalty
+            "w_pop": 1.0,
+            "w_genome": 0.5,
+            "w_cost": 0.05,
         }
     }
 
 
 def save_default_config(output_path: str = "actions_config.yaml") -> None:
     """
+    DEPRECATED: Use config_loader.save_config() instead.
+    
     Save default action configuration to a YAML file for user reference.
     
     Args:
         output_path: Where to save the file
     """
+    warnings.warn(
+        "save_default_config() is deprecated. Use config_loader.save_config() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    
+    if not HAS_YAML:
+        raise RuntimeError("PyYAML is required. Install with: pip install pyyaml")
+    
     config = get_default_action_config()
     
     with open(output_path, 'w') as f:
@@ -112,4 +146,5 @@ def save_default_config(output_path: str = "actions_config.yaml") -> None:
 
 
 if __name__ == "__main__":
+    # Example: Create and save default config
     save_default_config()

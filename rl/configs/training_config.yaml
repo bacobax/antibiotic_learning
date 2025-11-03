@@ -1,0 +1,151 @@
+# ============================================================================
+# Complete Training Configuration for Recurrent PPO on Bacteria Simulation
+# ============================================================================
+# All hyperparameters are specified here. No command-line arguments needed.
+# 
+# To run training:
+#   python -m rl.train --config rl/configs/training_config.yaml
+#
+# Or with custom config:
+#   python -m rl.train --config rl/configs/my_custom_config.yaml
+
+# ============================================================================
+# ENVIRONMENT CONFIGURATION
+# ============================================================================
+environment:
+  # Simulation parameters
+  max_steps: 1000
+  k_doses: 3                          # Number of antibiotic types
+  
+  # Population dynamics
+  target_population: 500              # P* - target population for reward shaping
+  population_norm: 1000.0             # Normalization factor for population magnitude
+  
+  # Budget and costs
+  budget_init: 100.0                  # Initial budget for actions
+  budget_norm: 100.0                  # Normalization factor for budget display
+  
+  # Reward shaping weights
+  w_pop: 1.0                          # Weight for population control term
+  w_genome: 0.5                       # Weight for resistance/efficacy term
+  w_cost: 0.05                        # Weight for action cost penalty
+  w_population_maintenance: 0.01      # Per-step penalty for deviating from target
+  
+  # Device configuration
+  device: "cpu"                       # Options: "cpu", "cuda", "mps"
+  dtype: "float32"                    # Tensor dtype: "float32" or "float64"
+
+# ============================================================================
+# ACTIONS CONFIGURATION
+# ============================================================================
+# Defines available actions and their properties
+actions:
+  # No operation action
+  noop:
+    id: 0
+    name: "No operation"
+    cost: 0.0
+    duration: 0
+    description: "Wait without taking action"
+  
+  # Count bacteria population
+  count_bacteria:
+    id: 1
+    name: "Count bacteria"
+    cost: 0.0
+    duration: 0
+    description: "Measure current bacteria population (instant, no cost)"
+  
+  # Genome sequencing
+  sequencing:
+    id: 2
+    name: "Genome sequencing"
+    cost: 1.0                         # Cost of sequencing
+    duration: 5                       # Steps to complete sequencing
+    description: "Sequence bacteria genome to detect resistance (takes 5 steps)"
+  
+  # Administer antibiotics
+  dose:
+    id: 3
+    name: "Administer antibiotics"
+    cost_per_unit: 0.2                # Cost per unit of antibiotic dose
+    duration: 0
+    description: "Dose antibiotics (continuous action, 0-1 for each antibiotic)"
+
+# ============================================================================
+# MODEL ARCHITECTURE
+# ============================================================================
+model:
+  # RNN backbone
+  hidden_dim: 256                     # Hidden dimension for GRU/LSTM
+  rnn_layers: 1                       # Number of recurrent layers
+  
+  # Action space
+  n_discrete: 4                       # Number of discrete actions (NOOP, COUNT, SEQ, DOSE)
+  dose_action_index: 3                # Index of DOSE action in discrete set
+  k_doses: 3                          # Number of continuous actions (antibiotic types)
+
+# ============================================================================
+# PPO ALGORITHM CONFIGURATION
+# ============================================================================
+ppo:
+  # Discount and advantage estimation
+  gamma: 0.99                         # Discount factor
+  gae_lambda: 0.95                    # GAE lambda for advantage estimation
+  
+  # Clipping and loss coefficients
+  clip_eps: 0.2                       # PPO clipping epsilon
+  vf_coef: 0.5                        # Value function loss coefficient
+  ent_coef: 0.01                      # Entropy bonus coefficient
+  max_grad_norm: 1.0                  # Maximum gradient norm for clipping
+  
+  # Training dynamics
+  rollout_steps: 2048                 # Total steps per rollout before update
+  epochs: 4                           # Number of epochs per PPO update
+  seq_len: 64                         # Truncated BPTT sequence length
+  batch_seq_len: 64                   # Sequence length for minibatches
+  
+  # Optimization
+  lr: 0.0003                          # Learning rate for Adam optimizer
+
+# ============================================================================
+# TRAINING CONFIGURATION
+# ============================================================================
+training:
+  total_updates: 100                  # Total number of PPO updates
+  seed: 42                            # Random seed for reproducibility
+  
+  # Checkpointing
+  checkpoint_interval: 50             # Save checkpoint every N updates
+  
+  # Logging
+  log_interval: 10                    # Log metrics every N updates
+  save_dir: "./checkpoints"           # Directory for saving checkpoints
+  experiment_name: "ppo_training"     # Experiment name for TensorBoard
+
+# ============================================================================
+# EXAMPLES AND NOTES
+# ============================================================================
+# 
+# To customize, modify the values above and run:
+#   python -m rl.train --config rl/config/training_config.yaml
+#
+# Common configurations:
+#
+# Fast Training (for testing):
+#   total_updates: 10
+#   rollout_steps: 512
+#   max_steps: 200
+#
+# Precise Training (for production):
+#   total_updates: 200
+#   rollout_steps: 4096
+#   max_steps: 2000
+#   epochs: 8
+#   lr: 1e-4
+#
+# High-precision Simulation:
+#   dtype: "float64"
+#   max_grad_norm: 0.5
+#   clip_eps: 0.1
+#

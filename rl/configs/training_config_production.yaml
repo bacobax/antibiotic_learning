@@ -1,0 +1,74 @@
+# Production Training Configuration
+# For full training runs - higher precision, longer training
+# Run with: python -m rl.train --config rl/configs/training_config_production.yaml
+
+environment:
+  max_steps: 2048
+  k_doses: 3
+  target_population: 100
+  population_norm: 200
+  budget_init: 100.0
+  budget_norm: 100.0
+  w_pop: 1.0
+  w_genome: 0.5
+  w_cost: 0.1
+  w_population_maintenance: 0.05
+  device: "mps"
+  dtype: "float32"
+
+actions:
+  noop:
+    id: 0
+    name: "No operation"
+    cost: 0.0
+    duration: 0
+    description: "Wait without taking action"
+  
+  count_bacteria:
+    id: 1
+    name: "Count bacteria"
+    cost: 0.0
+    duration: 0
+    description: "Measure current bacteria population"
+  
+  sequencing:
+    id: 2
+    name: "Genome sequencing"
+    cost: 5.0
+    duration: 5
+    description: "Sequence bacteria genome to detect resistance"
+  
+  dose:
+    id: 3
+    name: "Administer antibiotics"
+    cost_per_unit: 0.5
+    duration: 0
+    description: "Dose antibiotics"
+
+model:
+  hidden_dim: 128
+  rnn_layers: 2
+  n_discrete: 4
+  dose_action_index: 3
+  k_doses: 3
+
+ppo:
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_eps: 0.1
+  vf_coef: 0.5
+  ent_coef: 0.005
+  max_grad_norm: 0.5
+  rollout_steps: 2048
+  epochs: 16
+  seq_len: 128
+  batch_seq_len: 128
+  lr: 0.0001
+
+training:
+  total_updates: 100
+  seed: 42
+  checkpoint_interval: 10
+  log_interval: 5
+  save_dir: "./checkpoints"
+  experiment_name: "ppo_production"

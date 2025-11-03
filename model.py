@@ -144,7 +144,16 @@ class BacteriaModel(Model):
             print(f"Unknown antibiotic type: {antibiotic_type}")
 
     def get_population_stats(self):
-        """Get statistics about the current population"""
+        """Get statistics about the current population
+        
+        Returns:
+            stats (dict): Dictionary containing overall statistics and per-type information
+            traits_matrix (np.ndarray): Matrix of shape (K, T) where:
+                - K = number of bacterial types (from BACTERIAL_TYPES)
+                - T = number of traits (4: enzyme, efflux, membrane, repair)
+                - Each row contains average trait values for that bacterial type
+                - Rows are ordered according to BACTERIAL_TYPES.keys()
+        """
         stats = {
             "total": len(self.agent_set),
             "by_type": {},
@@ -158,7 +167,16 @@ class BacteriaModel(Model):
         stats["avg_energy_top"] = 0.0
         stats["avg_energy_worst"] = 0.0
 
+        # Initialize traits matrix (K x T)
+        # K = number of bacterial types, T = 4 traits
+        bacterial_types_list = list(BACTERIAL_TYPES.keys())
+        traits_list = ["enzyme", "efflux", "membrane", "repair"]
+        K = len(bacterial_types_list)
+        T = len(traits_list)
+        traits_matrix = np.zeros((K, T), dtype=float)
+
         if len(self.agent_set) == 0:
+            stats["traits_matrix"] = traits_matrix
             return stats
 
         # Collect statistics
@@ -196,6 +214,14 @@ class BacteriaModel(Model):
             for trait in ["enzyme", "efflux", "membrane", "repair", "age"]:
                 stats[btype][trait] /= count
 
+        # Populate traits matrix
+        for i, btype in enumerate(bacterial_types_list):
+            for j, trait in enumerate(traits_list):
+                if btype in stats["by_type"] and stats["by_type"][btype] > 0:
+                    traits_matrix[i, j] = stats[btype][trait]
+                else:
+                    traits_matrix[i, j] = 0.0
+
         # Update energy tracking with actual values
         stats["avg_energy"] = float(np.mean(energy_array)) if energy_array else 0.0
         stats["avg_energy_top"] = (
@@ -204,6 +230,9 @@ class BacteriaModel(Model):
         stats["avg_energy_worst"] = (
             float(np.mean(heapq.nsmallest(10, energy_array))) if energy_array else 0.0
         )
+
+        # Add traits matrix to stats dictionary
+        stats["traits_matrix"] = traits_matrix
 
         return stats
 
