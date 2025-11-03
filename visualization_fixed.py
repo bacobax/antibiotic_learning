@@ -166,6 +166,10 @@ class SimulationVisualizer:
 
     def _on_click(self, event):
         """Handle mouse clicks to select bacteria"""
+        # If no callback is registered, don't process clicks
+        if self.on_click_callback is None:
+            return
+            
         if event.inaxes != self.ax:
             return
 
@@ -199,6 +203,7 @@ class SimulationVisualizer:
             print(
                 f"Viewing bacterium {closest_bacterium.unique_id} ({closest_bacterium.bacterial_type})"
             )
+            # Call the callback (we already checked it's not None at the top)
             self.on_click_callback(closest_bacterium.unique_id)
 
     def get_bacterial_colors(self, agents):
@@ -209,45 +214,51 @@ class SimulationVisualizer:
         """Update history line plots"""
         try:
             history = self.model.history
-            if len(history["steps"]) > 0:
-                # Food plot
-                self.line_food.set_data(history["steps"], history["total_food"])
-                self.ax_food.set_xlim(0, max(10, max(history["steps"])))
-                self.ax_food.set_ylim(0, max(10, max(history["total_food"]) * 1.1))
+            # Only update plots if there's actual data collected
+            # At startup, history exists but steps array is empty - this is normal
+            if len(history["steps"]) == 0:
+                # No data yet - skip update but don't error
+                return
+            
+            # Now we know there's data, proceed with updates
+            # Food plot
+            self.line_food.set_data(history["steps"], history["total_food"])
+            self.ax_food.set_xlim(0, max(10, max(history["steps"])))
+            self.ax_food.set_ylim(0, max(10, max(history["total_food"]) * 1.1))
 
-                # Population plot
-                self.line_pop.set_data(history["steps"], history["population"])
-                self.ax_pop.set_xlim(0, max(10, max(history["steps"])))
-                self.ax_pop.set_ylim(0, max(10, max(history["population"]) * 1.1))
+            # Population plot
+            self.line_pop.set_data(history["steps"], history["population"])
+            self.ax_pop.set_xlim(0, max(10, max(history["steps"])))
+            self.ax_pop.set_ylim(0, max(10, max(history["population"]) * 1.1))
 
-                # Energy plot
-                self.line_energy_avg.set_data(history["steps"], history["avg_energy"])
-                self.line_energy_worst.set_data(
-                    history["steps"], history["avg_energy_worst"]
-                )
-                self.line_energy_top.set_data(history["steps"], history["avg_energy_top"])
-                self.ax_energy.set_xlim(0, max(10, max(history["steps"])))
-                self.ax_energy.set_ylim(0, max(10, max(history["avg_energy"]) * 1.1))
+            # Energy plot
+            self.line_energy_avg.set_data(history["steps"], history["avg_energy"])
+            self.line_energy_worst.set_data(
+                history["steps"], history["avg_energy_worst"]
+            )
+            self.line_energy_top.set_data(history["steps"], history["avg_energy_top"])
+            self.ax_energy.set_xlim(0, max(10, max(history["steps"])))
+            self.ax_energy.set_ylim(0, max(10, max(history["avg_energy"]) * 1.1))
 
-                # Antibiotic concentrations plot
-                max_antibiotic_concentration = 0.01
-                for ab_type in ANTIBIOTIC_TYPES.keys():
-                    ab_key = f"antibiotic_{ab_type}"
-                    if ab_key in history and len(history[ab_key]) > 0:
-                        data = history[ab_key]
-                        steps = history["steps"][: len(data)]
-                        self.antibiotic_lines[ab_type].set_data(steps, data)
-                        if len(data) > 0:
-                            max_antibiotic_concentration = max(
-                                max_antibiotic_concentration, max(data)
-                            )
-                    else:
-                        self.antibiotic_lines[ab_type].set_data([], [])
+            # Antibiotic concentrations plot
+            max_antibiotic_concentration = 0.01
+            for ab_type in ANTIBIOTIC_TYPES.keys():
+                ab_key = f"antibiotic_{ab_type}"
+                if ab_key in history and len(history[ab_key]) > 0:
+                    data = history[ab_key]
+                    steps = history["steps"][: len(data)]
+                    self.antibiotic_lines[ab_type].set_data(steps, data)
+                    if len(data) > 0:
+                        max_antibiotic_concentration = max(
+                            max_antibiotic_concentration, max(data)
+                        )
+                else:
+                    self.antibiotic_lines[ab_type].set_data([], [])
 
-                self.ax_antibiotics.set_xlim(0, max(10, max(history["steps"])))
-                self.ax_antibiotics.set_ylim(
-                    0, max(0.1, max_antibiotic_concentration * 1.1)
-                )
+            self.ax_antibiotics.set_xlim(0, max(10, max(history["steps"])))
+            self.ax_antibiotics.set_ylim(
+                0, max(0.1, max_antibiotic_concentration * 1.1)
+            )
 
             # Update trait evolution plots
             self._update_trait_plots()
