@@ -24,9 +24,11 @@ from simulation.simulation_config import (
     FOOD_PATCH_AMPLITUDE_MAX,
     FOOD_PATCH_SIGMA_MIN,
     FOOD_PATCH_SIGMA_MAX,
+    BIOFILM_PARAMS,
 )
 from simulation.bacterium import Bacterium
 from simulation.tracking import IndividualTracker
+
 
 
 class BacteriaModel(Model):
@@ -374,7 +376,6 @@ class BacteriaModel(Model):
         Args:
             initiator: The bacterium that triggered biofilm formation
         """
-        from config import BIOFILM_PARAMS
         
         # Generate unique biofilm ID
         biofilm_id = self._next_biofilm_id
@@ -396,8 +397,6 @@ class BacteriaModel(Model):
             if hasattr(bacterium, 'biofilm_id') and bacterium.biofilm_id is None:
                 bacterium.biofilm_id = biofilm_id
                 biofilm_members.append(bacterium)
-        
-        print(f"Biofilm {biofilm_id} created with {len(biofilm_members)} members")
     
     def horizontal_gene_transfer(self):
         """Exchange resistance traits between nearby bacteria"""
