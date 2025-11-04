@@ -141,22 +141,50 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
     
     def update_training_stats(self, stats):
         """Update training statistics display"""
+        # Calculate action percentages overall
+        total_actions = sum(stats.get('action_counts_total', {}).values())
+        action_pcts = {}
+        if total_actions > 0:
+            for action, count in stats.get('action_counts_total', {}).items():
+                action_pcts[action] = (count / total_actions) * 100
+        
         text = f"""Update: {stats.get('update', 0)}/{stats.get('total_updates', 0)}
 Elapsed Time: {stats.get('elapsed', 0):.1f}s
 Mean Episode Reward: {stats.get('mean_reward', 0):.2f}
 Actor Loss: {stats.get('actor_loss', 0):.4f}
 Critic Loss: {stats.get('critic_loss', 0):.4f}
 Episodes Completed: {stats.get('episodes_completed', 0)}
+
+--- Overall Action Distribution ---
+Total Actions: {total_actions}
+NOOP:     {action_pcts.get(0, 0):5.1f}% ({stats.get('action_counts_total', {}).get(0, 0):4d})
+COUNT:    {action_pcts.get(1, 0):5.1f}% ({stats.get('action_counts_total', {}).get(1, 0):4d})
+SEQUENCE: {action_pcts.get(2, 0):5.1f}% ({stats.get('action_counts_total', {}).get(2, 0):4d})
+DOSE:     {action_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_total', {}).get(3, 0):4d})
 """
         self.train_display.setText(text)
     
     def update_episode_stats(self, stats):
         """Update current episode statistics"""
+        # Calculate action percentages for current episode
+        episode_actions = sum(stats.get('action_counts_episode', {}).values())
+        episode_pcts = {}
+        if episode_actions > 0:
+            for action, count in stats.get('action_counts_episode', {}).items():
+                episode_pcts[action] = (count / episode_actions) * 100
+        
         text = f"""Step: {stats.get('step', 0)}
 Episode Return: {stats.get('episode_return', 0):.2f}
 Last Action: {stats.get('last_action', 'N/A')}
 Last Reward: {stats.get('last_reward', 0):.4f}
 Budget: {stats.get('budget', 0):.2f}
+
+--- Episode Action Distribution ---
+Total Actions: {episode_actions}
+NOOP:     {episode_pcts.get(0, 0):5.1f}% ({stats.get('action_counts_episode', {}).get(0, 0):4d})
+COUNT:    {episode_pcts.get(1, 0):5.1f}% ({stats.get('action_counts_episode', {}).get(1, 0):4d})
+SEQUENCE: {episode_pcts.get(2, 0):5.1f}% ({stats.get('action_counts_episode', {}).get(2, 0):4d})
+DOSE:     {episode_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_episode', {}).get(3, 0):4d})
 """
         self.episode_display.setText(text)
     
@@ -204,6 +232,22 @@ class TrainingVisualizer:
         self.last_reward = 0.0
         self.episodes_completed = 0
         self.last_train_stats = {'loss_actor': 0.0, 'loss_critic': 0.0}
+        
+        # Action tracking - overall
+        self.action_counts_total = {
+            ACTION_NOOP: 0,
+            ACTION_COUNT_BACTERIA: 0,
+            ACTION_SEQUENCING: 0,
+            ACTION_DOSE: 0
+        }
+        
+        # Action tracking - current episode
+        self.action_counts_episode = {
+            ACTION_NOOP: 0,
+            ACTION_COUNT_BACTERIA: 0,
+            ACTION_SEQUENCING: 0,
+            ACTION_DOSE: 0
+        }
         
         # Initialize agent (reusing normal training function)
         self.agent = _initialize_agent(ppo_cfg)
@@ -347,6 +391,10 @@ class TrainingVisualizer:
         # Store action for display
         self.last_action = pure_a_disc
         
+        # Track action counts
+        self.action_counts_total[pure_a_disc] += 1
+        self.action_counts_episode[pure_a_disc] += 1
+        
         # Step environment
         next_obs, reward, done, info = self.env.step(pure_a_disc, pure_a_cont)
         self.last_reward = reward
@@ -374,6 +422,13 @@ class TrainingVisualizer:
             self.current_obs = self.env.reset()
             self.agent.start_episode()
             self.current_step = 0
+            # Reset episode action counts
+            self.action_counts_episode = {
+                ACTION_NOOP: 0,
+                ACTION_COUNT_BACTERIA: 0,
+                ACTION_SEQUENCING: 0,
+                ACTION_DOSE: 0
+            }
             # Update visualizer model reference
             self.visualizer.model = self.env.model
             # Update individual plotter's tracker reference if tracking is enabled
@@ -479,6 +534,7 @@ class TrainingVisualizer:
             'actor_loss': self.last_train_stats.get('loss_actor', 0.0),
             'critic_loss': self.last_train_stats.get('loss_critic', 0.0),
             'episodes_completed': self.episodes_completed,
+            'action_counts_total': self.action_counts_total
         }
         self.control_panel.update_training_stats(train_stats)
         
@@ -489,6 +545,7 @@ class TrainingVisualizer:
             'last_action': ACTION_NAMES.get(self.last_action, 'N/A'),
             'last_reward': self.last_reward,
             'budget': self.env.budget,
+            'action_counts_episode': self.action_counts_episode
         }
         self.control_panel.update_episode_stats(episode_stats)
         
