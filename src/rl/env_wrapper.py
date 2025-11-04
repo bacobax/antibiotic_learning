@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Tuple, Optional, Union
+from typing import Any, Callable, Dict, Tuple, Optional, Union, List
 import numpy as np
 import torch
 from simulation.simulation_config import ANTIBIOTIC_TYPES, antibiotic_resistances, TOX_TIMES_DOSE_MAX, N_TRAITS, N_BACTERIA_TYPES
@@ -101,7 +101,7 @@ class PetriEnvWrapper:
         self.seq_eta = 0  # steps until result is ready
 
         # pending dose ledger (evaluated when a measurement lands)
-
+        self.pending_dose_events: List[Dict[str, Any]] = []
         noop_band = 0.02 * population_norm   # ~2% deadband around target
         noop_mag  = 0.01                     # small shaping magnitude
         self.noop_band = noop_band
@@ -147,6 +147,7 @@ class PetriEnvWrapper:
         # clear pipelines
         self.seq_pending = False
         self.seq_eta = 0
+        self.pending_dose_events.clear()
 
 
         return self._build_observation()
@@ -156,7 +157,7 @@ class PetriEnvWrapper:
         assert isinstance(a_cont, np.ndarray) and a_cont.shape == (self.k_doses,), \
             f"a_cont must be np.ndarray shape ({self.k_doses},)"
 
-        # 1) Execute action: computes immediate reward (dose reward computed here now)
+        # 1) Execute action: computes immediate reward (only instant penalties/shaping)
         immediate_reward = self._execute_action(a_discrete, a_cont)
 
         # 2) Advance simulation one base step
@@ -164,7 +165,7 @@ class PetriEnvWrapper:
         self.t += 1
 
         # 3) Progress sequencing countdown; when it finishes, publish result
-        # Note: We no longer use delayed dose rewards here
+        sequencing_result_landed = False
         if self.seq_pending:
             self.seq_eta -= 1
             if self.seq_eta <= 0:
@@ -173,12 +174,15 @@ class PetriEnvWrapper:
                 self._cache_sequencing_obs(seq_result)
                 self.seq_pending = False
                 self.seq_eta = 0
+                sequencing_result_landed = True
 
         # COUNT has duration 0 → if the agent performed COUNT this step, cache count obs immediately
+        count_result_landed = False
         if a_discrete == ACTION_COUNT_BACTERIA or a_discrete == ACTION_DOSE:
             # We just performed a count → cache count obs immediately
             count_now = self._read_true_population()
             self._cache_count_obs(count_now)
+            count_result_landed = True
 
         # 4) Build obs from what the agent knows (cached), never from the hidden true state directly
         # 4) Build obs from what the agent knows (cached), never from the hidden true state directly
@@ -188,11 +192,18 @@ class PetriEnvWrapper:
         true_population = self._read_true_population()
         done = (true_population == 0) or (self.t >= self.max_steps) or (self.budget < 0.0)
 
-        # 6) Compute total reward: immediate action reward + step-wise population maintenance penalty
+        # 6) Release any pending dose rewards when a measurement lands
+        delayed_reward = 0.0
+        if count_result_landed:
+            delayed_reward += self._collect_pending_dose_rewards(self.last_count_obs)
+        elif sequencing_result_landed:
+            delayed_reward += self._collect_pending_dose_rewards(None)
+
+        # 7) Compute total reward: immediate penalties + delayed efficacy + maintenance
         # Use PopulationMaintenanceReward module for consistent asymmetric penalty
         maintenance_penalty = self.pop_maintenance_reward(true_population)
-        
-        reward = immediate_reward + maintenance_penalty
+
+        reward = immediate_reward + delayed_reward + maintenance_penalty
         self.episode_return += reward
 
         info = {
@@ -202,6 +213,7 @@ class PetriEnvWrapper:
             "budget": self.budget,
             "seq_pending": self.seq_pending,
             "seq_eta": self.seq_eta,
+            "delayed_reward": delayed_reward,
         }
         return obs, float(reward), bool(done), info
 
@@ -211,11 +223,10 @@ class PetriEnvWrapper:
 
     def _execute_action(self, a_discrete: int, a_cont: np.ndarray) -> float:
         """
-        Applies the chosen action. Returns *immediate* reward as float.
-        
-        For ACTION_DOSE: reward is computed immediately using cached observations,
-        aligning credit assignment with the timestep where the decision was made.
-        This improves PPO training stability vs. delayed rewards.
+        Applies the chosen action. Returns the *immediate* reward portion as float.
+
+        For ACTION_DOSE the efficacy bonus is deferred until a measurement arrives;
+        only the instantaneous monetary penalty is returned here.
         
         Returns:
             Immediate reward (float)
@@ -249,69 +260,39 @@ class PetriEnvWrapper:
             return 0.0
 
         if a_discrete == ACTION_DOSE:
-            # Cost now; efficacy reward computed immediately using cached obs
+            # Cost now; efficacy reward computed later when a measurement lands
             scaled = self.scale_dose(np.clip(a_cont, 0.0, 1.0))
             self._apply_antibiotics(scaled)
 
             cost = float(np.sum(scaled) * self.dose_cost_per_unit)
             self.budget -= cost
 
-            # ✅ Compute efficacy reward IMMEDIATELY using cached observations
-            # This aligns credit with the timestep where the dose decision was made
-            efficacy_reward = self._compute_dose_reward_immediate(scaled)
+            self._register_pending_dose(scaled)
 
-            # Store for diagnosis/debugging (but don't wait for delayed settling)
+            cost_term = self.dose_reward_compound.cost_reward.dose_cost(scaled)
+            weighted_cost = self.dose_reward_compound.w_cost * cost_term
 
-            return float(efficacy_reward)
-        
+            return float(weighted_cost)
+
         raise ValueError(f"Unknown discrete action: {a_discrete}")
 
-    def _compute_dose_reward_immediate(self, dose_vector: np.ndarray) -> float:
-        """
-        Compute dose efficacy reward using CURRENT cached observations.
-        
-        This reward is assigned immediately to the timestep where the dose was administered.
-        Uses the DoseRewardCompound module to orchestrate all reward components.
-        
-        Reward the agent for *approaching* target, not for massive kill-offs.
-        
-        This design encourages the agent to:
-          1. Dose when it has fresh population & genome information
-          2. Avoid dosing on stale/blind data (via staleness penalty)
-          3. Trade off measurement costs against effectiveness
-        
-        Args:
-            dose_vector: scaled dose amounts [0, 1] for each antibiotic
-            
-        Returns:
-            Immediate reward signal (float)
-        """
-        # Compute age of measurements
-        age_pop = 0 if self.ts_last_count is None else (self.t - self.ts_last_count)
-        age_genome = 0 if self.ts_last_seq is None else (self.t - self.ts_last_seq)
-        
-        # Prepare genome tensor for reward computation
+    def _register_pending_dose(self, dose_vector: np.ndarray) -> None:
+        """Record dose metadata so efficacy can be scored when feedback arrives."""
+        age_pop = None if self.ts_last_count is None else (self.t - self.ts_last_count)
+        age_genome = None if self.ts_last_seq is None else (self.t - self.ts_last_seq)
+
         avg_genome = None
         if self.last_seq_obs is not None:
-            avg_genome = torch.tensor(
-                self.last_seq_obs["avg_genome"],
-                dtype=self.dtype,
-                device=self.device,
-            )
-        
-        # Prepare dose tensor
-        doses = torch.tensor(dose_vector, dtype=self.dtype, device=self.device)
-        
-        # Use compound reward module to compute total reward
-        reward = self.dose_reward_compound(
-            last_count_obs=self.last_count_obs,
-            age_pop=age_pop,
-            avg_genome=avg_genome,
-            doses=doses,
-            age_genome=age_genome,
-        )
-        
-        return float(reward)
+            avg_genome = np.copy(self.last_seq_obs["avg_genome"])
+
+        event: Dict[str, Any] = {
+            "doses": np.copy(dose_vector),
+            "pre_count": None if self.last_count_obs is None else int(self.last_count_obs),
+            "age_pop": age_pop,
+            "avg_genome": avg_genome,
+            "age_genome": age_genome,
+        }
+        self.pending_dose_events.append(event)
     
     # -------------------------
     # Reading true state (hidden from agent)
@@ -360,6 +341,50 @@ class PetriEnvWrapper:
     def _cache_count_obs(self, population: int) -> None:
         self.last_count_obs = int(population)
         self.ts_last_count = self.t
+
+    def _collect_pending_dose_rewards(self, post_count: Optional[int]) -> float:
+        if not self.pending_dose_events:
+            return 0.0
+
+        total = 0.0
+        for event in self.pending_dose_events:
+            total += self._evaluate_dose_event(event, post_count)
+        self.pending_dose_events.clear()
+        return float(total)
+
+    def _evaluate_dose_event(self, event: Dict[str, Any], post_count: Optional[int]) -> float:
+        doses = torch.tensor(event["doses"], dtype=self.dtype, device=self.device)
+
+        genome_term = self.dose_reward_compound.genome_reward(
+            event.get("avg_genome"),
+            doses,
+            0 if event.get("age_genome") is None else event["age_genome"],
+        )
+
+        pre_count = event.get("pre_count")
+        if post_count is None:
+            pop_term_raw = -0.5
+        elif pre_count is None:
+            gap = abs(float(post_count) - self.target_population)
+            pop_term_raw = -gap / max(1.0, self.population_norm)
+        else:
+            pre_gap = abs(float(pre_count) - self.target_population)
+            post_gap = abs(float(post_count) - self.target_population)
+            improvement = pre_gap - post_gap
+            pop_term_raw = improvement / max(1.0, self.population_norm)
+
+        pop_term_tensor = torch.tensor(pop_term_raw, dtype=self.dtype, device=self.device)
+        age_pop = event.get("age_pop", 0) or 0
+        pop_term_tensor = self.dose_reward_compound.pop_reward.age_normalizer(pop_term_tensor, age_pop)
+        pop_term_tensor = torch.clamp(pop_term_tensor, min=-1.0, max=1.0)
+        pop_term = float(pop_term_tensor.item())
+
+        total = (
+            self.dose_reward_compound.w_pop * pop_term
+            + self.dose_reward_compound.w_genome * genome_term
+        )
+
+        return float(total)
 
     def _cache_sequencing_obs(self, seq: Dict[str, Any]) -> None:
         self.last_seq_obs = {
