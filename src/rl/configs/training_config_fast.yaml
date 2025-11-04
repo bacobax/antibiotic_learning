@@ -9,6 +9,7 @@ environment:
   population_norm: 1000.0
   budget_init: 100.0
   budget_norm: 100.0
+  budget_penalty: 10.0
   w_pop: 1.0
   w_genome: 0.5
   w_cost: 0.05
@@ -27,7 +28,7 @@ actions:
   count_bacteria:
     id: 1
     name: "Count bacteria"
-    cost: 0.0
+    cost: 2.0
     duration: 0
     description: "Measure current bacteria population"
   
@@ -41,7 +42,7 @@ actions:
   dose:
     id: 3
     name: "Administer antibiotics"
-    cost_per_unit: 0.5
+    cost_per_unit: 1
     duration: 0
     description: "Dose antibiotics"
 

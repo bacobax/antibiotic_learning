@@ -64,21 +64,29 @@ class RLAgent:
     @staticmethod
     def load_agent_from_checkpoint(filepath: str):
         # Import here to avoid circular dependency
-        from .config import PPOConfig
+        import pickle
+        import sys
         
         # PyTorch 2.6+ requires allowlisting custom classes for security
-        # Add PPOConfig to safe globals for loading
+        # Create a module remapping to handle old checkpoint files that reference rl.config.PPOConfig
+        
+        # Temporarily inject a fake rl.config module that redirects to training_config
+        class ConfigModule:
+            PPOConfig = PPOConfig
+        
+        if "rl.config" not in sys.modules:
+            sys.modules["rl.config"] = ConfigModule()
+        
         try:
-            # Try to load with weights_only=False to handle pickled config objects
+            # Load with weights_only=False to handle pickled config objects
             checkpoint = torch.load(filepath, weights_only=False)
-        except Exception:
-            # Fallback: try with safe globals context manager
-            try:
-                torch.serialization.add_safe_globals([PPOConfig])
-                checkpoint = torch.load(filepath)
-            except Exception:
-                # Final fallback: load with weights_only=False
+        except ModuleNotFoundError as e:
+            # If rl.config module not found, add it and try again
+            if "rl.config" in str(e):
+                sys.modules["rl.config"] = ConfigModule()
                 checkpoint = torch.load(filepath, weights_only=False)
+            else:
+                raise
         
         model_state_dict = checkpoint["model_state_dict"]
         

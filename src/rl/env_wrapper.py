@@ -46,6 +46,7 @@ class PetriEnvWrapper:
         sequencing_cost: float = 1.0,
         sequencing_duration: int = 5,   # steps to finish
         dose_cost_per_unit: float = 0.2,
+        count_cost: float = 0.0,        # cost for COUNT action
         # shaping & norms
         target_population: int = 500,   # P*
         w_pop: float = 1.0,             # weight for population term in dose reward
@@ -55,6 +56,7 @@ class PetriEnvWrapper:
         budget_init: float = 100.0,
         budget_norm: float = 100.0,     # divisor for budget normalization
         population_norm: float = 1000.0, # to map counts to ~[0,1]
+        budget_penalty: float = 10.0,   # big penalty when budget reaches 0
         device: str = "cpu",
         dtype: torch.dtype = torch.float32,
     ):
@@ -67,6 +69,8 @@ class PetriEnvWrapper:
         self.sequencing_cost = sequencing_cost
         self.sequencing_duration = sequencing_duration
         self.dose_cost_per_unit = dose_cost_per_unit
+        self.count_cost = count_cost
+        self.budget_penalty = budget_penalty
 
         # reward shaping
         self.target_population = target_population
@@ -190,9 +194,16 @@ class PetriEnvWrapper:
 
         # 6) Compute total reward: immediate action reward + step-wise population maintenance penalty
         # Use PopulationMaintenanceReward module for consistent asymmetric penalty
-        maintenance_penalty = self.pop_maintenance_reward(true_population)
+        maintenance_penalty = 0.0
+        if a_discrete in (ACTION_COUNT_BACTERIA, ACTION_DOSE):
+            maintenance_penalty = self.pop_maintenance_reward(true_population)
         
-        reward = immediate_reward + maintenance_penalty
+        # 6b) Add big penalty if budget reaches 0
+        budget_penalty = 0.0
+        if self.budget <= 0.0:
+            budget_penalty = -self.budget_penalty
+        
+        reward = immediate_reward + maintenance_penalty + budget_penalty
         self.episode_return += reward
 
         info = {
@@ -234,8 +245,9 @@ class PetriEnvWrapper:
             return bonus
 
         if a_discrete == ACTION_COUNT_BACTERIA:
-            # As per spec: 0 cost, duration 0, reward 0 now
-            return 0.0
+            # Apply count cost from action config
+            self.budget -= self.count_cost
+            return -self.count_cost  # Penalize the COUNT action with its cost
 
         if a_discrete == ACTION_SEQUENCING:
             # Cost now, reward 0 now; result later

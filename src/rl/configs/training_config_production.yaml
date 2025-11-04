@@ -9,10 +9,11 @@ environment:
   population_norm: 200
   budget_init: 100.0
   budget_norm: 100.0
-  w_pop: 1.0
-  w_genome: 0.5
-  w_cost: 0.1
-  w_population_maintenance: 0.05
+  budget_penalty: 5.0
+  w_pop: 7.0
+  w_genome: 0.3
+  w_cost: 1
+  w_population_maintenance: 1
   device: "mps"
   dtype: "float32"
 
@@ -27,7 +28,7 @@ actions:
   count_bacteria:
     id: 1
     name: "Count bacteria"
-    cost: 0.0
+    cost: 2.0
     duration: 0
     description: "Measure current bacteria population"
   
@@ -36,12 +37,12 @@ actions:
     name: "Genome sequencing"
     cost: 5.0
     duration: 5
-    description: "Sequence bacteria genome to detect resistance"
+    description: "Sequence bacteria genome"
   
   dose:
     id: 3
     name: "Administer antibiotics"
-    cost_per_unit: 0.5
+    cost_per_unit: 1
     duration: 0
     description: "Dose antibiotics"
 
@@ -66,9 +67,9 @@ ppo:
   lr: 0.0001
 
 training:
-  total_updates: 100
+  total_updates: 50
   seed: 42
-  checkpoint_interval: 10
+  checkpoint_interval: 5
   log_interval: 5
   save_dir: "./checkpoints"
   experiment_name: "ppo_production"
