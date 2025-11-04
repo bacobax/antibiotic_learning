@@ -57,6 +57,9 @@ class PetriEnvWrapper:
         budget_norm: float = 100.0,     # divisor for budget normalization
         population_norm: float = 1000.0, # to map counts to ~[0,1]
         budget_penalty: float = 10.0,   # big penalty when budget reaches 0
+        # NOOP action reward shaping
+        noop_band_factor: float = 0.02,      # deadband around target as fraction of population_norm
+        noop_reward_magnitude: float = 0.01, # small shaping magnitude for NOOP action
         device: str = "cpu",
         dtype: torch.dtype = torch.float32,
     ):
@@ -106,24 +109,16 @@ class PetriEnvWrapper:
 
         # pending dose ledger (evaluated when a measurement lands)
         self.pending_dose_events: List[Dict[str, Any]] = []
-        noop_band = 0.02 * population_norm   # ~2% deadband around target
-        noop_mag  = 0.01                     # small shaping magnitude
+
+        # NOOP action reward shaping
+        noop_band = noop_band_factor * population_norm
         self.noop_band = noop_band
-        self.noop_mag  = noop_mag
+        self.noop_mag = noop_reward_magnitude
         
         # ========== Reward Modules ==========
         # Initialize reward computation modules
-        self.dose_reward_compound = DoseRewardCompound(
-            target_population=target_population,
-            population_norm=population_norm,
-            dose_cost_per_unit=dose_cost_per_unit,
-            w_pop=w_pop,
-            w_genome=w_genome,
-            w_cost=w_cost,
-            device=device,
-            dtype=dtype,
-            aging_type="sqrt",
-        )
+        # Removed DoseRewardCompound - using simple cost penalty instead
+        # Natural population changes captured by maintenance reward provide delayed feedback
         
         self.pop_maintenance_reward = PopulationMaintenanceReward(
             target_population=target_population,
@@ -135,8 +130,8 @@ class PetriEnvWrapper:
     # -------------------------
     # Public API
     # -------------------------
-
-    def reset(self) -> np.ndarray:
+    
+    def reset(self)-> np.ndarray:
         self.model = self.mesa_model_factory()
         self.t = 0
         self.episode_return = 0.0
@@ -234,10 +229,11 @@ class PetriEnvWrapper:
 
     def _execute_action(self, a_discrete: int, a_cont: np.ndarray) -> float:
         """
-        Applies the chosen action. Returns the *immediate* reward portion as float.
-
-        For ACTION_DOSE the efficacy bonus is deferred until a measurement arrives;
-        only the instantaneous monetary penalty is returned here.
+        Applies the chosen action. Returns *immediate* reward as float.
+        
+        Simplified approach: Let natural consequences (population changes) 
+        drive learning through maintenance reward, rather than predicting
+        efficacy at dose time.
         
         Returns:
             Immediate reward (float)
@@ -267,8 +263,7 @@ class PetriEnvWrapper:
                 self.seq_pending = True
                 self.seq_eta = int(self.sequencing_duration)
             else:
-                # If sequencing is already pending, we just paid again
-                return -0.001
+                return -0.001  # Small penalty for redundant sequencing
             return 0.0
 
         if a_discrete == ACTION_DOSE:
@@ -279,13 +274,11 @@ class PetriEnvWrapper:
             cost = float(np.sum(scaled) * self.dose_cost_per_unit)
             self.budget -= cost
 
-            self._register_pending_dose(scaled)
-
-            cost_term = self.dose_reward_compound.cost_reward.dose_cost(scaled)
-            weighted_cost = self.dose_reward_compound.w_cost * cost_term
-
-            return float(weighted_cost)
-
+            # ✅ SIMPLIFIED: Just return cost penalty
+            # Let population maintenance reward (computed every step) capture efficacy
+            # PPO's TD learning will connect: dose → future population drops → better rewards
+            return -cost * self.w_cost
+        
         raise ValueError(f"Unknown discrete action: {a_discrete}")
 
     def _register_pending_dose(self, dose_vector: np.ndarray) -> None:

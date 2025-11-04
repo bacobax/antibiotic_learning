@@ -5,6 +5,8 @@ from .models import RecurrentActorCritic
 from .ppo import PPOTrainer
 from .buffer import RolloutBuffer
 from .training_config import PPOConfig
+import pickle
+import sys
 
 class RLAgent:
     def __init__(self, model: RecurrentActorCritic, device = "cuda"):
@@ -64,8 +66,6 @@ class RLAgent:
     @staticmethod
     def load_agent_from_checkpoint(filepath: str):
         # Import here to avoid circular dependency
-        import pickle
-        import sys
         
         # PyTorch 2.6+ requires allowlisting custom classes for security
         # Create a module remapping to handle old checkpoint files that reference rl.config.PPOConfig

@@ -32,6 +32,10 @@ environment:
   w_cost: 0.05                        # Weight for action cost penalty
   w_population_maintenance: 0.01      # Per-step penalty for deviating from target
   
+  # NOOP action reward shaping
+  noop_band_factor: 0.02              # Deadband around target as fraction of population_norm (~2%)
+  noop_reward_magnitude: 0.01         # Small shaping magnitude for NOOP action
+  
   # Device configuration
   device: "cpu"                       # Options: "cpu", "cuda", "mps"
   dtype: "float32"                    # Tensor dtype: "float32" or "float64"

@@ -24,6 +24,10 @@ FOOD_DIFFUSION_SIGMA = 1.0 #UNUSED          # for gaussian_filter diffusion appr
 BACTERIA_SPEED = 1                # scaling factor for bacterium movement speed
 MUTATION_STD = 0.03
 
+# NOOP Action Reward Shaping
+NOOP_BAND_FACTOR = 0.02           # deadband around target as fraction of population_norm (~2%)
+NOOP_REWARD_MAGNITUDE = 0.0      # small shaping magnitude for NOOP action
+
 # Food Patch Configuration
 FOOD_PATCH_COUNT = 120                # number of food patches to spawn
 FOOD_PATCH_AMPLITUDE_MIN = 0.2      # minimum food concentration per patch

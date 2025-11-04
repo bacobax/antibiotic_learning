@@ -3,18 +3,20 @@
 # Run with: python -m rl.train --config rl/configs/training_config_production.yaml
 
 environment:
-  max_steps: 2048
+  max_steps: 512
   k_doses: 3
-  target_population: 100
+  target_population: 500
   population_norm: 200
   budget_init: 100.0
   budget_norm: 100.0
   budget_penalty: 5.0
-  w_pop: 7.0
-  w_genome: 0.3
-  w_cost: 1
-  w_population_maintenance: 1
-  device: "mps"
+  w_pop: 1.0
+  w_genome: 0.0
+  w_cost: 0.1
+  w_population_maintenance: 0.05
+  noop_band_factor: 0.02
+  noop_reward_magnitude: 0.01
+  device: "cuda"
   dtype: "float32"
 
 actions:
@@ -60,16 +62,16 @@ ppo:
   vf_coef: 0.5
   ent_coef: 0.005
   max_grad_norm: 0.5
-  rollout_steps: 2048
+  rollout_steps: 512
   epochs: 16
   seq_len: 128
   batch_seq_len: 128
   lr: 0.0001
 
 training:
-  total_updates: 50
+  total_updates: 200
   seed: 42
-  checkpoint_interval: 5
-  log_interval: 5
+  checkpoint_interval: 30
+  log_interval: 2
   save_dir: "./checkpoints"
   experiment_name: "ppo_production"
