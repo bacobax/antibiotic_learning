@@ -76,9 +76,15 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
     def __init__(self, on_pause_toggle):
         super().__init__()
         self.setWindowTitle("Training Control Panel")
-        self.setGeometry(0, 0, 400, 900)
+        self.setGeometry(0, 0, 400, 1200)  # Increased height for graphs
         
         self.on_pause_toggle = on_pause_toggle
+        
+        # Data for plots
+        self.episode_numbers = []
+        self.episode_lengths = []
+        self.budget_spent_history = []
+        self.budget_remaining_history = []
         
         # Create central widget
         central_widget = QtWidgets.QWidget()
@@ -94,7 +100,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         controls_group = QtWidgets.QGroupBox("Training Control")
         controls_layout = QtWidgets.QVBoxLayout()
         
-        self.pause_button = QtWidgets.QPushButton("Start Training")  # Changed from "Pause Training"
+        self.pause_button = QtWidgets.QPushButton("Start Training")
         self.pause_button.clicked.connect(on_pause_toggle)
         controls_layout.addWidget(self.pause_button)
         
@@ -107,7 +113,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         
         self.train_display = QtWidgets.QTextEdit()
         self.train_display.setReadOnly(True)
-        self.train_display.setMaximumHeight(250)
+        self.train_display.setMaximumHeight(200)
         train_layout.addWidget(self.train_display)
         
         train_group.setLayout(train_layout)
@@ -119,11 +125,50 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         
         self.episode_display = QtWidgets.QTextEdit()
         self.episode_display.setReadOnly(True)
-        self.episode_display.setMaximumHeight(250)
+        self.episode_display.setMaximumHeight(200)
         episode_layout.addWidget(self.episode_display)
         
         episode_group.setLayout(episode_layout)
         layout.addWidget(episode_group)
+        
+        # ===== NEW: Episode Length Graph =====
+        import matplotlib.pyplot as plt
+        from matplotlib.figure import Figure
+        
+        episode_length_group = QtWidgets.QGroupBox("Episode Length Over Time")
+        episode_length_layout = QtWidgets.QVBoxLayout()
+        
+        self.episode_length_fig = Figure(figsize=(4, 2), dpi=100)
+        self.episode_length_ax = self.episode_length_fig.add_subplot(111)
+        self.episode_length_canvas = FigureCanvas(self.episode_length_fig)
+        self.episode_length_canvas.setMaximumHeight(200)
+        
+        self.episode_length_ax.set_xlabel('Episode')
+        self.episode_length_ax.set_ylabel('Steps')
+        self.episode_length_ax.set_title('Episode Length')
+        self.episode_length_ax.grid(True, alpha=0.3)
+        
+        episode_length_layout.addWidget(self.episode_length_canvas)
+        episode_length_group.setLayout(episode_length_layout)
+        layout.addWidget(episode_length_group)
+        
+        # ===== NEW: Budget Tracking Graph =====
+        budget_group = QtWidgets.QGroupBox("Budget Usage Over Episodes")
+        budget_layout = QtWidgets.QVBoxLayout()
+        
+        self.budget_fig = Figure(figsize=(4, 2), dpi=100)
+        self.budget_ax = self.budget_fig.add_subplot(111)
+        self.budget_canvas = FigureCanvas(self.budget_fig)
+        self.budget_canvas.setMaximumHeight(200)
+        
+        self.budget_ax.set_xlabel('Episode')
+        self.budget_ax.set_ylabel('Budget')
+        self.budget_ax.set_title('Budget Tracking')
+        self.budget_ax.grid(True, alpha=0.3)
+        
+        budget_layout.addWidget(self.budget_canvas)
+        budget_group.setLayout(budget_layout)
+        layout.addWidget(budget_group)
         
         # Environment statistics
         env_group = QtWidgets.QGroupBox("Environment State")
@@ -131,13 +176,44 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         
         self.env_display = QtWidgets.QTextEdit()
         self.env_display.setReadOnly(True)
-        self.env_display.setMaximumHeight(200)
+        self.env_display.setMaximumHeight(150)
         env_layout.addWidget(self.env_display)
         
         env_group.setLayout(env_layout)
         layout.addWidget(env_group)
         
         layout.addStretch()
+    
+    def add_episode_data(self, episode_num: int, episode_length: int, budget_spent: float, budget_remaining: float):
+        """Add data point for completed episode"""
+        self.episode_numbers.append(episode_num)
+        self.episode_lengths.append(episode_length)
+        self.budget_spent_history.append(budget_spent)
+        self.budget_remaining_history.append(budget_remaining)
+        
+        # Update episode length plot
+        self.episode_length_ax.clear()
+        self.episode_length_ax.plot(self.episode_numbers, self.episode_lengths, 'b-', linewidth=1)
+        self.episode_length_ax.set_xlabel('Episode')
+        self.episode_length_ax.set_ylabel('Steps')
+        self.episode_length_ax.set_title('Episode Length')
+        self.episode_length_ax.grid(True, alpha=0.3)
+        self.episode_length_fig.tight_layout()
+        self.episode_length_canvas.draw()
+        
+        # Update budget plot
+        self.budget_ax.clear()
+        self.budget_ax.plot(self.episode_numbers, self.budget_spent_history, 'r-', 
+                           linewidth=1, label='Spent')
+        self.budget_ax.plot(self.episode_numbers, self.budget_remaining_history, 'g-', 
+                           linewidth=1, label='Remaining')
+        self.budget_ax.set_xlabel('Episode')
+        self.budget_ax.set_ylabel('Budget')
+        self.budget_ax.set_title('Budget Tracking')
+        self.budget_ax.legend(loc='best', fontsize=8)
+        self.budget_ax.grid(True, alpha=0.3)
+        self.budget_fig.tight_layout()
+        self.budget_canvas.draw()
     
     def update_training_stats(self, stats):
         """Update training statistics display"""
@@ -293,7 +369,7 @@ class TrainingVisualizer:
     def _arrange_windows(self):
         """Arrange windows side by side"""
         self.control_panel.move(0, 0)
-        self.control_panel.resize(400, 900)
+        self.control_panel.resize(400, 1200)
         self.viz_window.move(420, 0)
     
     def toggle_pause(self):
@@ -418,6 +494,9 @@ class TrainingVisualizer:
         
         # Handle episode termination
         if done:
+            # ⚠️ IMPORTANT: Get budget metrics BEFORE resetting environment!
+            budget_metrics = self.env.get_episode_budget_metrics()
+            
             self.episodes_completed += 1
             self.current_obs = self.env.reset()
             self.agent.start_episode()
@@ -436,6 +515,14 @@ class TrainingVisualizer:
                 self.individual_plotter.tracker = self.env.model.individual_tracker
                 self.logger.log_debug("Updated individual tracker reference for new episode")
             self.logger.log_debug(f"Episode {self.episodes_completed} complete, return: {info['episode_return']:.2f}")
+            
+            # Update control panel with episode data
+            self.control_panel.add_episode_data(
+                episode_num=self.episodes_completed,
+                episode_length=info.get('t', self.current_step),
+                budget_spent=budget_metrics['budget_spent'],
+                budget_remaining=budget_metrics['current_budget']
+            )
     
     def _update_policy(self):
         """Update the policy using collected rollout data (matching normal training)"""

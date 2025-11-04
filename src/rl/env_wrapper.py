@@ -97,6 +97,10 @@ class PetriEnvWrapper:
         self.episode_return = 0.0
         self.budget = budget_init
 
+        # Budget tracking per episode
+        self.episode_start_budget = budget_init
+        self.episode_budget_spent = 0.0
+
         # observation cache (what the agent "knows")
         self.last_count_obs: Optional[int] = None
         self.last_seq_obs: Optional[Dict[str, Any]] = None
@@ -136,6 +140,10 @@ class PetriEnvWrapper:
         self.t = 0
         self.episode_return = 0.0
         self.budget = self.budget_init
+        
+        # Reset budget tracking for new episode
+        self.episode_start_budget = self.budget_init
+        self.episode_budget_spent = 0.0
 
         # clear caches
         self.last_count_obs = None
@@ -254,11 +262,13 @@ class PetriEnvWrapper:
         if a_discrete == ACTION_COUNT_BACTERIA:
             # Apply count cost from action config
             self.budget -= self.count_cost
+            self.episode_budget_spent += self.count_cost
             return -self.count_cost  # Penalize the COUNT action with its cost
 
         if a_discrete == ACTION_SEQUENCING:
             # Cost now, reward 0 now; result later
             self.budget -= self.sequencing_cost
+            self.episode_budget_spent += self.sequencing_cost
             if not self.seq_pending:
                 self.seq_pending = True
                 self.seq_eta = int(self.sequencing_duration)
@@ -273,6 +283,7 @@ class PetriEnvWrapper:
 
             cost = float(np.sum(scaled) * self.dose_cost_per_unit)
             self.budget -= cost
+            self.episode_budget_spent += cost
 
             # ✅ SIMPLIFIED: Just return cost penalty
             # Let population maintenance reward (computed every step) capture efficacy
@@ -465,3 +476,22 @@ class PetriEnvWrapper:
         if self.model is None:
             return 0
         return self._read_true_population()
+    
+    def get_episode_budget_metrics(self) -> Dict[str, float]:
+        """
+        Get budget metrics for the current episode.
+        
+        Returns:
+            Dict with:
+                - start_budget: Budget at episode start
+                - current_budget: Current remaining budget
+                - budget_spent: Total budget spent this episode
+                - budget_per_step: Average budget spent per step
+        """
+        budget_per_step = self.episode_budget_spent / max(1, self.t)
+        return {
+            "start_budget": float(self.episode_start_budget),
+            "current_budget": float(self.budget),
+            "budget_spent": float(self.episode_budget_spent),
+            "budget_per_step": float(budget_per_step),
+        }

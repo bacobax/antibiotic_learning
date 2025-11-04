@@ -69,6 +69,12 @@ def rollout(
     episode_rewards = []
     episode_lengths = []
     episode_populations = []  # Track population at end of each episode
+    
+    # Budget tracking per episode
+    episode_budgets_spent = []
+    episode_budgets_remaining = []
+    episode_budgets_per_step = []
+    
     current_episode_reward = 0.0
     current_episode_length = 0
     dose_action_count = 0  # Track number of DOSE actions
@@ -137,9 +143,17 @@ def rollout(
         if done:
             episode_rewards.append(current_episode_reward)
             episode_lengths.append(current_episode_length)
+            
             # Log population at end of episode
             final_population = env.get_bacteria_population()
             episode_populations.append(final_population)
+            
+            # Get budget metrics for completed episode
+            budget_metrics = env.get_episode_budget_metrics()
+            episode_budgets_spent.append(budget_metrics['budget_spent'])
+            episode_budgets_remaining.append(budget_metrics['current_budget'])
+            episode_budgets_per_step.append(budget_metrics['budget_per_step'])
+            
             current_episode_reward = 0.0
             current_episode_length = 0
             obs = env.reset()
@@ -156,16 +170,24 @@ def rollout(
     print(f"SEQUENCING ACTION RATE: {sequencing_action_percentage:.2f}%")
     print(f"COUNT BACTERIA ACTION RATE: {count_action_percentage:.2f}%")
     print(f"NOOP ACTION RATE: {noop_action_percentage:.2f}%")
+    
     metrics = {
         "mean_episode_reward": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
         "std_episode_reward": float(np.std(episode_rewards)) if episode_rewards else 0.0,
         "max_episode_reward": float(np.max(episode_rewards)) if episode_rewards else 0.0,
         "min_episode_reward": float(np.min(episode_rewards)) if episode_rewards else 0.0,
         "mean_episode_length": float(np.mean(episode_lengths)) if episode_lengths else 0.0,
+        "std_episode_length": float(np.std(episode_lengths)) if episode_lengths else 0.0,
+        "min_episode_length": float(np.min(episode_lengths)) if episode_lengths else 0.0,
+        "max_episode_length": float(np.max(episode_lengths)) if episode_lengths else 0.0,
         "num_episodes": int(len(episode_rewards)),
         "mean_population_per_episode": float(np.mean(episode_populations)) if episode_populations else 0.0,
         "final_population": float(episode_populations[-1]) if episode_populations else 0.0,
         "dose_action_percentage": float(dose_action_percentage),
+        # Budget metrics
+        "mean_budget_spent": float(np.mean(episode_budgets_spent)) if episode_budgets_spent else 0.0,
+        "mean_budget_remaining": float(np.mean(episode_budgets_remaining)) if episode_budgets_remaining else 0.0,
+        "mean_budget_per_step": float(np.mean(episode_budgets_per_step)) if episode_budgets_per_step else 0.0,
     }
     
     return metrics
@@ -426,6 +448,8 @@ def _create_environment(
         w_cost=config.environment.w_cost,
         w_population_maintenance=config.environment.w_population_maintenance,
         budget_penalty=config.environment.budget_penalty,
+        noop_band_factor=config.environment.noop_band_factor,
+        noop_reward_magnitude=config.environment.noop_reward_magnitude,
         device=config.environment.device,
         dtype=config.torch_dtype,
     )

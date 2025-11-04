@@ -52,6 +52,8 @@ class EnvironmentConfig:
     w_cost: float
     w_population_maintenance: float
     budget_penalty: float
+    noop_band_factor: float
+    noop_reward_magnitude: float
     device: str
     dtype: str
 
@@ -139,6 +141,8 @@ def _get_default_config() -> Dict[str, Any]:
             "w_cost": 0.05,
             "w_population_maintenance": 0.01,
             "budget_penalty": 10.0,
+            "noop_band_factor": 0.02,
+            "noop_reward_magnitude": 0.01,
             "device": "cpu",
             "dtype": "float32",
         },
@@ -242,7 +246,7 @@ def _validate_config(config: Dict[str, Any]) -> None:
     if not (0 < ppo.get("gamma", 0.99) < 1):
         raise ValueError("gamma must be in (0, 1)")
     if not (0 < ppo.get("gae_lambda", 0.95) <= 1):
-        raise ValueError("gae_lambda must be in (0, 1]")
+        raise ValueError("gae_lambda must be in (0, 1)")
     if ppo.get("rollout_steps", 1) <= 0:
         raise ValueError("rollout_steps must be > 0")
     if ppo.get("epochs", 1) <= 0:
