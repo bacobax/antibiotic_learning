@@ -211,6 +211,8 @@ class AgentSimulatorUI:
             mesa_model_factory=lambda: model,
             k_doses=self.agent.model.config.k_doses if hasattr(self.agent.model, 'config') else 3,
             max_steps=1000,
+            count_cost=0.0,
+            budget_penalty=10.0,
         )
         
         # Speed control

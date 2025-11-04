@@ -51,6 +51,7 @@ class EnvironmentConfig:
     w_genome: float
     w_cost: float
     w_population_maintenance: float
+    budget_penalty: float
     device: str
     dtype: str
 
@@ -137,6 +138,7 @@ def _get_default_config() -> Dict[str, Any]:
             "w_genome": 0.5,
             "w_cost": 0.05,
             "w_population_maintenance": 0.01,
+            "budget_penalty": 10.0,
             "device": "cpu",
             "dtype": "float32",
         },

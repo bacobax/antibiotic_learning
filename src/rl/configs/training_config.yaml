@@ -24,6 +24,7 @@ environment:
   # Budget and costs
   budget_init: 100.0                  # Initial budget for actions
   budget_norm: 100.0                  # Normalization factor for budget display
+  budget_penalty: 10.0                # Big penalty when budget reaches 0
   
   # Reward shaping weights
   w_pop: 1.0                          # Weight for population control term
@@ -40,7 +41,6 @@ environment:
 # ============================================================================
 # Defines available actions and their properties
 actions:
-  # No operation action
   noop:
     id: 0
     name: "No operation"
@@ -48,29 +48,26 @@ actions:
     duration: 0
     description: "Wait without taking action"
   
-  # Count bacteria population
   count_bacteria:
     id: 1
     name: "Count bacteria"
-    cost: 0.0
+    cost: 2.0
     duration: 0
-    description: "Measure current bacteria population (instant, no cost)"
+    description: "Measure current bacteria population"
   
-  # Genome sequencing
   sequencing:
     id: 2
     name: "Genome sequencing"
-    cost: 1.0                         # Cost of sequencing
-    duration: 5                       # Steps to complete sequencing
-    description: "Sequence bacteria genome to detect resistance (takes 5 steps)"
+    cost: 5.0
+    duration: 5
+    description: "Sequence bacteria genome"
   
-  # Administer antibiotics
   dose:
     id: 3
     name: "Administer antibiotics"
-    cost_per_unit: 0.2                # Cost per unit of antibiotic dose
+    cost_per_unit: 1
     duration: 0
-    description: "Dose antibiotics (continuous action, 0-1 for each antibiotic)"
+    description: "Dose antibiotics"
 
 # ============================================================================
 # MODEL ARCHITECTURE

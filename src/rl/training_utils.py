@@ -417,6 +417,7 @@ def _create_environment(
         sequencing_cost=config.actions.sequencing_cost,
         sequencing_duration=config.actions.sequencing_duration,
         dose_cost_per_unit=config.actions.dose_cost_per_unit,
+        count_cost=config.actions.count_cost,
         budget_init=config.environment.budget_init,
         budget_norm=config.environment.budget_norm,
         population_norm=config.environment.population_norm,
@@ -424,6 +425,7 @@ def _create_environment(
         w_genome=config.environment.w_genome,
         w_cost=config.environment.w_cost,
         w_population_maintenance=config.environment.w_population_maintenance,
+        budget_penalty=config.environment.budget_penalty,
         device=config.environment.device,
         dtype=config.torch_dtype,
     )
