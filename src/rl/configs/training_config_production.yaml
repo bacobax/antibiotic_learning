@@ -102,3 +102,4 @@ training:
   log_interval: 2
   save_dir: "./checkpoints"
   experiment_name: "ppo_production"
+  save_checkpoints_per_run: false  # Set to true to save checkpoints in timestamped run directories

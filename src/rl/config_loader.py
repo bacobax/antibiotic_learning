@@ -139,6 +139,7 @@ class TrainingConfig:
     log_interval: int
     save_dir: str
     experiment_name: str
+    save_checkpoints_per_run: bool = False  # Whether to save checkpoints in timestamped run directories
 
 
 @dataclass

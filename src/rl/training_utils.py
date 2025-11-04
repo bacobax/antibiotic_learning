@@ -16,6 +16,7 @@ import json
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
+from datetime import datetime
 
 import numpy as np
 import torch
@@ -36,6 +37,33 @@ from .logger import TrainingLogger
 from .training_config import PPOConfig, set_global_seed
 from simulation.model import BacteriaModel
 from .env_wrapper import ACTION_DOSE, ACTION_COUNT_BACTERIA, ACTION_NOOP, ACTION_SEQUENCING
+
+
+# ============================================================================
+# Directory management utilities
+# ============================================================================
+
+def create_run_directory(base_dir: Path, experiment_name: str) -> Path:
+    """
+    Create a timestamped run directory.
+    
+    Format: base_dir/experiment_name/DDMMYY_HHMMSS/
+    
+    Args:
+        base_dir: Base checkpoint directory (e.g., ./checkpoints)
+        experiment_name: Experiment name (e.g., ppo_production)
+    
+    Returns:
+        Path to the created run directory
+    """
+    # Get current timestamp in DDMMYY_HHMMSS format
+    timestamp = datetime.now().strftime("%d%m%y_%H%M%S")
+    
+    # Create directory structure: base_dir/experiment_name/DDMMYY_HHMMSS/
+    run_dir = base_dir / experiment_name / timestamp
+    run_dir.mkdir(parents=True, exist_ok=True)
+    
+    return run_dir
 
 
 # ============================================================================

@@ -23,6 +23,7 @@ from rl.config_loader import load_config
 from rl.training_config import set_global_seed
 from rl.training_utils import (
     train,
+    create_run_directory,
     _setup_logger_and_log_startup,
     _create_environment,
     _build_ppo_config,
@@ -69,11 +70,15 @@ View TensorBoard:
         return 1
     
     # Setup
-    save_dir = Path(config.training.save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
+    base_save_dir = Path(config.training.save_dir)
+    base_save_dir.mkdir(parents=True, exist_ok=True)
     
-    # Setup logger
-    logger = _setup_logger_and_log_startup(save_dir, config)
+    # Create timestamped run directory
+    run_dir = create_run_directory(base_save_dir, config.training.experiment_name)
+    logger = _setup_logger_and_log_startup(run_dir, config)
+    
+    logger.log_info(f"✓ Run directory created: {run_dir}")
+    logger.log_info(f"  Structure: {base_save_dir}/{config.training.experiment_name}/{run_dir.name}/")
     
     # Set seed
     set_global_seed(config.training.seed)
@@ -86,21 +91,31 @@ View TensorBoard:
     # Build PPO configuration
     ppo_config = _build_ppo_config(env, config)
     
-    # Save all configurations
-    _save_configs(save_dir, config, logger)
+    # Determine checkpoint save directory
+    if config.training.save_checkpoints_per_run:
+        # Save checkpoints in the timestamped run directory
+        checkpoint_dir = run_dir
+        logger.log_info(f"✓ Checkpoints will be saved in: {checkpoint_dir}")
+    else:
+        # Save checkpoints in base directory (overwrite each run)
+        checkpoint_dir = base_save_dir
+        logger.log_info(f"✓ Checkpoints will be saved in: {checkpoint_dir} (shared across runs)")
+    
+    # Save all configurations to run directory
+    _save_configs(run_dir, config, logger)
     
     # Train
     logger.log_info("="*70)
     logger.log_info("Starting Headless Training (No Visualization)")
     logger.log_info("="*70)
     
-    train(ppo_config, env, save_dir, config.training.total_updates, logger)
+    train(ppo_config, env, checkpoint_dir, config.training.total_updates, logger)
     
     logger.log_info("="*70)
     logger.log_info("✓ Training complete!")
-    logger.log_info(f"Logs: {save_dir / 'training.log'}")
-    logger.log_info(f"Metrics: {save_dir / 'training_log.json'}")
-    logger.log_info(f"TensorBoard: tensorboard --logdir={save_dir / config.training.experiment_name} --port=6006")
+    logger.log_info(f"Logs: {run_dir / 'training.log'}")
+    logger.log_info(f"Metrics: {run_dir / 'training_log.json'}")
+    logger.log_info(f"TensorBoard: tensorboard --logdir={run_dir / config.training.experiment_name} --port=6006")
     logger.log_info("="*70)
     
     return 0
