@@ -5,19 +5,46 @@
 environment:
   max_steps: 512
   k_doses: 3
-  target_population: 500
-  population_norm: 200
-  budget_init: 100.0
-  budget_norm: 100.0
-  budget_penalty: 5.0
-  w_pop: 1.0
-  w_genome: 0.0
-  w_cost: 0.1
-  w_population_maintenance: 0.05
-  noop_band_factor: 0.02
-  noop_reward_magnitude: 0.01
   device: "cuda"
   dtype: "float32"
+  
+  # Reward configuration (organized by category)
+  rewards:
+    # Population-based rewards
+    population:
+      target_population: 500
+      population_norm: 200.0
+      w_population_maintenance: 1.0    # MAIN REWARD: Only given on COUNT
+      noop_band_factor: 0.02            # Deadband around target for NOOP
+      noop_reward_magnitude: 0.0       # NOOP shaping magnitude
+    
+    # Dose efficacy rewards (DISABLED - let model learn relationship)
+    dose:
+      w_pop: 0.0                        # DISABLED: No immediate population feedback on DOSE
+      w_genome: 0.0                     # DISABLED: No resistance term
+      w_cost: 0.1                       # Cost penalty only
+    
+    # Budget management
+    budget:
+      budget_init: 100.0
+      budget_norm: 100.0
+      budget_penalty: 0.0               # DISABLED: Set to 0
+    
+    # Survival bonus reward (encourages longer episodes)
+    survival_bonus:
+      enabled: true
+      base_bonus: 0.01                  # Base bonus per step
+      scaling_type: "constant"          # "constant", "linear", or "exponential"
+      scaling_factor: 0.1               # Multiplier for linear/exponential scaling
+      max_bonus: 0.1                    # Maximum bonus cap
+    
+    # Budget conservation reward (DISABLED)
+    budget_conservation:
+      enabled: false
+      weight: 0.01                      # Overall weight
+      spending_penalty_factor: 1.0      # Penalty multiplier for spending rate
+      reserve_bonus_threshold: 0.5      # Budget fraction for reserve bonus (50%)
+      reserve_bonus_magnitude: 0.005    # Bonus when above threshold
 
 actions:
   noop:
@@ -49,8 +76,8 @@ actions:
     description: "Dose antibiotics"
 
 model:
-  hidden_dim: 128
-  rnn_layers: 2
+  hidden_dim: 256
+  rnn_layers: 3
   n_discrete: 4
   dose_action_index: 3
   k_doses: 3

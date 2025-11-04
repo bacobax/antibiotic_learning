@@ -75,6 +75,14 @@ def rollout(
     episode_budgets_remaining = []
     episode_budgets_per_step = []
     
+    # Track individual reward components per episode
+    episode_reward_immediate = []
+    episode_reward_maintenance = []
+    episode_reward_budget_penalty = []
+    episode_reward_delayed = []
+    episode_reward_survival_bonus = []
+    episode_reward_budget_conservation = []
+    
     current_episode_reward = 0.0
     current_episode_length = 0
     dose_action_count = 0  # Track number of DOSE actions
@@ -83,6 +91,14 @@ def rollout(
     noop_action_count = 0  # Track number of NOOP actions
 
     total_actions = 0  # Track total actions
+    
+    # Accumulators for current episode reward components
+    current_reward_immediate = 0.0
+    current_reward_maintenance = 0.0
+    current_reward_budget_penalty = 0.0
+    current_reward_delayed = 0.0
+    current_reward_survival_bonus = 0.0
+    current_reward_budget_conservation = 0.0
     
     agent.start_episode()
     
@@ -121,6 +137,14 @@ def rollout(
         # Environment step
         next_obs, reward, done, info = env.step(pure_a_disc, pure_a_cont)
         
+        # Accumulate reward components for current episode
+        current_reward_immediate += info.get('reward_immediate', 0.0)
+        current_reward_maintenance += info.get('reward_maintenance', 0.0)
+        current_reward_budget_penalty += info.get('reward_budget_penalty', 0.0)
+        current_reward_delayed += info.get('reward_delayed', 0.0)
+        current_reward_survival_bonus += info.get('reward_survival_bonus', 0.0)
+        current_reward_budget_conservation += info.get('reward_budget_conservation', 0.0)
+        
         # Store in buffer
         buffer.add(
             obs=obs_tensor.cpu(),
@@ -144,6 +168,14 @@ def rollout(
             episode_rewards.append(current_episode_reward)
             episode_lengths.append(current_episode_length)
             
+            # Store reward components for completed episode
+            episode_reward_immediate.append(current_reward_immediate)
+            episode_reward_maintenance.append(current_reward_maintenance)
+            episode_reward_budget_penalty.append(current_reward_budget_penalty)
+            episode_reward_delayed.append(current_reward_delayed)
+            episode_reward_survival_bonus.append(current_reward_survival_bonus)
+            episode_reward_budget_conservation.append(current_reward_budget_conservation)
+            
             # Log population at end of episode
             final_population = env.get_bacteria_population()
             episode_populations.append(final_population)
@@ -154,8 +186,16 @@ def rollout(
             episode_budgets_remaining.append(budget_metrics['current_budget'])
             episode_budgets_per_step.append(budget_metrics['budget_per_step'])
             
+            # Reset episode tracking
             current_episode_reward = 0.0
             current_episode_length = 0
+            current_reward_immediate = 0.0
+            current_reward_maintenance = 0.0
+            current_reward_budget_penalty = 0.0
+            current_reward_delayed = 0.0
+            current_reward_survival_bonus = 0.0
+            current_reward_budget_conservation = 0.0
+            
             obs = env.reset()
             # Reset hidden state on episode boundary
             agent.start_episode()
@@ -188,6 +228,14 @@ def rollout(
         "mean_budget_spent": float(np.mean(episode_budgets_spent)) if episode_budgets_spent else 0.0,
         "mean_budget_remaining": float(np.mean(episode_budgets_remaining)) if episode_budgets_remaining else 0.0,
         "mean_budget_per_step": float(np.mean(episode_budgets_per_step)) if episode_budgets_per_step else 0.0,
+        # Reward component metrics with category prefixes for TensorBoard
+        "rewards/immediate": float(np.mean(episode_reward_immediate)) if episode_reward_immediate else 0.0,
+        "rewards/maintenance": float(np.mean(episode_reward_maintenance)) if episode_reward_maintenance else 0.0,
+        "rewards/budget_penalty": float(np.mean(episode_reward_budget_penalty)) if episode_reward_budget_penalty else 0.0,
+        "rewards/delayed": float(np.mean(episode_reward_delayed)) if episode_reward_delayed else 0.0,
+        "rewards/survival_bonus": float(np.mean(episode_reward_survival_bonus)) if episode_reward_survival_bonus else 0.0,
+        "rewards/budget_conservation": float(np.mean(episode_reward_budget_conservation)) if episode_reward_budget_conservation else 0.0,
+        "rewards/total": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
     }
     
     return metrics
@@ -377,10 +425,13 @@ def _setup_logger_and_log_startup(
     logger.log_info("="*70)
     logger.log_info(f"Configuration from: {config.training.save_dir}")
     
+    # Extract rewards config for cleaner access
+    rewards = config.environment.rewards
+    
     logger.log_info(f"Environment Settings:")
     logger.log_info(f"  - Max steps: {config.environment.max_steps}")
-    logger.log_info(f"  - Target population: {config.environment.target_population}")
-    logger.log_info(f"  - Budget: {config.environment.budget_init}")
+    logger.log_info(f"  - Target population: {rewards.population.target_population}")
+    logger.log_info(f"  - Budget: {rewards.budget.budget_init}")
     logger.log_info(f"  - K doses (antibiotic types): {config.environment.k_doses}")
     logger.log_info(f"  - Device: {config.environment.device}")
     
@@ -401,10 +452,20 @@ def _setup_logger_and_log_startup(
     logger.log_info(f"  - Seed: {config.training.seed}")
     
     logger.log_info(f"Reward Weights:")
-    logger.log_info(f"  - Population: {config.environment.w_pop}")
-    logger.log_info(f"  - Genome: {config.environment.w_genome}")
-    logger.log_info(f"  - Cost: {config.environment.w_cost}")
-    logger.log_info(f"  - Population maintenance: {config.environment.w_population_maintenance}")
+    logger.log_info(f"  - Population: {rewards.dose.w_pop}")
+    logger.log_info(f"  - Genome: {rewards.dose.w_genome}")
+    logger.log_info(f"  - Cost: {rewards.dose.w_cost}")
+    logger.log_info(f"  - Population maintenance: {rewards.population.w_population_maintenance}")
+    
+    logger.log_info(f"Reward Modules:")
+    logger.log_info(f"  - Survival bonus: {'enabled' if rewards.survival_bonus.enabled else 'disabled'}")
+    if rewards.survival_bonus.enabled:
+        logger.log_info(f"    - Base bonus: {rewards.survival_bonus.base_bonus}")
+        logger.log_info(f"    - Scaling type: {rewards.survival_bonus.scaling_type}")
+    logger.log_info(f"  - Budget conservation: {'enabled' if rewards.budget_conservation.enabled else 'disabled'}")
+    if rewards.budget_conservation.enabled:
+        logger.log_info(f"    - Weight: {rewards.budget_conservation.weight}")
+        logger.log_info(f"    - Reserve threshold: {rewards.budget_conservation.reserve_bonus_threshold}")
     
     logger.log_info(f"Action Costs:")
     logger.log_info(f"  - Sequencing: {config.actions.sequencing_cost}")
@@ -430,29 +491,59 @@ def _create_environment(
     """
     logger.log_info("Creating environment...")
     
+    # Extract reward configs for cleaner access
+    rewards = config.environment.rewards
+    
     env = PetriEnvWrapper(
         mesa_model_factory=BacteriaModel,
         k_doses=config.environment.k_doses,
         scale_dose=lambda x: x / 2 / config.environment.k_doses,
         max_steps=config.environment.max_steps,
-        target_population=config.environment.target_population,
+        # Population reward params
+        target_population=rewards.population.target_population,
+        population_norm=rewards.population.population_norm,
+        w_population_maintenance=rewards.population.w_population_maintenance,
+        noop_band_factor=rewards.population.noop_band_factor,
+        noop_reward_magnitude=rewards.population.noop_reward_magnitude,
+        # Dose reward params
+        w_pop=rewards.dose.w_pop,
+        w_genome=rewards.dose.w_genome,
+        w_cost=rewards.dose.w_cost,
+        # Budget params
+        budget_init=rewards.budget.budget_init,
+        budget_norm=rewards.budget.budget_norm,
+        budget_penalty=rewards.budget.budget_penalty,
+        # Action costs
         sequencing_cost=config.actions.sequencing_cost,
         sequencing_duration=config.actions.sequencing_duration,
         dose_cost_per_unit=config.actions.dose_cost_per_unit,
         count_cost=config.actions.count_cost,
-        budget_init=config.environment.budget_init,
-        budget_norm=config.environment.budget_norm,
-        population_norm=config.environment.population_norm,
-        w_pop=config.environment.w_pop,
-        w_genome=config.environment.w_genome,
-        w_cost=config.environment.w_cost,
-        w_population_maintenance=config.environment.w_population_maintenance,
-        budget_penalty=config.environment.budget_penalty,
-        noop_band_factor=config.environment.noop_band_factor,
-        noop_reward_magnitude=config.environment.noop_reward_magnitude,
+        # Device config
         device=config.environment.device,
         dtype=config.torch_dtype,
     )
+    
+    # Enable survival bonus reward if configured
+    if rewards.survival_bonus.enabled:
+        env.enable_survival_bonus(
+            base_bonus=rewards.survival_bonus.base_bonus,
+            scaling_type=rewards.survival_bonus.scaling_type,
+            scaling_factor=rewards.survival_bonus.scaling_factor,
+            max_bonus=rewards.survival_bonus.max_bonus,
+        )
+        logger.log_info(f"✓ Survival bonus enabled: base={rewards.survival_bonus.base_bonus}, "
+                       f"type={rewards.survival_bonus.scaling_type}")
+    
+    # Enable budget conservation reward if configured
+    if rewards.budget_conservation.enabled:
+        env.enable_budget_conservation(
+            weight=rewards.budget_conservation.weight,
+            spending_penalty_factor=rewards.budget_conservation.spending_penalty_factor,
+            reserve_bonus_threshold=rewards.budget_conservation.reserve_bonus_threshold,
+            reserve_bonus_magnitude=rewards.budget_conservation.reserve_bonus_magnitude,
+        )
+        logger.log_info(f"✓ Budget conservation enabled: weight={rewards.budget_conservation.weight}, "
+                       f"threshold={rewards.budget_conservation.reserve_bonus_threshold}")
     
     logger.log_debug("✓ Environment created successfully")
     return env

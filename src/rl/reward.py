@@ -326,3 +326,128 @@ class PopulationMaintenanceReward(nn.Module):
         return float(penalty)
 
 
+class SurvivalBonusReward(nn.Module):
+    """
+    Per-step survival bonus to encourage longer episodes.
+    
+    Provides a small positive reward for each step the agent keeps the simulation alive.
+    Can use different scaling strategies: constant, linear, or exponential.
+    """
+    def __init__(
+        self,
+        base_bonus: float = 0.01,
+        scaling_type: str = "constant",
+        scaling_factor: float = 1.0,
+        max_bonus: float = 0.1,
+    ):
+        """
+        Args:
+            base_bonus: Base survival bonus per step
+            scaling_type: How bonus scales over time ("constant", "linear", "exponential")
+            scaling_factor: Multiplier for scaling (used in linear/exponential modes)
+            max_bonus: Maximum bonus cap (prevents unbounded growth)
+        """
+        super(SurvivalBonusReward, self).__init__()
+        self.base_bonus = float(base_bonus)
+        self.scaling_type = scaling_type
+        self.scaling_factor = float(scaling_factor)
+        self.max_bonus = float(max_bonus)
+        
+        if scaling_type not in ["constant", "linear", "exponential"]:
+            raise ValueError(f"Unknown scaling type: {scaling_type}")
+
+    def forward(self, timestep: int) -> float:
+        """
+        Compute survival bonus for current timestep.
+        
+        Args:
+            timestep: Current episode timestep
+            
+        Returns:
+            Survival bonus as Python float (positive reward)
+        """
+        if self.scaling_type == "constant":
+            bonus = self.base_bonus
+        elif self.scaling_type == "linear":
+            # Bonus increases linearly with time: base * (1 + factor * t / 1000)
+            bonus = self.base_bonus * (1.0 + self.scaling_factor * timestep / 1000.0)
+        elif self.scaling_type == "exponential":
+            # Bonus grows exponentially but slowly: base * exp(factor * t / 1000)
+            import math
+            bonus = self.base_bonus * math.exp(self.scaling_factor * timestep / 1000.0)
+        
+        # Cap the bonus to prevent explosion
+        bonus = min(bonus, self.max_bonus)
+        
+        return float(bonus)
+
+
+class BudgetConservationReward(nn.Module):
+    """
+    Rewards efficient budget usage to encourage longer episodes.
+    
+    Penalizes high spending rates and rewards maintaining budget reserves.
+    Encourages strategic action timing rather than constant intervention.
+    """
+    def __init__(
+        self,
+        weight: float = 0.01,
+        spending_penalty_factor: float = 1.0,
+        reserve_bonus_threshold: float = 0.5,
+        reserve_bonus_magnitude: float = 0.005,
+    ):
+        """
+        Args:
+            weight: Overall weight for budget conservation reward
+            spending_penalty_factor: Multiplier for spending rate penalty
+            reserve_bonus_threshold: Budget fraction threshold for reserve bonus (e.g., 0.5 = 50%)
+            reserve_bonus_magnitude: Bonus magnitude when budget is above threshold
+        """
+        super(BudgetConservationReward, self).__init__()
+        self.weight = float(weight)
+        self.spending_penalty_factor = float(spending_penalty_factor)
+        self.reserve_bonus_threshold = float(reserve_bonus_threshold)
+        self.reserve_bonus_magnitude = float(reserve_bonus_magnitude)
+
+    def forward(
+        self,
+        budget_spent_this_step: float,
+        current_budget: float,
+        initial_budget: float,
+        timestep: int,
+    ) -> float:
+        """
+        Compute budget conservation reward.
+        
+        Args:
+            budget_spent_this_step: Amount spent in current step
+            current_budget: Remaining budget
+            initial_budget: Starting budget for episode
+            timestep: Current episode timestep
+            
+        Returns:
+            Budget conservation reward as Python float
+        """
+        reward = 0.0
+        
+        # 1) Spending rate penalty: discourage high spending
+        if budget_spent_this_step > 0 and timestep > 0:
+            # Normalize spending by initial budget
+            spending_rate = budget_spent_this_step / max(1.0, initial_budget)
+            reward -= self.spending_penalty_factor * spending_rate
+        
+        # 2) Reserve bonus: reward maintaining budget above threshold
+        if initial_budget > 0:
+            budget_fraction = current_budget / initial_budget
+            if budget_fraction >= self.reserve_bonus_threshold:
+                reward += self.reserve_bonus_magnitude
+        
+        # 3) Efficiency bonus: reward if we're surviving with low spending
+        if timestep > 10:  # Only after initial phase
+            avg_spending_per_step = (initial_budget - current_budget) / timestep
+            if avg_spending_per_step < (initial_budget / 1000.0):  # Very efficient
+                reward += self.reserve_bonus_magnitude * 0.5
+        
+        return float(reward * self.weight)
+
+

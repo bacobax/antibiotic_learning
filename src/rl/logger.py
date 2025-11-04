@@ -105,10 +105,12 @@ class TrainingLogger:
                 if self.tb_writer:
                     self.tb_writer.add_scalar("best_reward", self.best_reward, update)
         
-        # Log to TensorBoard
+        # Log to TensorBoard - use generic category-based logging
         if self.tb_writer:
             for name, value in all_metrics.items():
                 if isinstance(value, (int, float)) and not np.isnan(value) and not np.isinf(value):
+                    # Metrics already have category prefixes (e.g., "rewards/survival_bonus")
+                    # Just log them directly without specialized handling
                     self.tb_writer.add_scalar(name, value, update)
         
         # Log to JSON

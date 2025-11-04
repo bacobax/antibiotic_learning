@@ -8,6 +8,8 @@ from rl.reward import (
     CostReward,
     DoseRewardCompound,
     PopulationMaintenanceReward,
+    SurvivalBonusReward,
+    BudgetConservationReward,
 )
 
 # Discrete actions
@@ -130,6 +132,15 @@ class PetriEnvWrapper:
             asymmetry_factor=3.0,
             weight=w_population_maintenance,
         )
+        
+        # Survival bonus reward module (encourage longer episodes)
+        self.survival_bonus_reward = None  # Will be set if enabled
+        
+        # Budget conservation reward module (encourage efficient spending)
+        self.budget_conservation_reward = None  # Will be set if enabled
+        
+        # Track last step's budget for computing spending rate
+        self.last_step_budget = budget_init
 
     # -------------------------
     # Public API
@@ -208,16 +219,41 @@ class PetriEnvWrapper:
 
         # 7) Compute total reward: immediate penalties + delayed efficacy + maintenance
         # Use PopulationMaintenanceReward module for consistent asymmetric penalty
+        # Only apply maintenance reward on COUNT actions (not DOSE)
         maintenance_penalty = 0.0
-        if a_discrete in (ACTION_COUNT_BACTERIA, ACTION_DOSE):
+        if a_discrete == ACTION_COUNT_BACTERIA:
             maintenance_penalty = self.pop_maintenance_reward(true_population)
         
-        # 6b) Add big penalty if budget reaches 0
+        # 7b) Add survival bonus reward if enabled
+        survival_bonus = 0.0
+        if self.survival_bonus_reward is not None:
+            survival_bonus = self.survival_bonus_reward(self.t)
+        
+        # 7c) Add budget conservation reward if enabled
+        budget_conservation_bonus = 0.0
+        if self.budget_conservation_reward is not None:
+            budget_spent_this_step = self.last_step_budget - self.budget
+            budget_conservation_bonus = self.budget_conservation_reward(
+                budget_spent_this_step=budget_spent_this_step,
+                current_budget=self.budget,
+                initial_budget=self.episode_start_budget,
+                timestep=self.t,
+            )
+            self.last_step_budget = self.budget
+        
+        # 7d) Add budget penalty if budget reaches 0 (configurable via budget_penalty weight)
         budget_penalty = 0.0
-        if self.budget <= 0.0:
+        if self.budget <= 0.0 and self.budget_penalty > 0.0:
             budget_penalty = -self.budget_penalty
         
-        reward = immediate_reward + maintenance_penalty + budget_penalty + delayed_reward
+        reward = (
+            immediate_reward + 
+            maintenance_penalty + 
+            budget_penalty + 
+            delayed_reward +
+            survival_bonus +
+            budget_conservation_bonus
+        )
         self.episode_return += reward
 
         info = {
@@ -227,7 +263,14 @@ class PetriEnvWrapper:
             "budget": self.budget,
             "seq_pending": self.seq_pending,
             "seq_eta": self.seq_eta,
-            "delayed_reward": delayed_reward,
+            # Detailed reward breakdown
+            "reward_immediate": immediate_reward,
+            "reward_maintenance": maintenance_penalty,
+            "reward_budget_penalty": budget_penalty,
+            "reward_delayed": delayed_reward,
+            "reward_survival_bonus": survival_bonus,
+            "reward_budget_conservation": budget_conservation_bonus,
+            "reward_total": reward,
         }
         return obs, float(reward), bool(done), info
 
@@ -465,6 +508,64 @@ class PetriEnvWrapper:
     # -------------------------
     # Convenience
     # -------------------------
+
+    def enable_survival_bonus(
+        self,
+        base_bonus: float = 0.01,
+        scaling_type: str = "constant",
+        scaling_factor: float = 0.1,
+        max_bonus: float = 0.1,
+    ) -> None:
+        """
+        Enable survival bonus reward to encourage longer episodes.
+        
+        Args:
+            base_bonus: Base bonus per step
+            scaling_type: "constant", "linear", or "exponential"
+            scaling_factor: Multiplier for linear/exponential scaling
+            max_bonus: Maximum bonus cap
+        """
+        self.survival_bonus_reward = SurvivalBonusReward(
+            base_bonus=base_bonus,
+            scaling_type=scaling_type,
+            scaling_factor=scaling_factor,
+            max_bonus=max_bonus,
+        )
+        print(f"✓ Survival bonus reward enabled: base={base_bonus}, type={scaling_type}")
+    
+    def enable_budget_conservation(
+        self,
+        weight: float = 0.01,
+        spending_penalty_factor: float = 1.0,
+        reserve_bonus_threshold: float = 0.5,
+        reserve_bonus_magnitude: float = 0.005,
+    ) -> None:
+        """
+        Enable budget conservation reward to encourage efficient spending.
+        
+        Args:
+            weight: Overall weight for budget conservation
+            spending_penalty_factor: Penalty multiplier for spending rate
+            reserve_bonus_threshold: Budget fraction for reserve bonus (0.5 = 50%)
+            reserve_bonus_magnitude: Bonus magnitude when above threshold
+        """
+        self.budget_conservation_reward = BudgetConservationReward(
+            weight=weight,
+            spending_penalty_factor=spending_penalty_factor,
+            reserve_bonus_threshold=reserve_bonus_threshold,
+            reserve_bonus_magnitude=reserve_bonus_magnitude,
+        )
+        print(f"✓ Budget conservation reward enabled: weight={weight}, threshold={reserve_bonus_threshold}")
+    
+    def disable_survival_bonus(self) -> None:
+        """Disable survival bonus reward."""
+        self.survival_bonus_reward = None
+        print("✓ Survival bonus reward disabled")
+    
+    def disable_budget_conservation(self) -> None:
+        """Disable budget conservation reward."""
+        self.budget_conservation_reward = None
+        print("✓ Budget conservation reward disabled")
 
     def get_obs_dim(self) -> int:
         # Build once without stepping sim

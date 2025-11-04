@@ -25,7 +25,7 @@ def main():
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default="checkpoints/checkpoint_final_30.pt",
+        default="checkpoints/checkpoint_200.pt",
         help="Path to trained agent checkpoint"
     )
     parser.add_argument(

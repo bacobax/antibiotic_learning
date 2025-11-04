@@ -76,7 +76,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
     def __init__(self, on_pause_toggle):
         super().__init__()
         self.setWindowTitle("Training Control Panel")
-        self.setGeometry(0, 0, 400, 1200)  # Increased height for graphs
+        self.setGeometry(0, 0, 800, 1400)  # Wider for 2-column layout
         
         self.on_pause_toggle = on_pause_toggle
         
@@ -85,6 +85,14 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.episode_lengths = []
         self.budget_spent_history = []
         self.budget_remaining_history = []
+        
+        # Reward component tracking
+        self.reward_immediate_history = []
+        self.reward_maintenance_history = []
+        self.reward_budget_penalty_history = []
+        self.reward_delayed_history = []
+        self.reward_survival_bonus_history = []
+        self.reward_budget_conservation_history = []
         
         # Create central widget
         central_widget = QtWidgets.QWidget()
@@ -107,7 +115,11 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         controls_group.setLayout(controls_layout)
         layout.addWidget(controls_group)
         
-        # Training statistics
+        # ===== Split Statistics into 2 columns =====
+        stats_container = QtWidgets.QWidget()
+        stats_layout = QtWidgets.QHBoxLayout(stats_container)
+        
+        # LEFT COLUMN: Training Statistics
         train_group = QtWidgets.QGroupBox("Training Statistics")
         train_layout = QtWidgets.QVBoxLayout()
         
@@ -117,24 +129,60 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         train_layout.addWidget(self.train_display)
         
         train_group.setLayout(train_layout)
-        layout.addWidget(train_group)
+        stats_layout.addWidget(train_group)
         
-        # Episode statistics
+        # RIGHT COLUMN: Overall Action Distribution
+        action_dist_group = QtWidgets.QGroupBox("Overall Action Distribution")
+        action_dist_layout = QtWidgets.QVBoxLayout()
+        
+        self.action_dist_display = QtWidgets.QTextEdit()
+        self.action_dist_display.setReadOnly(True)
+        self.action_dist_display.setMaximumHeight(200)
+        action_dist_layout.addWidget(self.action_dist_display)
+        
+        action_dist_group.setLayout(action_dist_layout)
+        stats_layout.addWidget(action_dist_group)
+        
+        layout.addWidget(stats_container)
+        
+        # ===== Split Episode Statistics into 2 columns =====
+        episode_container = QtWidgets.QWidget()
+        episode_layout = QtWidgets.QHBoxLayout(episode_container)
+        
+        # LEFT COLUMN: Current Episode
         episode_group = QtWidgets.QGroupBox("Current Episode")
-        episode_layout = QtWidgets.QVBoxLayout()
+        episode_group_layout = QtWidgets.QVBoxLayout()
         
         self.episode_display = QtWidgets.QTextEdit()
         self.episode_display.setReadOnly(True)
         self.episode_display.setMaximumHeight(200)
-        episode_layout.addWidget(self.episode_display)
+        episode_group_layout.addWidget(self.episode_display)
         
-        episode_group.setLayout(episode_layout)
-        layout.addWidget(episode_group)
+        episode_group.setLayout(episode_group_layout)
+        episode_layout.addWidget(episode_group)
         
-        # ===== NEW: Episode Length Graph =====
+        # RIGHT COLUMN: Episode Action Distribution
+        episode_action_group = QtWidgets.QGroupBox("Episode Action Distribution")
+        episode_action_layout = QtWidgets.QVBoxLayout()
+        
+        self.episode_action_display = QtWidgets.QTextEdit()
+        self.episode_action_display.setReadOnly(True)
+        self.episode_action_display.setMaximumHeight(200)
+        episode_action_layout.addWidget(self.episode_action_display)
+        
+        episode_action_group.setLayout(episode_action_layout)
+        episode_layout.addWidget(episode_action_group)
+        
+        layout.addWidget(episode_container)
+        
+        # ===== Graphs Row 1: Episode Length + Budget (side by side) =====
         import matplotlib.pyplot as plt
         from matplotlib.figure import Figure
         
+        graphs_row1_container = QtWidgets.QWidget()
+        graphs_row1_layout = QtWidgets.QHBoxLayout(graphs_row1_container)
+        
+        # Episode Length Graph
         episode_length_group = QtWidgets.QGroupBox("Episode Length Over Time")
         episode_length_layout = QtWidgets.QVBoxLayout()
         
@@ -150,9 +198,9 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         
         episode_length_layout.addWidget(self.episode_length_canvas)
         episode_length_group.setLayout(episode_length_layout)
-        layout.addWidget(episode_length_group)
+        graphs_row1_layout.addWidget(episode_length_group)
         
-        # ===== NEW: Budget Tracking Graph =====
+        # Budget Tracking Graph
         budget_group = QtWidgets.QGroupBox("Budget Usage Over Episodes")
         budget_layout = QtWidgets.QVBoxLayout()
         
@@ -168,7 +216,27 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         
         budget_layout.addWidget(self.budget_canvas)
         budget_group.setLayout(budget_layout)
-        layout.addWidget(budget_group)
+        graphs_row1_layout.addWidget(budget_group)
+        
+        layout.addWidget(graphs_row1_container)
+        
+        # ===== NEW: Reward Components Graph =====
+        reward_components_group = QtWidgets.QGroupBox("Reward Components Per Episode")
+        reward_components_layout = QtWidgets.QVBoxLayout()
+        
+        self.reward_components_fig = Figure(figsize=(8, 3), dpi=100)
+        self.reward_components_ax = self.reward_components_fig.add_subplot(111)
+        self.reward_components_canvas = FigureCanvas(self.reward_components_fig)
+        self.reward_components_canvas.setMaximumHeight(250)
+        
+        self.reward_components_ax.set_xlabel('Episode')
+        self.reward_components_ax.set_ylabel('Reward Value')
+        self.reward_components_ax.set_title('Reward Component Breakdown')
+        self.reward_components_ax.grid(True, alpha=0.3)
+        
+        reward_components_layout.addWidget(self.reward_components_canvas)
+        reward_components_group.setLayout(reward_components_layout)
+        layout.addWidget(reward_components_group)
         
         # Environment statistics
         env_group = QtWidgets.QGroupBox("Environment State")
@@ -184,12 +252,22 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         
         layout.addStretch()
     
-    def add_episode_data(self, episode_num: int, episode_length: int, budget_spent: float, budget_remaining: float):
+    def add_episode_data(self, episode_num: int, episode_length: int, budget_spent: float, budget_remaining: float, 
+                         reward_components: dict = None):
         """Add data point for completed episode"""
         self.episode_numbers.append(episode_num)
         self.episode_lengths.append(episode_length)
         self.budget_spent_history.append(budget_spent)
         self.budget_remaining_history.append(budget_remaining)
+        
+        # Track reward components if provided
+        if reward_components:
+            self.reward_immediate_history.append(reward_components.get('immediate', 0.0))
+            self.reward_maintenance_history.append(reward_components.get('maintenance', 0.0))
+            self.reward_budget_penalty_history.append(reward_components.get('budget_penalty', 0.0))
+            self.reward_delayed_history.append(reward_components.get('delayed', 0.0))
+            self.reward_survival_bonus_history.append(reward_components.get('survival_bonus', 0.0))
+            self.reward_budget_conservation_history.append(reward_components.get('budget_conservation', 0.0))
         
         # Update episode length plot
         self.episode_length_ax.clear()
@@ -214,55 +292,92 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.budget_ax.grid(True, alpha=0.3)
         self.budget_fig.tight_layout()
         self.budget_canvas.draw()
+        
+        # Update reward components plot if we have data
+        if reward_components and len(self.episode_numbers) > 0:
+            self.reward_components_ax.clear()
+            
+            # Plot each reward component
+            if self.reward_immediate_history:
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_immediate_history, 
+                                               label='Immediate', linewidth=1, alpha=0.8)
+            if self.reward_maintenance_history:
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_maintenance_history, 
+                                               label='Maintenance', linewidth=1, alpha=0.8)
+            if self.reward_budget_penalty_history:
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_budget_penalty_history, 
+                                               label='Budget Penalty', linewidth=1, alpha=0.8)
+            if self.reward_delayed_history:
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_delayed_history, 
+                                               label='Delayed', linewidth=1, alpha=0.8)
+            if self.reward_survival_bonus_history:
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_survival_bonus_history, 
+                                               label='Survival Bonus', linewidth=1, alpha=0.8)
+            if self.reward_budget_conservation_history:
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_budget_conservation_history, 
+                                               label='Budget Conservation', linewidth=1, alpha=0.8)
+            
+            self.reward_components_ax.set_xlabel('Episode')
+            self.reward_components_ax.set_ylabel('Reward Value')
+            self.reward_components_ax.set_title('Reward Component Breakdown')
+            self.reward_components_ax.legend(loc='best', fontsize=7, ncol=2)
+            self.reward_components_ax.grid(True, alpha=0.3)
+            self.reward_components_ax.axhline(y=0, color='k', linestyle='--', linewidth=0.5, alpha=0.5)
+            self.reward_components_fig.tight_layout()
+            self.reward_components_canvas.draw()
     
     def update_training_stats(self, stats):
-        """Update training statistics display"""
-        # Calculate action percentages overall
-        total_actions = sum(stats.get('action_counts_total', {}).values())
-        action_pcts = {}
-        if total_actions > 0:
-            for action, count in stats.get('action_counts_total', {}).items():
-                action_pcts[action] = (count / total_actions) * 100
-        
+        """Update training statistics display (LEFT COLUMN)"""
         text = f"""Update: {stats.get('update', 0)}/{stats.get('total_updates', 0)}
 Elapsed Time: {stats.get('elapsed', 0):.1f}s
 Mean Episode Reward: {stats.get('mean_reward', 0):.2f}
 Actor Loss: {stats.get('actor_loss', 0):.4f}
 Critic Loss: {stats.get('critic_loss', 0):.4f}
 Episodes Completed: {stats.get('episodes_completed', 0)}
+"""
+        self.train_display.setText(text)
+        
+        # Update action distribution (RIGHT COLUMN)
+        total_actions = sum(stats.get('action_counts_total', {}).values())
+        action_pcts = {}
+        if total_actions > 0:
+            for action, count in stats.get('action_counts_total', {}).items():
+                action_pcts[action] = (count / total_actions) * 100
+        
+        action_text = f"""Total Actions: {total_actions}
 
---- Overall Action Distribution ---
-Total Actions: {total_actions}
 NOOP:     {action_pcts.get(0, 0):5.1f}% ({stats.get('action_counts_total', {}).get(0, 0):4d})
 COUNT:    {action_pcts.get(1, 0):5.1f}% ({stats.get('action_counts_total', {}).get(1, 0):4d})
 SEQUENCE: {action_pcts.get(2, 0):5.1f}% ({stats.get('action_counts_total', {}).get(2, 0):4d})
 DOSE:     {action_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_total', {}).get(3, 0):4d})
 """
-        self.train_display.setText(text)
+        self.action_dist_display.setText(action_text)
     
     def update_episode_stats(self, stats):
-        """Update current episode statistics"""
-        # Calculate action percentages for current episode
+        """Update current episode statistics (LEFT COLUMN)"""
+        text = f"""Step: {stats.get('step', 0)}
+Episode Return: {stats.get('episode_return', 0):.2f}
+Last Action: {stats.get('last_action', 'N/A')}
+Last Reward: {stats.get('last_reward', 0):.4f}
+Budget: {stats.get('budget', 0):.2f}
+"""
+        self.episode_display.setText(text)
+        
+        # Update episode action distribution (RIGHT COLUMN)
         episode_actions = sum(stats.get('action_counts_episode', {}).values())
         episode_pcts = {}
         if episode_actions > 0:
             for action, count in stats.get('action_counts_episode', {}).items():
                 episode_pcts[action] = (count / episode_actions) * 100
         
-        text = f"""Step: {stats.get('step', 0)}
-Episode Return: {stats.get('episode_return', 0):.2f}
-Last Action: {stats.get('last_action', 'N/A')}
-Last Reward: {stats.get('last_reward', 0):.4f}
-Budget: {stats.get('budget', 0):.2f}
+        episode_action_text = f"""Total Actions: {episode_actions}
 
---- Episode Action Distribution ---
-Total Actions: {episode_actions}
 NOOP:     {episode_pcts.get(0, 0):5.1f}% ({stats.get('action_counts_episode', {}).get(0, 0):4d})
 COUNT:    {episode_pcts.get(1, 0):5.1f}% ({stats.get('action_counts_episode', {}).get(1, 0):4d})
 SEQUENCE: {episode_pcts.get(2, 0):5.1f}% ({stats.get('action_counts_episode', {}).get(2, 0):4d})
 DOSE:     {episode_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_episode', {}).get(3, 0):4d})
 """
-        self.episode_display.setText(text)
+        self.episode_action_display.setText(episode_action_text)
     
     def update_env_stats(self, stats):
         """Update environment statistics"""
@@ -369,8 +484,8 @@ class TrainingVisualizer:
     def _arrange_windows(self):
         """Arrange windows side by side"""
         self.control_panel.move(0, 0)
-        self.control_panel.resize(400, 1200)
-        self.viz_window.move(420, 0)
+        self.control_panel.resize(800, 1400)
+        self.viz_window.move(820, 0)
     
     def toggle_pause(self):
         """Toggle training pause"""
@@ -497,6 +612,16 @@ class TrainingVisualizer:
             # ⚠️ IMPORTANT: Get budget metrics BEFORE resetting environment!
             budget_metrics = self.env.get_episode_budget_metrics()
             
+            # Extract reward components from info
+            reward_components = {
+                'immediate': info.get('reward_immediate', 0.0),
+                'maintenance': info.get('reward_maintenance', 0.0),
+                'budget_penalty': info.get('reward_budget_penalty', 0.0),
+                'delayed': info.get('reward_delayed', 0.0),
+                'survival_bonus': info.get('reward_survival_bonus', 0.0),
+                'budget_conservation': info.get('reward_budget_conservation', 0.0),
+            }
+            
             self.episodes_completed += 1
             self.current_obs = self.env.reset()
             self.agent.start_episode()
@@ -516,12 +641,13 @@ class TrainingVisualizer:
                 self.logger.log_debug("Updated individual tracker reference for new episode")
             self.logger.log_debug(f"Episode {self.episodes_completed} complete, return: {info['episode_return']:.2f}")
             
-            # Update control panel with episode data
+            # Update control panel with episode data and reward components
             self.control_panel.add_episode_data(
                 episode_num=self.episodes_completed,
                 episode_length=info.get('t', self.current_step),
                 budget_spent=budget_metrics['budget_spent'],
-                budget_remaining=budget_metrics['current_budget']
+                budget_remaining=budget_metrics['current_budget'],
+                reward_components=reward_components
             )
     
     def _update_policy(self):
@@ -529,10 +655,23 @@ class TrainingVisualizer:
         if len(self.buffer.obs) == 0:
             return
         
-        # Compute rollout metrics for logging
+        # Compute rollout metrics for logging (add all expected keys)
         rollout_metrics = {
             "mean_episode_reward": self.env.episode_return,
+            "std_episode_reward": 0.0,  # Single episode, no std
+            "max_episode_reward": self.env.episode_return,
+            "min_episode_reward": self.env.episode_return,
+            "mean_episode_length": self.current_step,
+            "std_episode_length": 0.0,
+            "min_episode_length": self.current_step,
+            "max_episode_length": self.current_step,
             "num_episodes": self.episodes_completed,
+            "mean_population_per_episode": self.env.get_bacteria_population(),
+            "final_population": self.env.get_bacteria_population(),
+            "dose_action_percentage": 0.0,  # Will be calculated if needed
+            "mean_budget_spent": 0.0,
+            "mean_budget_remaining": self.env.budget,
+            "mean_budget_per_step": 0.0,
         }
         
         # Update policy

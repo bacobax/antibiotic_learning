@@ -39,23 +39,69 @@ class ActionConfig:
 
 
 @dataclass
-class EnvironmentConfig:
-    """Environment and reward configuration."""
-    max_steps: int
-    k_doses: int
+class SurvivalBonusConfig:
+    """Configuration for survival bonus reward."""
+    enabled: bool
+    base_bonus: float
+    scaling_type: str
+    scaling_factor: float
+    max_bonus: float
+
+
+@dataclass
+class BudgetConservationConfig:
+    """Configuration for budget conservation reward."""
+    enabled: bool
+    weight: float
+    spending_penalty_factor: float
+    reserve_bonus_threshold: float
+    reserve_bonus_magnitude: float
+
+
+@dataclass
+class PopulationRewardConfig:
+    """Configuration for population-based rewards."""
     target_population: float
     population_norm: float
+    w_population_maintenance: float  # Weight for maintenance penalty
+    noop_band_factor: float  # Deadband around target for NOOP reward
+    noop_reward_magnitude: float  # NOOP shaping magnitude
+
+
+@dataclass
+class DoseRewardConfig:
+    """Configuration for dose efficacy rewards."""
+    w_pop: float  # Weight for population term
+    w_genome: float  # Weight for resistance/genome term
+    w_cost: float  # Weight for cost penalty
+
+
+@dataclass
+class BudgetConfig:
+    """Configuration for budget management."""
     budget_init: float
     budget_norm: float
-    w_pop: float
-    w_genome: float
-    w_cost: float
-    w_population_maintenance: float
-    budget_penalty: float
-    noop_band_factor: float
-    noop_reward_magnitude: float
+    budget_penalty: float  # Penalty when budget reaches 0
+
+
+@dataclass
+class RewardConfig:
+    """Unified reward configuration."""
+    population: PopulationRewardConfig
+    dose: DoseRewardConfig
+    budget: BudgetConfig
+    survival_bonus: SurvivalBonusConfig
+    budget_conservation: BudgetConservationConfig
+
+
+@dataclass
+class EnvironmentConfig:
+    """Environment configuration."""
+    max_steps: int
+    k_doses: int
     device: str
     dtype: str
+    rewards: RewardConfig
 
 
 @dataclass
@@ -132,19 +178,41 @@ def _get_default_config() -> Dict[str, Any]:
         "environment": {
             "max_steps": 1000,
             "k_doses": 3,
-            "target_population": 500,
-            "population_norm": 1000.0,
-            "budget_init": 100.0,
-            "budget_norm": 100.0,
-            "w_pop": 1.0,
-            "w_genome": 0.5,
-            "w_cost": 0.05,
-            "w_population_maintenance": 0.01,
-            "budget_penalty": 10.0,
-            "noop_band_factor": 0.02,
-            "noop_reward_magnitude": 0.01,
             "device": "cpu",
             "dtype": "float32",
+            "rewards": {
+                "population": {
+                    "target_population": 500,
+                    "population_norm": 1000.0,
+                    "w_population_maintenance": 0.01,
+                    "noop_band_factor": 0.02,
+                    "noop_reward_magnitude": 0.01,
+                },
+                "dose": {
+                    "w_pop": 1.0,
+                    "w_genome": 0.5,
+                    "w_cost": 0.05,
+                },
+                "budget": {
+                    "budget_init": 100.0,
+                    "budget_norm": 100.0,
+                    "budget_penalty": 10.0,
+                },
+                "survival_bonus": {
+                    "enabled": True,
+                    "base_bonus": 0.01,
+                    "scaling_type": "constant",
+                    "scaling_factor": 0.1,
+                    "max_bonus": 0.1,
+                },
+                "budget_conservation": {
+                    "enabled": True,
+                    "weight": 0.01,
+                    "spending_penalty_factor": 1.0,
+                    "reserve_bonus_threshold": 0.5,
+                    "reserve_bonus_magnitude": 0.005,
+                },
+            },
         },
         "actions": {
             "noop": {
@@ -214,10 +282,6 @@ def _validate_config(config: Dict[str, Any]) -> None:
     # Environment validation
     if env.get("k_doses", 1) <= 0:
         raise ValueError("k_doses must be > 0")
-    if env.get("target_population", 1) <= 0:
-        raise ValueError("target_population must be > 0")
-    if env.get("budget_init", 1) < 0:
-        raise ValueError("budget_init must be >= 0")
     if env.get("device", "cpu").lower() not in ["cpu", "cuda", "mps"]:
         raise ValueError(f"Invalid device: {env.get('device')}")
     if env.get("dtype", "float32").lower() not in ["float32", "float64", "float16"]:
@@ -350,8 +414,33 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     noop = actions_dict.get("noop", {})
     count = actions_dict.get("count_bacteria", {})
     
-    # Create dataclass instances
-    env_cfg = EnvironmentConfig(**config_dict["environment"])
+    # Extract environment configuration with nested reward configs
+    env_dict = config_dict["environment"]
+    rewards_dict = env_dict["rewards"]
+    
+    # Create nested reward config dataclasses
+    population_reward_cfg = PopulationRewardConfig(**rewards_dict["population"])
+    dose_reward_cfg = DoseRewardConfig(**rewards_dict["dose"])
+    budget_cfg = BudgetConfig(**rewards_dict["budget"])
+    survival_bonus_cfg = SurvivalBonusConfig(**rewards_dict["survival_bonus"])
+    budget_conservation_cfg = BudgetConservationConfig(**rewards_dict["budget_conservation"])
+    
+    reward_cfg = RewardConfig(
+        population=population_reward_cfg,
+        dose=dose_reward_cfg,
+        budget=budget_cfg,
+        survival_bonus=survival_bonus_cfg,
+        budget_conservation=budget_conservation_cfg,
+    )
+    
+    # Create environment config with nested structures
+    env_cfg = EnvironmentConfig(
+        max_steps=env_dict["max_steps"],
+        k_doses=env_dict["k_doses"],
+        device=env_dict["device"],
+        dtype=env_dict["dtype"],
+        rewards=reward_cfg,
+    )
     
     actions_cfg = ActionConfig(
         noop_cost=noop.get("cost", 0.0),
@@ -389,7 +478,27 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
         # Convert dataclasses to dicts
         config_dict = {
             "environment": {
-                k: v for k, v in config.environment.__dict__.items()
+                "max_steps": config.environment.max_steps,
+                "k_doses": config.environment.k_doses,
+                "device": config.environment.device,
+                "dtype": config.environment.dtype,
+                "rewards": {
+                    "population": {
+                        k: v for k, v in config.environment.rewards.population.__dict__.items()
+                    },
+                    "dose": {
+                        k: v for k, v in config.environment.rewards.dose.__dict__.items()
+                    },
+                    "budget": {
+                        k: v for k, v in config.environment.rewards.budget.__dict__.items()
+                    },
+                    "survival_bonus": {
+                        k: v for k, v in config.environment.rewards.survival_bonus.__dict__.items()
+                    },
+                    "budget_conservation": {
+                        k: v for k, v in config.environment.rewards.budget_conservation.__dict__.items()
+                    },
+                },
             },
             "actions": {
                 "noop": {
