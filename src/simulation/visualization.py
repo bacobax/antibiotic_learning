@@ -375,7 +375,7 @@ class SimulationVisualizer:
             # Count active biofilm clusters (groups with more than one member)
             biofilm_count = sum(1 for members in self.biofilm_groups.values() if len(members) > 1)
             self.ax.set_title(
-                f"Step: {self.model.step_count} | Agents: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count} | Biofilms: {biofilm_count}",
+                f"Step: {self.model.step_count} | Bacteria: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count} | Biofilms: {biofilm_count}",
                 fontsize=11,
             )
             self.ax.set_xlim(0, self.model.width)
