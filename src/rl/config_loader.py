@@ -64,6 +64,7 @@ class PopulationRewardConfig:
     target_population: float
     population_norm: float
     w_population_maintenance: float  # Weight for maintenance penalty
+    count_population_reward: float  # Immediate reward after COUNT based on distance to target
     noop_band_factor: float  # Deadband around target for NOOP reward
     noop_reward_magnitude: float  # NOOP shaping magnitude
 

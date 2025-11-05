@@ -110,6 +110,10 @@ def rollout(
     episode_reward_delayed = []
     episode_reward_survival_bonus = []
     episode_reward_budget_conservation = []
+    episode_reward_regular_count_bonus = []
+    episode_reward_safe_behavior_bonus = []
+    episode_reward_informed_dosing_bonus = []
+    episode_reward_count_population = []
     
     current_episode_reward = 0.0
     current_episode_length = 0
@@ -127,6 +131,10 @@ def rollout(
     current_reward_delayed = 0.0
     current_reward_survival_bonus = 0.0
     current_reward_budget_conservation = 0.0
+    current_reward_regular_count_bonus = 0.0
+    current_reward_safe_behavior_bonus = 0.0
+    current_reward_informed_dosing_bonus = 0.0
+    current_reward_count_population = 0.0
     
     agent.start_episode()
     
@@ -172,6 +180,10 @@ def rollout(
         current_reward_delayed += info.get('reward_delayed', 0.0)
         current_reward_survival_bonus += info.get('reward_survival_bonus', 0.0)
         current_reward_budget_conservation += info.get('reward_budget_conservation', 0.0)
+        current_reward_regular_count_bonus += info.get('reward_regular_count_bonus', 0.0)
+        current_reward_safe_behavior_bonus += info.get('reward_safe_behavior_bonus', 0.0)
+        current_reward_informed_dosing_bonus += info.get('reward_informed_dosing_bonus', 0.0)
+        current_reward_count_population += info.get('reward_count_population', 0.0)
         
         # Store in buffer
         buffer.add(
@@ -203,6 +215,10 @@ def rollout(
             episode_reward_delayed.append(current_reward_delayed)
             episode_reward_survival_bonus.append(current_reward_survival_bonus)
             episode_reward_budget_conservation.append(current_reward_budget_conservation)
+            episode_reward_regular_count_bonus.append(current_reward_regular_count_bonus)
+            episode_reward_safe_behavior_bonus.append(current_reward_safe_behavior_bonus)
+            episode_reward_informed_dosing_bonus.append(current_reward_informed_dosing_bonus)
+            episode_reward_count_population.append(current_reward_count_population)
             
             # Log population at end of episode
             final_population = env.get_bacteria_population()
@@ -223,6 +239,10 @@ def rollout(
             current_reward_delayed = 0.0
             current_reward_survival_bonus = 0.0
             current_reward_budget_conservation = 0.0
+            current_reward_regular_count_bonus = 0.0
+            current_reward_safe_behavior_bonus = 0.0
+            current_reward_informed_dosing_bonus = 0.0
+            current_reward_count_population = 0.0
             
             obs = env.reset()
             # Reset hidden state on episode boundary
@@ -263,6 +283,10 @@ def rollout(
         "rewards/delayed": float(np.mean(episode_reward_delayed)) if episode_reward_delayed else 0.0,
         "rewards/survival_bonus": float(np.mean(episode_reward_survival_bonus)) if episode_reward_survival_bonus else 0.0,
         "rewards/budget_conservation": float(np.mean(episode_reward_budget_conservation)) if episode_reward_budget_conservation else 0.0,
+        "rewards/regular_count_bonus": float(np.mean(episode_reward_regular_count_bonus)) if episode_reward_regular_count_bonus else 0.0,
+        "rewards/safe_behavior_bonus": float(np.mean(episode_reward_safe_behavior_bonus)) if episode_reward_safe_behavior_bonus else 0.0,
+        "rewards/informed_dosing_bonus": float(np.mean(episode_reward_informed_dosing_bonus)) if episode_reward_informed_dosing_bonus else 0.0,
+        "rewards/count_population": float(np.mean(episode_reward_count_population)) if episode_reward_count_population else 0.0,
         "rewards/total": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
     }
     
@@ -546,6 +570,17 @@ def _create_environment(
         sequencing_duration=config.actions.sequencing_duration,
         dose_cost_per_unit=config.actions.dose_cost_per_unit,
         count_cost=config.actions.count_cost,
+        # Informed dosing params
+        informed_dosing_reward=getattr(rewards, 'informed_dosing', {}).get('reward', 0.0),
+        informed_dosing_window=getattr(rewards, 'informed_dosing', {}).get('window', 10),
+        informed_sequencing_window=getattr(rewards, 'informed_dosing', {}).get('sequencing_window', 50),
+        blind_dosing_penalty=getattr(rewards, 'informed_dosing', {}).get('blind_penalty', 0.0),
+        dosing_low_population_penalty=getattr(rewards, 'informed_dosing', {}).get('low_population_penalty', 0.0),
+        # Regular monitoring params
+        regular_count_reward=getattr(rewards, 'regular_monitoring', {}).get('count_reward', 0.0),
+        regular_count_interval=getattr(rewards, 'regular_monitoring', {}).get('count_interval', 15),
+        safe_nondosing_reward=getattr(rewards, 'regular_monitoring', {}).get('safe_nondosing_reward', 0.0),
+        count_population_reward=getattr(rewards.population, 'count_population_reward', 0.0),
         # Device config
         device=config.environment.device,
         dtype=config.torch_dtype,

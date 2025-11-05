@@ -14,29 +14,44 @@ environment:
     population:
       target_population: 500
       population_norm: 200.0
-      w_population_maintenance: 1.0    # MAIN REWARD: Only given on COUNT
-      noop_band_factor: 0.02            # Deadband around target for NOOP
-      noop_reward_magnitude: 0.0       # NOOP shaping magnitude
+      w_population_maintenance: 0.0    # DISABLED: No continuous maintenance reward
+      count_population_reward: 10.0    # NEW: Immediate reward after COUNT based on distance to target
+      noop_band_factor: 0.1            # Deadband around target for NOOP
+      noop_reward_magnitude: 0.5       # INCREASED: NOOP shaping magnitude
     
     # Dose efficacy rewards (DISABLED - let model learn relationship)
     dose:
       w_pop: 0.0                        # DISABLED: No immediate population feedback on DOSE
       w_genome: 0.0                     # DISABLED: No resistance term
-      w_cost: 0.1                       # Cost penalty only
+      w_cost: 0.5                      # Small cost penalty to discourage spam
+    
+    # Informed dosing (NEW: encourage count + sequencing before dose)
+    informed_dosing:
+      reward: 10.0                       # Bonus for dosing after recent count AND sequencing
+      window: 5                         # Steps to consider count "recent"
+      sequencing_window: 15             # Steps to consider sequencing "recent"
+      blind_penalty: 100.0              # Penalty for dosing without recent count OR sequencing
+      low_population_penalty: 50.0     # HUGE penalty for dosing when population below target
+    
+    # Regular monitoring rewards (encourage proactive information gathering)
+    regular_monitoring:
+      count_reward: 5.0                 # Reward for counting at regular intervals
+      count_interval: 15                # Target interval (bigger than dosing window of 5)
+      safe_nondosing_reward: 10.0       # Reward for NOT dosing when population below target
     
     # Budget management
     budget:
       budget_init: 100.0
       budget_norm: 100.0
-      budget_penalty: 0.0               # DISABLED: Set to 0
+      budget_penalty: 50.0               # INCREASED: Penalty when budget reaches 0
     
     # Survival bonus reward (encourages longer episodes)
     survival_bonus:
       enabled: true
-      base_bonus: 0.01                  # Base bonus per step
-      scaling_type: "constant"          # "constant", "linear", or "exponential"
+      base_bonus: 1                  # INCREASED: Bigger bonus per step
+      scaling_type: "exponential"          # "constant", "linear", or "exponential"
       scaling_factor: 0.1               # Multiplier for linear/exponential scaling
-      max_bonus: 0.1                    # Maximum bonus cap
+      max_bonus: 128                    # INCREASED: Maximum bonus cap
     
     # Budget conservation reward (DISABLED)
     budget_conservation:
@@ -57,7 +72,7 @@ actions:
   count_bacteria:
     id: 1
     name: "Count bacteria"
-    cost: 2.0
+    cost: 0.5                           # REDUCED: Make counting affordable
     duration: 0
     description: "Measure current bacteria population"
   
@@ -71,13 +86,13 @@ actions:
   dose:
     id: 3
     name: "Administer antibiotics"
-    cost_per_unit: 1
+    cost_per_unit: 1.0                  # Moderate cost
     duration: 0
     description: "Dose antibiotics"
 
 model:
-  hidden_dim: 256
-  rnn_layers: 3
+  hidden_dim: 512
+  rnn_layers: 2
   n_discrete: 4
   dose_action_index: 3
   k_doses: 3

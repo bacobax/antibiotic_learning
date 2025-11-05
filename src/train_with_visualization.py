@@ -86,6 +86,10 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.budget_spent_history = []
         self.budget_remaining_history = []
         
+        # Current episode budget tracking (for step-by-step graph)
+        self.current_episode_budget_steps = []
+        self.current_episode_budget_values = []
+        
         # Reward component tracking
         self.reward_immediate_history = []
         self.reward_maintenance_history = []
@@ -93,6 +97,10 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.reward_delayed_history = []
         self.reward_survival_bonus_history = []
         self.reward_budget_conservation_history = []
+        self.reward_regular_count_bonus_history = []
+        self.reward_safe_behavior_bonus_history = []
+        self.reward_informed_dosing_bonus_history = []
+        self.reward_count_population_history = []
         
         # Create central widget
         central_widget = QtWidgets.QWidget()
@@ -200,8 +208,8 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         episode_length_group.setLayout(episode_length_layout)
         graphs_row1_layout.addWidget(episode_length_group)
         
-        # Budget Tracking Graph
-        budget_group = QtWidgets.QGroupBox("Budget Usage Over Episodes")
+        # Budget Tracking Graph (Final Budget per Episode)
+        budget_group = QtWidgets.QGroupBox("Final Budget Remaining Per Episode")
         budget_layout = QtWidgets.QVBoxLayout()
         
         self.budget_fig = Figure(figsize=(4, 2), dpi=100)
@@ -210,8 +218,8 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.budget_canvas.setMaximumHeight(200)
         
         self.budget_ax.set_xlabel('Episode')
-        self.budget_ax.set_ylabel('Budget')
-        self.budget_ax.set_title('Budget Tracking')
+        self.budget_ax.set_ylabel('Budget Remaining')
+        self.budget_ax.set_title('Final Budget Per Episode')
         self.budget_ax.grid(True, alpha=0.3)
         
         budget_layout.addWidget(self.budget_canvas)
@@ -219,6 +227,24 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         graphs_row1_layout.addWidget(budget_group)
         
         layout.addWidget(graphs_row1_container)
+        
+        # ===== NEW: Budget Over Steps in Current Episode =====
+        current_budget_group = QtWidgets.QGroupBox("Budget Over Steps (Current Episode)")
+        current_budget_layout = QtWidgets.QVBoxLayout()
+        
+        self.current_budget_fig = Figure(figsize=(8, 2), dpi=100)
+        self.current_budget_ax = self.current_budget_fig.add_subplot(111)
+        self.current_budget_canvas = FigureCanvas(self.current_budget_fig)
+        self.current_budget_canvas.setMaximumHeight(200)
+        
+        self.current_budget_ax.set_xlabel('Step')
+        self.current_budget_ax.set_ylabel('Budget')
+        self.current_budget_ax.set_title('Budget Evolution in Current Episode')
+        self.current_budget_ax.grid(True, alpha=0.3)
+        
+        current_budget_layout.addWidget(self.current_budget_canvas)
+        current_budget_group.setLayout(current_budget_layout)
+        layout.addWidget(current_budget_group)
         
         # ===== NEW: Reward Components Graph =====
         reward_components_group = QtWidgets.QGroupBox("Reward Components Per Episode")
@@ -268,6 +294,10 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             self.reward_delayed_history.append(reward_components.get('delayed', 0.0))
             self.reward_survival_bonus_history.append(reward_components.get('survival_bonus', 0.0))
             self.reward_budget_conservation_history.append(reward_components.get('budget_conservation', 0.0))
+            self.reward_regular_count_bonus_history.append(reward_components.get('regular_count_bonus', 0.0))
+            self.reward_safe_behavior_bonus_history.append(reward_components.get('safe_behavior_bonus', 0.0))
+            self.reward_informed_dosing_bonus_history.append(reward_components.get('informed_dosing_bonus', 0.0))
+            self.reward_count_population_history.append(reward_components.get('count_population', 0.0))
         
         # Update episode length plot
         self.episode_length_ax.clear()
@@ -279,16 +309,13 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.episode_length_fig.tight_layout()
         self.episode_length_canvas.draw()
         
-        # Update budget plot
+        # Update budget plot (show only final budget remaining)
         self.budget_ax.clear()
-        self.budget_ax.plot(self.episode_numbers, self.budget_spent_history, 'r-', 
-                           linewidth=1, label='Spent')
         self.budget_ax.plot(self.episode_numbers, self.budget_remaining_history, 'g-', 
-                           linewidth=1, label='Remaining')
+                           linewidth=1.5)
         self.budget_ax.set_xlabel('Episode')
-        self.budget_ax.set_ylabel('Budget')
-        self.budget_ax.set_title('Budget Tracking')
-        self.budget_ax.legend(loc='best', fontsize=8)
+        self.budget_ax.set_ylabel('Budget Remaining')
+        self.budget_ax.set_title('Final Budget Per Episode')
         self.budget_ax.grid(True, alpha=0.3)
         self.budget_fig.tight_layout()
         self.budget_canvas.draw()
@@ -316,6 +343,18 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             if self.reward_budget_conservation_history:
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_budget_conservation_history, 
                                                label='Budget Conservation', linewidth=1, alpha=0.8)
+            if self.reward_regular_count_bonus_history:
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_regular_count_bonus_history, 
+                                               label='Regular Count Bonus', linewidth=1, alpha=0.8)
+            if self.reward_safe_behavior_bonus_history:
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_safe_behavior_bonus_history, 
+                                               label='Safe Behavior Bonus', linewidth=1, alpha=0.8)
+            if self.reward_informed_dosing_bonus_history:
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_informed_dosing_bonus_history, 
+                                               label='Informed Dosing Bonus', linewidth=1, alpha=0.8)
+            if self.reward_count_population_history:
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_count_population_history, 
+                                               label='Count Population', linewidth=1, alpha=0.8)
             
             self.reward_components_ax.set_xlabel('Episode')
             self.reward_components_ax.set_ylabel('Reward Value')
@@ -379,6 +418,37 @@ DOSE:     {episode_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_episode', {}
 """
         self.episode_action_display.setText(episode_action_text)
     
+    def update_current_budget_graph(self, step: int, budget: float):
+        """Update the current episode budget graph"""
+        self.current_episode_budget_steps.append(step)
+        self.current_episode_budget_values.append(budget)
+        
+        # Update plot
+        self.current_budget_ax.clear()
+        self.current_budget_ax.plot(self.current_episode_budget_steps, 
+                                    self.current_episode_budget_values, 
+                                    'b-', linewidth=1.5)
+        self.current_budget_ax.set_xlabel('Step')
+        self.current_budget_ax.set_ylabel('Budget')
+        self.current_budget_ax.set_title('Budget Evolution in Current Episode')
+        self.current_budget_ax.grid(True, alpha=0.3)
+        self.current_budget_fig.tight_layout()
+        self.current_budget_canvas.draw()
+    
+    def reset_current_episode_budget(self):
+        """Reset current episode budget tracking for new episode"""
+        self.current_episode_budget_steps.clear()
+        self.current_episode_budget_values.clear()
+        
+        # Clear the plot
+        self.current_budget_ax.clear()
+        self.current_budget_ax.set_xlabel('Step')
+        self.current_budget_ax.set_ylabel('Budget')
+        self.current_budget_ax.set_title('Budget Evolution in Current Episode')
+        self.current_budget_ax.grid(True, alpha=0.3)
+        self.current_budget_fig.tight_layout()
+        self.current_budget_canvas.draw()
+    
     def update_env_stats(self, stats):
         """Update environment statistics"""
         text = f"""Population: {stats.get('population', 0)}
@@ -439,6 +509,39 @@ class TrainingVisualizer:
             ACTION_SEQUENCING: 0,
             ACTION_DOSE: 0
         }
+        
+        # Reward component tracking for rollout
+        self.rollout_reward_components = {
+            'immediate': [],
+            'maintenance': [],
+            'budget_penalty': [],
+            'delayed': [],
+            'survival_bonus': [],
+            'budget_conservation': [],
+            'regular_count_bonus': [],
+            'safe_behavior_bonus': [],
+            'informed_dosing_bonus': [],
+            'count_population': [],
+        }
+        
+        # Current episode reward component accumulators
+        self.current_episode_rewards = {
+            'immediate': 0.0,
+            'maintenance': 0.0,
+            'budget_penalty': 0.0,
+            'delayed': 0.0,
+            'survival_bonus': 0.0,
+            'budget_conservation': 0.0,
+            'regular_count_bonus': 0.0,
+            'safe_behavior_bonus': 0.0,
+            'informed_dosing_bonus': 0.0,
+            'count_population': 0.0,
+        }
+        
+        # Budget tracking for rollout metrics
+        self.rollout_budget_spent = []
+        self.rollout_budget_remaining = []
+        self.rollout_budget_per_step = []
         
         # Initialize agent (reusing normal training function)
         self.agent = _initialize_agent(ppo_cfg)
@@ -590,6 +693,18 @@ class TrainingVisualizer:
         next_obs, reward, done, info = self.env.step(pure_a_disc, pure_a_cont)
         self.last_reward = reward
         
+        # Accumulate reward components for current episode
+        self.current_episode_rewards['immediate'] += info.get('reward_immediate', 0.0)
+        self.current_episode_rewards['maintenance'] += info.get('reward_maintenance', 0.0)
+        self.current_episode_rewards['budget_penalty'] += info.get('reward_budget_penalty', 0.0)
+        self.current_episode_rewards['delayed'] += info.get('reward_delayed', 0.0)
+        self.current_episode_rewards['survival_bonus'] += info.get('reward_survival_bonus', 0.0)
+        self.current_episode_rewards['budget_conservation'] += info.get('reward_budget_conservation', 0.0)
+        self.current_episode_rewards['regular_count_bonus'] += info.get('reward_regular_count_bonus', 0.0)
+        self.current_episode_rewards['safe_behavior_bonus'] += info.get('reward_safe_behavior_bonus', 0.0)
+        self.current_episode_rewards['informed_dosing_bonus'] += info.get('reward_informed_dosing_bonus', 0.0)
+        self.current_episode_rewards['count_population'] += info.get('reward_count_population', 0.0)
+        
         # Store in buffer
         self.buffer.add(
             obs=obs_tensor.cpu(),
@@ -612,15 +727,32 @@ class TrainingVisualizer:
             # ⚠️ IMPORTANT: Get budget metrics BEFORE resetting environment!
             budget_metrics = self.env.get_episode_budget_metrics()
             
-            # Extract reward components from info
+            # Store budget metrics for rollout
+            self.rollout_budget_spent.append(budget_metrics['budget_spent'])
+            self.rollout_budget_remaining.append(budget_metrics['current_budget'])
+            self.rollout_budget_per_step.append(budget_metrics['budget_per_step'])
+            
+            # Store reward components for completed episode (for rollout metrics)
+            for key in self.rollout_reward_components.keys():
+                self.rollout_reward_components[key].append(self.current_episode_rewards[key])
+            
+            # Extract reward components from accumulated values
             reward_components = {
-                'immediate': info.get('reward_immediate', 0.0),
-                'maintenance': info.get('reward_maintenance', 0.0),
-                'budget_penalty': info.get('reward_budget_penalty', 0.0),
-                'delayed': info.get('reward_delayed', 0.0),
-                'survival_bonus': info.get('reward_survival_bonus', 0.0),
-                'budget_conservation': info.get('reward_budget_conservation', 0.0),
+                'immediate': self.current_episode_rewards['immediate'],
+                'maintenance': self.current_episode_rewards['maintenance'],
+                'budget_penalty': self.current_episode_rewards['budget_penalty'],
+                'delayed': self.current_episode_rewards['delayed'],
+                'survival_bonus': self.current_episode_rewards['survival_bonus'],
+                'budget_conservation': self.current_episode_rewards['budget_conservation'],
+                'regular_count_bonus': self.current_episode_rewards['regular_count_bonus'],
+                'safe_behavior_bonus': self.current_episode_rewards['safe_behavior_bonus'],
+                'informed_dosing_bonus': self.current_episode_rewards['informed_dosing_bonus'],
+                'count_population': self.current_episode_rewards['count_population'],
             }
+            
+            # Reset episode reward accumulators
+            for key in self.current_episode_rewards.keys():
+                self.current_episode_rewards[key] = 0.0
             
             self.episodes_completed += 1
             self.current_obs = self.env.reset()
@@ -649,6 +781,9 @@ class TrainingVisualizer:
                 budget_remaining=budget_metrics['current_budget'],
                 reward_components=reward_components
             )
+            
+            # Reset current episode budget graph for new episode
+            self.control_panel.reset_current_episode_budget()
     
     def _update_policy(self):
         """Update the policy using collected rollout data (matching normal training)"""
@@ -656,6 +791,9 @@ class TrainingVisualizer:
             return
         
         # Compute rollout metrics for logging (add all expected keys)
+        total_actions = sum(self.action_counts_total.values())
+        dose_action_percentage = (self.action_counts_total[ACTION_DOSE] / total_actions * 100) if total_actions > 0 else 0.0
+        
         rollout_metrics = {
             "mean_episode_reward": self.env.episode_return,
             "std_episode_reward": 0.0,  # Single episode, no std
@@ -668,11 +806,31 @@ class TrainingVisualizer:
             "num_episodes": self.episodes_completed,
             "mean_population_per_episode": self.env.get_bacteria_population(),
             "final_population": self.env.get_bacteria_population(),
-            "dose_action_percentage": 0.0,  # Will be calculated if needed
-            "mean_budget_spent": 0.0,
-            "mean_budget_remaining": self.env.budget,
-            "mean_budget_per_step": 0.0,
+            "dose_action_percentage": float(dose_action_percentage),
+            # Budget metrics (matching rollout() function)
+            "mean_budget_spent": float(np.mean(self.rollout_budget_spent)) if self.rollout_budget_spent else 0.0,
+            "mean_budget_remaining": float(np.mean(self.rollout_budget_remaining)) if self.rollout_budget_remaining else 0.0,
+            "mean_budget_per_step": float(np.mean(self.rollout_budget_per_step)) if self.rollout_budget_per_step else 0.0,
+            # Add reward component metrics (matching rollout() function)
+            "rewards/immediate": float(np.mean(self.rollout_reward_components['immediate'])) if self.rollout_reward_components['immediate'] else 0.0,
+            "rewards/maintenance": float(np.mean(self.rollout_reward_components['maintenance'])) if self.rollout_reward_components['maintenance'] else 0.0,
+            "rewards/budget_penalty": float(np.mean(self.rollout_reward_components['budget_penalty'])) if self.rollout_reward_components['budget_penalty'] else 0.0,
+            "rewards/delayed": float(np.mean(self.rollout_reward_components['delayed'])) if self.rollout_reward_components['delayed'] else 0.0,
+            "rewards/survival_bonus": float(np.mean(self.rollout_reward_components['survival_bonus'])) if self.rollout_reward_components['survival_bonus'] else 0.0,
+            "rewards/budget_conservation": float(np.mean(self.rollout_reward_components['budget_conservation'])) if self.rollout_reward_components['budget_conservation'] else 0.0,
+            "rewards/regular_count_bonus": float(np.mean(self.rollout_reward_components['regular_count_bonus'])) if self.rollout_reward_components['regular_count_bonus'] else 0.0,
+            "rewards/safe_behavior_bonus": float(np.mean(self.rollout_reward_components['safe_behavior_bonus'])) if self.rollout_reward_components['safe_behavior_bonus'] else 0.0,
+            "rewards/informed_dosing_bonus": float(np.mean(self.rollout_reward_components['informed_dosing_bonus'])) if self.rollout_reward_components['informed_dosing_bonus'] else 0.0,
+            "rewards/count_population": float(np.mean(self.rollout_reward_components['count_population'])) if self.rollout_reward_components['count_population'] else 0.0,
+            "rewards/total": self.env.episode_return,
         }
+        
+        # Clear reward components and budget tracking for next rollout
+        for key in self.rollout_reward_components.keys():
+            self.rollout_reward_components[key].clear()
+        self.rollout_budget_spent.clear()
+        self.rollout_budget_remaining.clear()
+        self.rollout_budget_per_step.clear()
         
         # Update policy
         train_stats = self.agent.update_policy(self.buffer)
@@ -774,6 +932,9 @@ class TrainingVisualizer:
             'action_counts_episode': self.action_counts_episode
         }
         self.control_panel.update_episode_stats(episode_stats)
+        
+        # Update current episode budget graph
+        self.control_panel.update_current_budget_graph(self.current_step, self.env.budget)
         
         # Environment stats
         pop_stats = self.env.model.get_population_stats()

@@ -36,6 +36,45 @@ class PetriEnvWrapper:
         steps_until_seq_result_norm
       ]
     Length = 1 (budget) + 1 (count) + 4 (genome avgs) + K (proportions) + 3 meta = 9 + K
+    
+    REWARD COMPONENTS BREAKDOWN:
+    ============================
+    
+    Total reward = immediate + maintenance + budget_penalty + delayed + survival_bonus + budget_conservation
+    
+    1. IMMEDIATE REWARD (returned from _execute_action):
+       Composed of:
+       a) Action cost penalty: -cost * w_cost (for COUNT, SEQUENCING, DOSE actions)
+       b) NOOP shaping bonus/penalty: rewards staying in deadband around target population
+       c) Regular count bonus: rewards counting at regular intervals (every ~15 steps)
+       d) Safe behavior bonus: rewards NOT dosing when population is below target
+       e) Informed dosing bonus/penalty:
+          - Positive bonus: dosing with recent count AND sequencing data
+          - Negative penalty: dosing without recent data (blind dosing)
+          - Large negative penalty: dosing when population is already below target
+    
+    2. MAINTENANCE REWARD:
+       Per-step reward/penalty based on distance from target population.
+       Computed every step using PopulationMaintenanceReward module.
+       Encourages keeping bacteria count near target_population.
+    
+    3. BUDGET PENALTY:
+       Large negative penalty when budget reaches 0.
+       Prevents running out of resources.
+    
+    4. DELAYED REWARD:
+       Evaluates efficacy of past DOSE actions when new measurements land.
+       Only computed when COUNT or SEQUENCING results become available.
+    
+    5. SURVIVAL BONUS:
+       Per-step bonus for staying alive (configurable: constant/linear/exponential).
+       Encourages longer episodes and survival.
+    
+    6. BUDGET CONSERVATION:
+       Optional reward for efficient budget usage (typically disabled).
+       Encourages saving resources when possible.
+    
+    All components are tracked separately in the info dict for analysis and TensorBoard logging.
     """
 
     def __init__(
@@ -49,6 +88,17 @@ class PetriEnvWrapper:
         sequencing_duration: int = 5,   # steps to finish
         dose_cost_per_unit: float = 0.2,
         count_cost: float = 0.0,        # cost for COUNT action
+        # informed dosing params
+        informed_dosing_reward: float = 0.0,    # bonus for dosing after recent count AND sequencing
+        informed_dosing_window: int = 10,       # steps window for "recent" count
+        informed_sequencing_window: int = 50,   # steps window for "recent" sequencing
+        blind_dosing_penalty: float = 0.0,      # penalty for dosing without count/sequencing
+        dosing_low_population_penalty: float = 0.0,  # BIG penalty for dosing when pop below target
+        # regular monitoring rewards
+        regular_count_reward: float = 0.0,      # reward for counting regularly
+        regular_count_interval: int = 15,       # target interval for regular counting
+        safe_nondosing_reward: float = 0.0,     # reward for NOT dosing when pop is low
+        count_population_reward: float = 0.0,   # reward based on distance from target after COUNT
         # shaping & norms
         target_population: int = 500,   # P*
         w_pop: float = 1.0,             # weight for population term in dose reward
@@ -76,6 +126,19 @@ class PetriEnvWrapper:
         self.dose_cost_per_unit = dose_cost_per_unit
         self.count_cost = count_cost
         self.budget_penalty = budget_penalty
+        
+        # informed dosing parameters
+        self.informed_dosing_reward = informed_dosing_reward
+        self.informed_dosing_window = informed_dosing_window
+        self.informed_sequencing_window = informed_sequencing_window
+        self.blind_dosing_penalty = blind_dosing_penalty
+        self.dosing_low_population_penalty = dosing_low_population_penalty
+        
+        # regular monitoring parameters
+        self.regular_count_reward = regular_count_reward
+        self.regular_count_interval = regular_count_interval
+        self.safe_nondosing_reward = safe_nondosing_reward
+        self.count_population_reward = count_population_reward
 
         # reward shaping
         self.target_population = target_population
@@ -155,6 +218,12 @@ class PetriEnvWrapper:
         # Reset budget tracking for new episode
         self.episode_start_budget = self.budget_init
         self.episode_budget_spent = 0.0
+        
+        # Reset reward component tracking
+        self.last_regular_count_bonus = 0.0
+        self.last_safe_behavior_bonus = 0.0
+        self.last_informed_dosing_bonus = 0.0
+        self.last_count_population_reward = 0.0
 
         # clear caches
         self.last_count_obs = None
@@ -175,8 +244,32 @@ class PetriEnvWrapper:
         assert isinstance(a_cont, np.ndarray) and a_cont.shape == (self.k_doses,), \
             f"a_cont must be np.ndarray shape ({self.k_doses},)"
 
+        # Reset reward component tracking (will be set if applicable)
+        self.last_safe_behavior_bonus = 0.0
+        self.last_informed_dosing_bonus = 0.0
+
         # 1) Execute action: computes immediate reward (only instant penalties/shaping)
+        # This now includes regular_count_reward for COUNT actions and informed_dosing_bonus for DOSE actions
         immediate_reward = self._execute_action(a_discrete, a_cont)
+
+        # 1b) Safe non-dosing reward: reward for NOT dosing when population is below target
+        safe_behavior_bonus = 0.0
+        if a_discrete != ACTION_DOSE:
+            # Check if we have recent count data
+            steps_since_count = self.t - self.ts_last_count if self.ts_last_count is not None else float('inf')
+            has_recent_count = steps_since_count <= self.informed_dosing_window
+            
+            # If count is recent and population is below target, reward for NOT dosing
+            if has_recent_count and self.last_count_obs is not None:
+                if self.last_count_obs < self.target_population:
+                    safe_behavior_bonus = self.safe_nondosing_reward
+                    # Debug output (only first few episodes)
+                    # if self.t < 100:
+                    #     print(f"[SAFE BEHAVIOR BONUS] t={self.t}, action={a_discrete}, pop={self.last_count_obs}, target={self.target_population}, bonus={safe_behavior_bonus}")
+        
+        # Store for tracking
+        self.last_safe_behavior_bonus = safe_behavior_bonus
+        immediate_reward += safe_behavior_bonus
 
         # 2) Advance simulation one base step
         self.model.step()
@@ -219,9 +312,9 @@ class PetriEnvWrapper:
 
         # 7) Compute total reward: immediate penalties + delayed efficacy + maintenance
         # Use PopulationMaintenanceReward module for consistent asymmetric penalty
-        # Only apply maintenance reward on COUNT actions (not DOSE)
+        # DISABLED: Only apply maintenance reward when w_population_maintenance > 0
         maintenance_penalty = 0.0
-        if a_discrete == ACTION_COUNT_BACTERIA:
+        if self.w_population_maintenance > 0.0:
             maintenance_penalty = self.pop_maintenance_reward(true_population)
         
         # 7b) Add survival bonus reward if enabled
@@ -270,6 +363,10 @@ class PetriEnvWrapper:
             "reward_delayed": delayed_reward,
             "reward_survival_bonus": survival_bonus,
             "reward_budget_conservation": budget_conservation_bonus,
+            "reward_regular_count_bonus": self.last_regular_count_bonus,
+            "reward_safe_behavior_bonus": self.last_safe_behavior_bonus,
+            "reward_informed_dosing_bonus": self.last_informed_dosing_bonus,
+            "reward_count_population": self.last_count_population_reward,
             "reward_total": reward,
         }
         return obs, float(reward), bool(done), info
@@ -289,6 +386,11 @@ class PetriEnvWrapper:
         Returns:
             Immediate reward (float)
         """
+        # Reset tracking variables (will be set if applicable)
+        self.last_regular_count_bonus = 0.0
+        self.last_informed_dosing_bonus = 0.0
+        self.last_count_population_reward = 0.0
+        
         if a_discrete == ACTION_NOOP:
             bonus = 0.0
             if self.last_count_obs is not None:
@@ -306,7 +408,45 @@ class PetriEnvWrapper:
             # Apply count cost from action config
             self.budget -= self.count_cost
             self.episode_budget_spent += self.count_cost
-            return -self.count_cost  # Penalize the COUNT action with its cost
+            
+            # Get current population to evaluate distance from target
+            current_population = self._read_true_population()
+            
+            # Count population reward: immediate feedback based on distance from target
+            # Positive reward when close to target, negative when far
+            count_pop_reward = 0.0
+            if self.count_population_reward > 0.0:
+                distance = abs(current_population - self.target_population)
+                normalized_distance = distance / self.population_norm
+                # Use exponential decay: reward decreases as distance increases
+                # When distance = 0: reward = count_population_reward
+                # When distance = population_norm: reward ≈ -count_population_reward
+                count_pop_reward = self.count_population_reward * (1.0 - 2.0 * normalized_distance)
+                count_pop_reward = np.clip(count_pop_reward, -self.count_population_reward, self.count_population_reward)
+            
+            # Store for tracking
+            self.last_count_population_reward = count_pop_reward
+            
+            # Regular monitoring reward: encourage counting at regular intervals
+            regular_monitoring_bonus = 0.0
+            if self.ts_last_count is not None:
+                time_since_last_count = self.t - self.ts_last_count
+                # Reward if counting at or beyond the regular interval
+                if time_since_last_count >= self.regular_count_interval:
+                    regular_monitoring_bonus = self.regular_count_reward
+                    # Debug output (only first few episodes)
+                    if self.t < 100:
+                        print(f"[REGULAR COUNT BONUS] t={self.t}, time_since_last={time_since_last_count}, interval={self.regular_count_interval}, bonus={regular_monitoring_bonus}")
+            else:
+                # First count in episode - give reward to encourage starting monitoring
+                regular_monitoring_bonus = self.regular_count_reward
+                # # Debug output
+                # if self.t < 100:
+                #     print(f" t={self.t}, bonus={regular_monitoring_bonus}")
+            
+            # Store for tracking
+            self.last_regular_count_bonus = regular_monitoring_bonus
+            return -self.count_cost + regular_monitoring_bonus + count_pop_reward
 
         if a_discrete == ACTION_SEQUENCING:
             # Cost now, reward 0 now; result later
@@ -328,10 +468,45 @@ class PetriEnvWrapper:
             self.budget -= cost
             self.episode_budget_spent += cost
 
-            # ✅ SIMPLIFIED: Just return cost penalty
+            # Informed dosing reward/penalty system
+            dosing_bonus = 0.0
+            
+            # Check 1: Do we have recent COUNT data?
+            has_recent_count = False
+            if self.ts_last_count is not None:
+                steps_since_count = self.t - self.ts_last_count
+                has_recent_count = (steps_since_count <= self.informed_dosing_window)
+            
+            # Check 2: Do we have recent SEQUENCING data?
+            has_recent_sequencing = False
+            if self.ts_last_seq is not None:
+                steps_since_seq = self.t - self.ts_last_seq
+                has_recent_sequencing = (steps_since_seq <= self.informed_sequencing_window)
+            
+            # Check 3: Is population BELOW target? (CRITICAL CHECK)
+            population_below_target = False
+            if self.last_count_obs is not None and has_recent_count:
+                population_below_target = (self.last_count_obs < self.target_population)
+            
+            # Apply penalties/rewards based on checks
+            if population_below_target:
+                # CRITICAL: BIG penalty for dosing when population is already below target
+                # This is dangerous - you're killing bacteria that are already too few!
+                dosing_bonus = -self.dosing_low_population_penalty
+            elif has_recent_count and has_recent_sequencing:
+                # GOOD: Have both recent count AND sequencing data
+                dosing_bonus = self.informed_dosing_reward
+            elif not has_recent_count or not has_recent_sequencing:
+                # BAD: Missing recent count OR sequencing data (blind dosing)
+                dosing_bonus = -self.blind_dosing_penalty
+            
+            # Store for tracking
+            self.last_informed_dosing_bonus = dosing_bonus
+            
+            # ✅ SIMPLIFIED: Return cost penalty + informed dosing bonus/penalty
             # Let population maintenance reward (computed every step) capture efficacy
             # PPO's TD learning will connect: dose → future population drops → better rewards
-            return -cost * self.w_cost
+            return -cost * self.w_cost + dosing_bonus
         
         raise ValueError(f"Unknown discrete action: {a_discrete}")
 

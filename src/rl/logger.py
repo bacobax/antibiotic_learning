@@ -39,7 +39,9 @@ class TrainingLogger:
         
         self.logger.info(f"Logging to: {self.log_dir}")
         if self.tb_writer:
-            self.logger.info(f"TensorBoard: {self.log_dir / experiment_name}")
+            tb_log_dir = Path(self.tb_writer.log_dir)
+            self.logger.info(f"TensorBoard logs: {tb_log_dir}")
+            self.logger.info(f"View with: tensorboard --logdir={tb_log_dir.parent}")
     
     def _setup_python_logger(self) -> logging.Logger:
         """Setup Python logger with console and file output."""
@@ -68,9 +70,14 @@ class TrainingLogger:
         """Setup TensorBoard writer if available."""
         try:
             from torch.utils.tensorboard import SummaryWriter
-            tb_dir = self.log_dir / experiment_name
+            from datetime import datetime
+            
+            # Create timestamped directory for this run
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            tb_dir = self.log_dir / experiment_name / timestamp
             tb_dir.mkdir(parents=True, exist_ok=True)
-            return SummaryWriter(str(tb_dir))
+            writer = SummaryWriter(str(tb_dir))
+            return writer
         except ImportError:
             self.logger.warning("TensorBoard not installed. Skipping TensorBoard logging.")
             return None
@@ -105,12 +112,10 @@ class TrainingLogger:
                 if self.tb_writer:
                     self.tb_writer.add_scalar("best_reward", self.best_reward, update)
         
-        # Log to TensorBoard - use generic category-based logging
+        # Log to TensorBoard (without console prints)
         if self.tb_writer:
             for name, value in all_metrics.items():
                 if isinstance(value, (int, float)) and not np.isnan(value) and not np.isinf(value):
-                    # Metrics already have category prefixes (e.g., "rewards/survival_bonus")
-                    # Just log them directly without specialized handling
                     self.tb_writer.add_scalar(name, value, update)
         
         # Log to JSON
@@ -168,8 +173,23 @@ class TrainingLogger:
             f"(±{rollout_metrics['std_episode_reward']:5.2f}) | "
             f"Episodes: {rollout_metrics['num_episodes']:3d} | "
             f"DOSE: {rollout_metrics.get('dose_action_percentage', 0.0):.1f}% | "
+            f"NOOP: {rollout_metrics.get('noop_action_percentage', 0.0):.1f}% | "
+            f"COUNT: {rollout_metrics.get('bacteria_count', 0):.0f} | "
+            f"SEQUENCING: {rollout_metrics.get('sequencing_count', 0):.0f} | "
             f"Actor Loss: {train_stats['loss_actor']:.4f} | "
             f"Critic Loss: {train_stats['loss_critic']:.4f}"
+        )
+        
+        # Reward component breakdown (second line)
+        self.logger.info(
+            f"  Rewards: "
+            f"Maint={rollout_metrics.get('rewards/maintenance', 0.0):+6.2f} | "
+            f"CountPop={rollout_metrics.get('rewards/count_population', 0.0):+6.2f} | "
+            f"Delayed={rollout_metrics.get('rewards/delayed', 0.0):+6.2f} | "
+            f"Survival={rollout_metrics.get('rewards/survival_bonus', 0.0):+6.2f} | "
+            f"RegCount={rollout_metrics.get('rewards/regular_count_bonus', 0.0):+6.2f} | "
+            f"SafeBehav={rollout_metrics.get('rewards/safe_behavior_bonus', 0.0):+6.2f} | "
+            f"InfDosing={rollout_metrics.get('rewards/informed_dosing_bonus', 0.0):+6.2f}"
         )
         
         # Debug info
