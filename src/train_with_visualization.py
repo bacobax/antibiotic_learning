@@ -73,12 +73,14 @@ class VisualizationWindow(QtWidgets.QMainWindow):
 class TrainingControlPanel(QtWidgets.QMainWindow):
     """Control panel for training visualization"""
     
-    def __init__(self, on_pause_toggle):
+    def __init__(self, on_pause_toggle, initial_budget: float = 100.0, max_steps: int = 512):
         super().__init__()
         self.setWindowTitle("Training Control Panel")
         self.setGeometry(0, 0, 800, 1400)  # Wider for 2-column layout
         
         self.on_pause_toggle = on_pause_toggle
+        self.initial_budget = initial_budget  # Store for fixed axes
+        self.max_steps = max_steps  # Store for fixed x-axis
         
         # Data for plots
         self.episode_numbers = []
@@ -91,7 +93,8 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.current_episode_budget_values = []
         
         # Reward component tracking
-        self.reward_immediate_history = []
+        # Note: "immediate" is not plotted as it's a composite of the sub-components below
+        self.reward_immediate_history = []  # Stored but not plotted
         self.reward_maintenance_history = []
         self.reward_budget_penalty_history = []
         self.reward_delayed_history = []
@@ -324,42 +327,41 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         if reward_components and len(self.episode_numbers) > 0:
             self.reward_components_ax.clear()
             
-            # Plot each reward component
-            if self.reward_immediate_history:
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_immediate_history, 
-                                               label='Immediate', linewidth=1, alpha=0.8)
-            if self.reward_maintenance_history:
+            # Plot each reward component (EXCLUDING immediate as it's a composite)
+            # Only plot components that are non-zero in at least one episode
+            
+            if any(x != 0 for x in self.reward_maintenance_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_maintenance_history, 
-                                               label='Maintenance', linewidth=1, alpha=0.8)
-            if self.reward_budget_penalty_history:
+                                               label='Maintenance', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_budget_penalty_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_budget_penalty_history, 
-                                               label='Budget Penalty', linewidth=1, alpha=0.8)
-            if self.reward_delayed_history:
+                                               label='Budget Penalty', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_delayed_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_delayed_history, 
-                                               label='Delayed', linewidth=1, alpha=0.8)
-            if self.reward_survival_bonus_history:
+                                               label='Delayed', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_survival_bonus_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_survival_bonus_history, 
-                                               label='Survival Bonus', linewidth=1, alpha=0.8)
-            if self.reward_budget_conservation_history:
+                                               label='Survival Bonus', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_budget_conservation_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_budget_conservation_history, 
-                                               label='Budget Conservation', linewidth=1, alpha=0.8)
-            if self.reward_regular_count_bonus_history:
+                                               label='Budget Conservation', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_regular_count_bonus_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_regular_count_bonus_history, 
-                                               label='Regular Count Bonus', linewidth=1, alpha=0.8)
-            if self.reward_safe_behavior_bonus_history:
+                                               label='Regular Count', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_safe_behavior_bonus_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_safe_behavior_bonus_history, 
-                                               label='Safe Behavior Bonus', linewidth=1, alpha=0.8)
-            if self.reward_informed_dosing_bonus_history:
+                                               label='Safe Behavior', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_informed_dosing_bonus_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_informed_dosing_bonus_history, 
-                                               label='Informed Dosing Bonus', linewidth=1, alpha=0.8)
-            if self.reward_count_population_history:
+                                               label='Informed Dosing', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_count_population_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_count_population_history, 
-                                               label='Count Population', linewidth=1, alpha=0.8)
+                                               label='Count Population', linewidth=1.5, alpha=0.9)
             
             self.reward_components_ax.set_xlabel('Episode')
             self.reward_components_ax.set_ylabel('Reward Value')
             self.reward_components_ax.set_title('Reward Component Breakdown')
-            self.reward_components_ax.legend(loc='best', fontsize=7, ncol=2)
+            self.reward_components_ax.legend(loc='best', fontsize=8, ncol=2)
             self.reward_components_ax.grid(True, alpha=0.3)
             self.reward_components_ax.axhline(y=0, color='k', linestyle='--', linewidth=0.5, alpha=0.5)
             self.reward_components_fig.tight_layout()
@@ -431,6 +433,8 @@ DOSE:     {episode_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_episode', {}
         self.current_budget_ax.set_xlabel('Step')
         self.current_budget_ax.set_ylabel('Budget')
         self.current_budget_ax.set_title('Budget Evolution in Current Episode')
+        self.current_budget_ax.set_xlim(0, self.max_steps)  # Fixed x-axis
+        self.current_budget_ax.set_ylim(0, self.initial_budget)  # Fixed y-axis
         self.current_budget_ax.grid(True, alpha=0.3)
         self.current_budget_fig.tight_layout()
         self.current_budget_canvas.draw()
@@ -445,6 +449,8 @@ DOSE:     {episode_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_episode', {}
         self.current_budget_ax.set_xlabel('Step')
         self.current_budget_ax.set_ylabel('Budget')
         self.current_budget_ax.set_title('Budget Evolution in Current Episode')
+        self.current_budget_ax.set_xlim(0, self.max_steps)  # Fixed x-axis
+        self.current_budget_ax.set_ylim(0, self.initial_budget)  # Fixed y-axis
         self.current_budget_ax.grid(True, alpha=0.3)
         self.current_budget_fig.tight_layout()
         self.current_budget_canvas.draw()
@@ -571,8 +577,12 @@ class TrainingVisualizer:
         self.visualizer = SimulationVisualizer(model=self.env.model, on_click_callback=on_click)
         self.viz_window = VisualizationWindow(self.visualizer)
         
-        # Setup control panel
-        self.control_panel = TrainingControlPanel(on_pause_toggle=self.toggle_pause)
+        # Setup control panel with initial budget and max steps from environment
+        self.control_panel = TrainingControlPanel(
+            on_pause_toggle=self.toggle_pause,
+            initial_budget=self.env.budget_init,
+            max_steps=self.env.max_steps
+        )
         
         # Position windows
         self._arrange_windows()
@@ -668,6 +678,13 @@ class TrainingVisualizer:
         
         # Collect one step of experience
         obs_tensor = torch.from_numpy(self.current_obs).unsqueeze(0).to(self.agent.device)
+        
+        # Log NN inputs for first 20 steps
+        if self.current_step < 20:
+            print(f"\n[STEP {self.current_step}] NN Input Observation:")
+            print(f"  Shape: {self.current_obs.shape}")
+            print(f"  Values: {self.current_obs}")
+            print(f"  Min: {self.current_obs.min():.4f}, Max: {self.current_obs.max():.4f}, Mean: {self.current_obs.mean():.4f}")
         
         with torch.no_grad():
             (

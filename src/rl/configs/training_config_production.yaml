@@ -27,16 +27,17 @@ environment:
     
     # Informed dosing (NEW: encourage count + sequencing before dose)
     informed_dosing:
-      reward: 10.0                       # Bonus for dosing after recent count AND sequencing
+      reward: 5.0                       # Bonus for dosing after recent count AND sequencing
       window: 5                         # Steps to consider count "recent"
-      sequencing_window: 15             # Steps to consider sequencing "recent"
+      sequencing_window: 5             # Steps to consider sequencing "recent"
       blind_penalty: 100.0              # Penalty for dosing without recent count OR sequencing
       low_population_penalty: 50.0     # HUGE penalty for dosing when population below target
     
     # Regular monitoring rewards (encourage proactive information gathering)
     regular_monitoring:
       count_reward: 5.0                 # Reward for counting at regular intervals
-      count_interval: 15                # Target interval (bigger than dosing window of 5)
+      count_interval: 15                # Maximum interval (upper bound of optimal window)
+      count_min_interval: 3             # Minimum interval (lower bound - avoid spam)
       safe_nondosing_reward: 10.0       # Reward for NOT dosing when population below target
     
     # Budget management

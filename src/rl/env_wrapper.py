@@ -97,6 +97,7 @@ class PetriEnvWrapper:
         # regular monitoring rewards
         regular_count_reward: float = 0.0,      # reward for counting regularly
         regular_count_interval: int = 15,       # target interval for regular counting
+        regular_count_min_interval: int = 3,    # minimum interval to avoid spam-counting
         safe_nondosing_reward: float = 0.0,     # reward for NOT dosing when pop is low
         count_population_reward: float = 0.0,   # reward based on distance from target after COUNT
         # shaping & norms
@@ -137,6 +138,7 @@ class PetriEnvWrapper:
         # regular monitoring parameters
         self.regular_count_reward = regular_count_reward
         self.regular_count_interval = regular_count_interval
+        self.regular_count_min_interval = regular_count_min_interval
         self.safe_nondosing_reward = safe_nondosing_reward
         self.count_population_reward = count_population_reward
 
@@ -289,7 +291,7 @@ class PetriEnvWrapper:
 
         # COUNT has duration 0 → if the agent performed COUNT this step, cache count obs immediately
         count_result_landed = False
-        if a_discrete == ACTION_COUNT_BACTERIA or a_discrete == ACTION_DOSE:
+        if a_discrete == ACTION_COUNT_BACTERIA:
             # We just performed a count → cache count obs immediately
             count_now = self._read_true_population()
             self._cache_count_obs(count_now)
@@ -431,18 +433,25 @@ class PetriEnvWrapper:
             regular_monitoring_bonus = 0.0
             if self.ts_last_count is not None:
                 time_since_last_count = self.t - self.ts_last_count
-                # Reward if counting at or beyond the regular interval
-                if time_since_last_count >= self.regular_count_interval:
+                # Reward if counting within optimal window (not too soon, not too late)
+                min_interval = self.regular_count_min_interval  # Don't spam-count too frequently
+                max_interval = self.regular_count_interval  # Don't wait too long
+                
+                if min_interval <= time_since_last_count <= max_interval:
                     regular_monitoring_bonus = self.regular_count_reward
                     # Debug output (only first few episodes)
                     if self.t < 100:
-                        print(f"[REGULAR COUNT BONUS] t={self.t}, time_since_last={time_since_last_count}, interval={self.regular_count_interval}, bonus={regular_monitoring_bonus}")
+                        print(f"[REGULAR COUNT BONUS] t={self.t}, time_since_last={time_since_last_count}, window=[{min_interval}, {max_interval}], bonus={regular_monitoring_bonus}")
+                elif self.t < 100 and time_since_last_count < min_interval:
+                    print(f"[COUNT TOO SOON] t={self.t}, time_since_last={time_since_last_count} < {min_interval}, no bonus")
+                elif self.t < 100 and time_since_last_count > max_interval:
+                    print(f"[COUNT TOO LATE] t={self.t}, time_since_last={time_since_last_count} > {max_interval}, no bonus")
             else:
                 # First count in episode - give reward to encourage starting monitoring
                 regular_monitoring_bonus = self.regular_count_reward
-                # # Debug output
-                # if self.t < 100:
-                #     print(f" t={self.t}, bonus={regular_monitoring_bonus}")
+                # Debug output
+                if self.t < 100:
+                    print(f"[FIRST COUNT BONUS] t={self.t}, bonus={regular_monitoring_bonus}")
             
             # Store for tracking
             self.last_regular_count_bonus = regular_monitoring_bonus
@@ -493,12 +502,23 @@ class PetriEnvWrapper:
                 # CRITICAL: BIG penalty for dosing when population is already below target
                 # This is dangerous - you're killing bacteria that are already too few!
                 dosing_bonus = -self.dosing_low_population_penalty
+                # # Debug output (only first few episodes)
+                # if self.t < 200:
+                #     print(f"[DOSING LOW POP] t={self.t}, pop={self.last_count_obs}, target={self.target_population}, penalty={dosing_bonus}")
             elif has_recent_count and has_recent_sequencing:
                 # GOOD: Have both recent count AND sequencing data
                 dosing_bonus = self.informed_dosing_reward
+                # # Debug output (only first few episodes)
+                # if self.t < 200:
+                #     print(f"[INFORMED DOSING] t={self.t}, count_age={self.t - self.ts_last_count}, seq_age={self.t - self.ts_last_seq}, bonus={dosing_bonus}")
             elif not has_recent_count or not has_recent_sequencing:
                 # BAD: Missing recent count OR sequencing data (blind dosing)
                 dosing_bonus = -self.blind_dosing_penalty
+                # # Debug output (only first few episodes)
+                # if self.t < 200:
+                #     count_age = self.t - self.ts_last_count if self.ts_last_count is not None else "None"
+                #     seq_age = self.t - self.ts_last_seq if self.ts_last_seq is not None else "None"
+                #     print(f"[BLIND DOSING] t={self.t}, has_count={has_recent_count} (age={count_age}), has_seq={has_recent_sequencing} (age={seq_age}), penalty={dosing_bonus}")
             
             # Store for tracking
             self.last_informed_dosing_bonus = dosing_bonus
@@ -650,18 +670,22 @@ class PetriEnvWrapper:
 
         # Meta
         if self.ts_last_seq is None:
-            ts_since_seq = 0
+            ts_since_seq = float('inf')  # Never sequenced yet
         else:
             ts_since_seq = self.t - self.ts_last_seq
         if self.ts_last_count is None:
-            ts_since_count = 0
+            ts_since_count = float('inf')  # Never counted yet
         else:
             ts_since_count = self.t - self.ts_last_count
 
         ts_since_measure = min(ts_since_seq, ts_since_count)
 
-        ts_since =  self.t - ts_since_measure
-        time_since_last_measure_norm = min(1.0, ts_since / 100.0)
+        # If never measured, use maximum staleness value
+        if ts_since_measure == float('inf'):
+            time_since_last_measure_norm = 1.0  # Maximum value (never measured)
+        else:
+            time_since_last_measure_norm = min(1.0, ts_since_measure / 100.0)
+        
         seq_pending_flag = 1.0 if self.seq_pending else 0.0
         seq_eta_norm = min(1.0, max(0, self.seq_eta) / max(1, self.sequencing_duration))
 

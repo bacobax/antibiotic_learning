@@ -86,6 +86,25 @@ class BudgetConfig:
 
 
 @dataclass
+class InformedDosingConfig:
+    """Configuration for informed dosing rewards and penalties."""
+    reward: float  # Bonus for dosing after recent count AND sequencing
+    window: int  # Steps window for "recent" count
+    sequencing_window: int  # Steps window for "recent" sequencing
+    blind_penalty: float  # Penalty for dosing without count/sequencing
+    low_population_penalty: float  # BIG penalty for dosing when pop below target
+
+
+@dataclass
+class RegularMonitoringConfig:
+    """Configuration for regular monitoring rewards."""
+    count_reward: float  # Reward for counting at regular intervals
+    count_interval: int  # Maximum interval for regular counting (upper bound)
+    count_min_interval: int  # Minimum interval to avoid spam-counting (lower bound)
+    safe_nondosing_reward: float  # Reward for NOT dosing when pop is low
+
+
+@dataclass
 class RewardConfig:
     """Unified reward configuration."""
     population: PopulationRewardConfig
@@ -93,6 +112,8 @@ class RewardConfig:
     budget: BudgetConfig
     survival_bonus: SurvivalBonusConfig
     budget_conservation: BudgetConservationConfig
+    informed_dosing: InformedDosingConfig
+    regular_monitoring: RegularMonitoringConfig
 
 
 @dataclass
@@ -426,6 +447,8 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     budget_cfg = BudgetConfig(**rewards_dict["budget"])
     survival_bonus_cfg = SurvivalBonusConfig(**rewards_dict["survival_bonus"])
     budget_conservation_cfg = BudgetConservationConfig(**rewards_dict["budget_conservation"])
+    informed_dosing_cfg = InformedDosingConfig(**rewards_dict["informed_dosing"])
+    regular_monitoring_cfg = RegularMonitoringConfig(**rewards_dict["regular_monitoring"])
     
     reward_cfg = RewardConfig(
         population=population_reward_cfg,
@@ -433,6 +456,8 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         budget=budget_cfg,
         survival_bonus=survival_bonus_cfg,
         budget_conservation=budget_conservation_cfg,
+        informed_dosing=informed_dosing_cfg,
+        regular_monitoring=regular_monitoring_cfg,
     )
     
     # Create environment config with nested structures
