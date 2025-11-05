@@ -180,16 +180,23 @@ class TrainingLogger:
             f"Critic Loss: {train_stats['loss_critic']:.4f}"
         )
         
-        # Reward component breakdown (second line)
+        # Reward component breakdown (second and third lines)
         self.logger.info(
             f"  Rewards: "
+            f"Immed={rollout_metrics.get('rewards/immediate', 0.0):+6.2f} | "
             f"Maint={rollout_metrics.get('rewards/maintenance', 0.0):+6.2f} | "
-            f"CountPop={rollout_metrics.get('rewards/count_population', 0.0):+6.2f} | "
+            f"BudgPen={rollout_metrics.get('rewards/budget_penalty', 0.0):+6.2f} | "
             f"Delayed={rollout_metrics.get('rewards/delayed', 0.0):+6.2f} | "
             f"Survival={rollout_metrics.get('rewards/survival_bonus', 0.0):+6.2f} | "
+            f"BudgCons={rollout_metrics.get('rewards/budget_conservation', 0.0):+6.2f}"
+        )
+        self.logger.info(
+            f"           "
             f"RegCount={rollout_metrics.get('rewards/regular_count_bonus', 0.0):+6.2f} | "
             f"SafeBehav={rollout_metrics.get('rewards/safe_behavior_bonus', 0.0):+6.2f} | "
-            f"InfDosing={rollout_metrics.get('rewards/informed_dosing_bonus', 0.0):+6.2f}"
+            f"InfDosing={rollout_metrics.get('rewards/informed_dosing_bonus', 0.0):+6.2f} | "
+            f"CountPop={rollout_metrics.get('rewards/count_population', 0.0):+6.2f} | "
+            f"CritInact={rollout_metrics.get('rewards/critical_inaction_penalty', 0.0):+6.2f}"
         )
         
         # Debug info

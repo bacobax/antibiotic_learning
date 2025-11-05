@@ -12,33 +12,41 @@ environment:
   rewards:
     # Population-based rewards
     population:
-      target_population: 500
-      population_norm: 200.0
+      target_population: 100
+      population_norm: 400.0
       w_population_maintenance: 0.0    # DISABLED: No continuous maintenance reward
-      count_population_reward: 10.0    # NEW: Immediate reward after COUNT based on distance to target
+      count_population_reward: 20.0    # NEW: Immediate reward after COUNT based on distance to target
       noop_band_factor: 0.1            # Deadband around target for NOOP
-      noop_reward_magnitude: 0.5       # INCREASED: NOOP shaping magnitude
+      noop_reward_magnitude: 0.0       # INCREASED: NOOP shaping magnitude
     
     # Dose efficacy rewards (DISABLED - let model learn relationship)
     dose:
       w_pop: 0.0                        # DISABLED: No immediate population feedback on DOSE
       w_genome: 0.0                     # DISABLED: No resistance term
-      w_cost: 0.5                      # Small cost penalty to discourage spam
+      w_cost: 1.0                     # Small cost penalty to discourage spam
     
     # Informed dosing (NEW: encourage count + sequencing before dose)
     informed_dosing:
-      reward: 5.0                       # Bonus for dosing after recent count AND sequencing
+      reward: 0.3                       # Bonus for dosing after recent count AND sequencing
+      above_target_reward: 2.0          # Additional bonus for informed dosing when population above target
       window: 5                         # Steps to consider count "recent"
       sequencing_window: 5             # Steps to consider sequencing "recent"
       blind_penalty: 100.0              # Penalty for dosing without recent count OR sequencing
-      low_population_penalty: 50.0     # HUGE penalty for dosing when population below target
+      low_population_penalty: 30.0     # HUGE penalty for dosing when population below target
+    
+    # Critical action penalties (NEW: penalize inaction when population is dangerously high)
+    critical_inaction:
+      high_population_threshold: 3.0    # Multiplier of target (3x = critical)
+      no_action_penalty: 50.0           # Penalty for not seq/dosing when count shows 3x target
+      no_dose_penalty: 100.0            # Penalty for not dosing when count+seq fresh and 3x target
+      freshness_window: 5               # Steps to consider data "fresh"
     
     # Regular monitoring rewards (encourage proactive information gathering)
     regular_monitoring:
-      count_reward: 5.0                 # Reward for counting at regular intervals
-      count_interval: 15                # Maximum interval (upper bound of optimal window)
+      count_reward: 1.0                 # Reward for counting at regular intervals
+      count_interval: 30                # Maximum interval (upper bound of optimal window)
       count_min_interval: 3             # Minimum interval (lower bound - avoid spam)
-      safe_nondosing_reward: 10.0       # Reward for NOT dosing when population below target
+      safe_nondosing_reward: 0.5        # REDUCED: Small per-step reward for NOT dosing when pop low
     
     # Budget management
     budget:
@@ -49,10 +57,10 @@ environment:
     # Survival bonus reward (encourages longer episodes)
     survival_bonus:
       enabled: true
-      base_bonus: 1                  # INCREASED: Bigger bonus per step
-      scaling_type: "exponential"          # "constant", "linear", or "exponential"
-      scaling_factor: 0.1               # Multiplier for linear/exponential scaling
-      max_bonus: 128                    # INCREASED: Maximum bonus cap
+      base_bonus: 0.5                   # Small base reward per step
+      scaling_type: "linear"            # "constant", "linear", or "exponential"
+      scaling_factor: 0.01              # Gradual linear increase: +0.01 reward per step
+      max_bonus: 10.0                   # Cap at 10 reward/step (reached at ~950 steps)
     
     # Budget conservation reward (DISABLED)
     budget_conservation:
@@ -87,7 +95,8 @@ actions:
   dose:
     id: 3
     name: "Administer antibiotics"
-    cost_per_unit: 1.0                  # Moderate cost
+    cost: 2.0                           # Fixed cost per dose action (regardless of quantity)
+    cost_per_unit: 10.0                  # Variable cost per unit of antibiotic
     duration: 0
     description: "Dose antibiotics"
 

@@ -114,6 +114,7 @@ def rollout(
     episode_reward_safe_behavior_bonus = []
     episode_reward_informed_dosing_bonus = []
     episode_reward_count_population = []
+    episode_reward_critical_inaction_penalty = []
     
     current_episode_reward = 0.0
     current_episode_length = 0
@@ -135,6 +136,7 @@ def rollout(
     current_reward_safe_behavior_bonus = 0.0
     current_reward_informed_dosing_bonus = 0.0
     current_reward_count_population = 0.0
+    current_reward_critical_inaction_penalty = 0.0
     
     agent.start_episode()
     
@@ -184,6 +186,7 @@ def rollout(
         current_reward_safe_behavior_bonus += info.get('reward_safe_behavior_bonus', 0.0)
         current_reward_informed_dosing_bonus += info.get('reward_informed_dosing_bonus', 0.0)
         current_reward_count_population += info.get('reward_count_population', 0.0)
+        current_reward_critical_inaction_penalty += info.get('reward_critical_inaction_penalty', 0.0)
         
         # Store in buffer
         buffer.add(
@@ -219,6 +222,7 @@ def rollout(
             episode_reward_safe_behavior_bonus.append(current_reward_safe_behavior_bonus)
             episode_reward_informed_dosing_bonus.append(current_reward_informed_dosing_bonus)
             episode_reward_count_population.append(current_reward_count_population)
+            episode_reward_critical_inaction_penalty.append(current_reward_critical_inaction_penalty)
             
             # Log population at end of episode
             final_population = env.get_bacteria_population()
@@ -243,6 +247,7 @@ def rollout(
             current_reward_safe_behavior_bonus = 0.0
             current_reward_informed_dosing_bonus = 0.0
             current_reward_count_population = 0.0
+            current_reward_critical_inaction_penalty = 0.0
             
             obs = env.reset()
             # Reset hidden state on episode boundary
@@ -287,6 +292,7 @@ def rollout(
         "rewards/safe_behavior_bonus": float(np.mean(episode_reward_safe_behavior_bonus)) if episode_reward_safe_behavior_bonus else 0.0,
         "rewards/informed_dosing_bonus": float(np.mean(episode_reward_informed_dosing_bonus)) if episode_reward_informed_dosing_bonus else 0.0,
         "rewards/count_population": float(np.mean(episode_reward_count_population)) if episode_reward_count_population else 0.0,
+        "rewards/critical_inaction_penalty": float(np.mean(episode_reward_critical_inaction_penalty)) if episode_reward_critical_inaction_penalty else 0.0,
         "rewards/total": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
     }
     
@@ -568,10 +574,12 @@ def _create_environment(
         # Action costs
         sequencing_cost=config.actions.sequencing_cost,
         sequencing_duration=config.actions.sequencing_duration,
+        dose_cost=config.actions.dose_cost,
         dose_cost_per_unit=config.actions.dose_cost_per_unit,
         count_cost=config.actions.count_cost,
         # Informed dosing params
         informed_dosing_reward=rewards.informed_dosing.reward,
+        informed_dosing_above_target_reward=rewards.informed_dosing.above_target_reward,
         informed_dosing_window=rewards.informed_dosing.window,
         informed_sequencing_window=rewards.informed_dosing.sequencing_window,
         blind_dosing_penalty=rewards.informed_dosing.blind_penalty,
@@ -582,6 +590,11 @@ def _create_environment(
         regular_count_min_interval=rewards.regular_monitoring.count_min_interval,
         safe_nondosing_reward=rewards.regular_monitoring.safe_nondosing_reward,
         count_population_reward=rewards.population.count_population_reward,
+        # Critical inaction penalties
+        critical_high_population_threshold=rewards.critical_inaction.high_population_threshold,
+        critical_no_action_penalty=rewards.critical_inaction.no_action_penalty,
+        critical_no_dose_penalty=rewards.critical_inaction.no_dose_penalty,
+        critical_freshness_window=rewards.critical_inaction.freshness_window,
         # Device config
         device=config.environment.device,
         dtype=config.torch_dtype,

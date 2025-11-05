@@ -104,6 +104,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.reward_safe_behavior_bonus_history = []
         self.reward_informed_dosing_bonus_history = []
         self.reward_count_population_history = []
+        self.reward_critical_inaction_penalty_history = []
         
         # Create central widget
         central_widget = QtWidgets.QWidget()
@@ -301,6 +302,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             self.reward_safe_behavior_bonus_history.append(reward_components.get('safe_behavior_bonus', 0.0))
             self.reward_informed_dosing_bonus_history.append(reward_components.get('informed_dosing_bonus', 0.0))
             self.reward_count_population_history.append(reward_components.get('count_population', 0.0))
+            self.reward_critical_inaction_penalty_history.append(reward_components.get('critical_inaction_penalty', 0.0))
         
         # Update episode length plot
         self.episode_length_ax.clear()
@@ -357,6 +359,9 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             if any(x != 0 for x in self.reward_count_population_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_count_population_history, 
                                                label='Count Population', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_critical_inaction_penalty_history):
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_critical_inaction_penalty_history, 
+                                               label='Critical Inaction Penalty', linewidth=1.5, alpha=0.9)
             
             self.reward_components_ax.set_xlabel('Episode')
             self.reward_components_ax.set_ylabel('Reward Value')
@@ -542,6 +547,7 @@ class TrainingVisualizer:
             'safe_behavior_bonus': 0.0,
             'informed_dosing_bonus': 0.0,
             'count_population': 0.0,
+            'critical_inaction_penalty': 0.0,
         }
         
         # Budget tracking for rollout metrics
@@ -679,12 +685,42 @@ class TrainingVisualizer:
         # Collect one step of experience
         obs_tensor = torch.from_numpy(self.current_obs).unsqueeze(0).to(self.agent.device)
         
-        # Log NN inputs for first 20 steps
-        if self.current_step < 20:
-            print(f"\n[STEP {self.current_step}] NN Input Observation:")
-            print(f"  Shape: {self.current_obs.shape}")
-            print(f"  Values: {self.current_obs}")
-            print(f"  Min: {self.current_obs.min():.4f}, Max: {self.current_obs.max():.4f}, Mean: {self.current_obs.mean():.4f}")
+        # # Log NN inputs for first 1 steps with labeled values
+        # if self.current_step < 1:
+        #     # Observation structure from env_wrapper._build_observation():
+        #     # [budget_norm, target_norm, last_count_norm, *avg_genome(12 values), *props(3 values), 
+        #     #  time_since_last_measure_norm, seq_pending_flag, seq_eta_norm]
+        #     print(f"\n[STEP {self.current_step}] NN Input Observation (shape={self.current_obs.shape}):")
+        #     idx = 0
+        #     print(f"  [{idx}] budget_norm:                {self.current_obs[idx]:.4f}")
+        #     idx += 1
+        #     print(f"  [{idx}] target_population_norm:     {self.current_obs[idx]:.4f}")
+        #     idx += 1
+        #     print(f"  [{idx}] last_count_norm:            {self.current_obs[idx]:.4f}")
+        #     idx += 1
+            
+        #     # avg_genome: 3 bacteria types × 4 traits = 12 values
+        #     print(f"  Genome averages (3 types × 4 traits):")
+        #     for bac_type in range(3):
+        #         print(f"    Type {bac_type}: ", end="")
+        #         for trait_idx, trait_name in enumerate(['enzyme', 'efflux', 'repair', 'membrane']):
+        #             print(f"{trait_name}={self.current_obs[idx]:.4f} ", end="")
+        #             idx += 1
+        #         print()
+            
+        #     # proportions: 3 antibiotic types
+        #     print(f"  Proportions (3 antibiotics):")
+        #     for ab_idx in range(3):
+        #         print(f"    [{idx}] antibiotic_{ab_idx}_prop:      {self.current_obs[idx]:.4f}")
+        #         idx += 1
+            
+        #     # Meta information
+        #     print(f"  [{idx}] time_since_last_measure:   {self.current_obs[idx]:.4f}")
+        #     idx += 1
+        #     print(f"  [{idx}] seq_pending_flag:          {self.current_obs[idx]:.4f}")
+        #     idx += 1
+        #     print(f"  [{idx}] seq_eta_norm:              {self.current_obs[idx]:.4f}")
+        #     print(f"  Summary: Min={self.current_obs.min():.4f}, Max={self.current_obs.max():.4f}, Mean={self.current_obs.mean():.4f}")
         
         with torch.no_grad():
             (
@@ -721,6 +757,7 @@ class TrainingVisualizer:
         self.current_episode_rewards['safe_behavior_bonus'] += info.get('reward_safe_behavior_bonus', 0.0)
         self.current_episode_rewards['informed_dosing_bonus'] += info.get('reward_informed_dosing_bonus', 0.0)
         self.current_episode_rewards['count_population'] += info.get('reward_count_population', 0.0)
+        self.current_episode_rewards['critical_inaction_penalty'] += info.get('reward_critical_inaction_penalty', 0.0)
         
         # Store in buffer
         self.buffer.add(

@@ -35,7 +35,8 @@ class ActionConfig:
     count_cost: float
     sequencing_cost: float
     sequencing_duration: int
-    dose_cost_per_unit: float
+    dose_cost: float  # Fixed cost per dose action
+    dose_cost_per_unit: float  # Variable cost per unit of antibiotic
 
 
 @dataclass
@@ -89,6 +90,7 @@ class BudgetConfig:
 class InformedDosingConfig:
     """Configuration for informed dosing rewards and penalties."""
     reward: float  # Bonus for dosing after recent count AND sequencing
+    above_target_reward: float  # Additional bonus for informed dosing when population is above target
     window: int  # Steps window for "recent" count
     sequencing_window: int  # Steps window for "recent" sequencing
     blind_penalty: float  # Penalty for dosing without count/sequencing
@@ -105,6 +107,15 @@ class RegularMonitoringConfig:
 
 
 @dataclass
+class CriticalInactionConfig:
+    """Configuration for critical inaction penalties."""
+    high_population_threshold: float  # Multiplier of target for critical level (e.g., 3.0 = 3x target)
+    no_action_penalty: float  # Penalty for not taking seq/dose when count shows critical population
+    no_dose_penalty: float  # Penalty for not dosing when count+seq fresh and population critical
+    freshness_window: int  # Steps to consider data "fresh"
+
+
+@dataclass
 class RewardConfig:
     """Unified reward configuration."""
     population: PopulationRewardConfig
@@ -114,6 +125,7 @@ class RewardConfig:
     budget_conservation: BudgetConservationConfig
     informed_dosing: InformedDosingConfig
     regular_monitoring: RegularMonitoringConfig
+    critical_inaction: CriticalInactionConfig
 
 
 @dataclass
@@ -449,6 +461,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     budget_conservation_cfg = BudgetConservationConfig(**rewards_dict["budget_conservation"])
     informed_dosing_cfg = InformedDosingConfig(**rewards_dict["informed_dosing"])
     regular_monitoring_cfg = RegularMonitoringConfig(**rewards_dict["regular_monitoring"])
+    critical_inaction_cfg = CriticalInactionConfig(**rewards_dict["critical_inaction"])
     
     reward_cfg = RewardConfig(
         population=population_reward_cfg,
@@ -458,6 +471,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         budget_conservation=budget_conservation_cfg,
         informed_dosing=informed_dosing_cfg,
         regular_monitoring=regular_monitoring_cfg,
+        critical_inaction=critical_inaction_cfg,
     )
     
     # Create environment config with nested structures
@@ -474,6 +488,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         count_cost=count.get("cost", 0.0),
         sequencing_cost=seq.get("cost", 1.0),
         sequencing_duration=seq.get("duration", 5),
+        dose_cost=dose.get("cost", 2.0),
         dose_cost_per_unit=dose.get("cost_per_unit", 0.2),
     )
     
