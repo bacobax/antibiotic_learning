@@ -199,7 +199,8 @@ class TrainingLogger:
             rollout_metrics.get('rewards/safe_behavior_bonus', 0.0) +
             rollout_metrics.get('rewards/informed_dosing_bonus', 0.0) +
             rollout_metrics.get('rewards/count_population', 0.0) +
-            rollout_metrics.get('rewards/critical_inaction_penalty', 0.0)
+            rollout_metrics.get('rewards/critical_inaction_penalty', 0.0) +
+            rollout_metrics.get('rewards/critical_noop_penalty', 0.0)
         )
         
         self.logger.info(
@@ -218,7 +219,8 @@ class TrainingLogger:
             f"SafeBehav={rollout_metrics.get('rewards/safe_behavior_bonus', 0.0):+6.2f} | "
             f"InfDosing={rollout_metrics.get('rewards/informed_dosing_bonus', 0.0):+6.2f} | "
             f"CountPop={rollout_metrics.get('rewards/count_population', 0.0):+6.2f} | "
-            f"CritInact={rollout_metrics.get('rewards/critical_inaction_penalty', 0.0):+6.2f}"
+            f"CritInact={rollout_metrics.get('rewards/critical_inaction_penalty', 0.0):+6.2f} | "
+            f"CritNoop={rollout_metrics.get('rewards/critical_noop_penalty', 0.0):+6.2f}"
         )
         self.logger.info(
             f"           "

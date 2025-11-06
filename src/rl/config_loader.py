@@ -76,6 +76,7 @@ class DoseRewardConfig:
     w_pop: float  # Weight for population term
     w_genome: float  # Weight for resistance/genome term
     w_cost: float  # Weight for cost penalty
+    missing_feedback_penalty: float = 0.5  # Penalty magnitude when dose efficacy cannot be evaluated
 
 
 @dataclass
@@ -84,7 +85,7 @@ class BudgetConfig:
     budget_init: float
     budget_norm: float
     budget_penalty: float  # Penalty when budget reaches 0
-    unaffordable_action_penalty: float  # Penalty for attempting unaffordable action
+    unaffordable_action_penalty: float = 0.0  # Penalty for attempting unaffordable action
 
 
 @dataclass
@@ -114,6 +115,14 @@ class CriticalInactionConfig:
     no_action_penalty: float  # Penalty for not taking seq/dose when count shows critical population
     no_dose_penalty: float  # Penalty for not dosing when count+seq fresh and population critical
     freshness_window: int  # Steps to consider data "fresh"
+    noop_penalty: float = 0.0  # Penalty for skipping counts when no fresh data is available
+    noop_threshold: int = 15  # Max steps allowed without a count before penalty triggers
+
+
+@dataclass
+class SequencingRewardConfig:
+    """Configuration for sequencing-related rewards."""
+    redundant_penalty: float = 0.001  # Penalty magnitude for triggering sequencing while one is pending
 
 
 @dataclass
@@ -127,6 +136,7 @@ class RewardConfig:
     informed_dosing: InformedDosingConfig
     regular_monitoring: RegularMonitoringConfig
     critical_inaction: CriticalInactionConfig
+    sequencing: SequencingRewardConfig
 
 
 @dataclass
@@ -221,6 +231,7 @@ def _get_default_config() -> Dict[str, Any]:
                     "target_population": 500,
                     "population_norm": 1000.0,
                     "w_population_maintenance": 0.01,
+                    "count_population_reward": 0.0,
                     "noop_band_factor": 0.02,
                     "noop_reward_magnitude": 0.01,
                 },
@@ -228,11 +239,13 @@ def _get_default_config() -> Dict[str, Any]:
                     "w_pop": 1.0,
                     "w_genome": 0.5,
                     "w_cost": 0.05,
+                    "missing_feedback_penalty": 0.5,
                 },
                 "budget": {
                     "budget_init": 100.0,
                     "budget_norm": 100.0,
                     "budget_penalty": 10.0,
+                    "unaffordable_action_penalty": 0.0,
                 },
                 "survival_bonus": {
                     "enabled": True,
@@ -247,6 +260,31 @@ def _get_default_config() -> Dict[str, Any]:
                     "spending_penalty_factor": 1.0,
                     "reserve_bonus_threshold": 0.5,
                     "reserve_bonus_magnitude": 0.005,
+                },
+                "informed_dosing": {
+                    "reward": 0.0,
+                    "above_target_reward": 0.0,
+                    "window": 10,
+                    "sequencing_window": 50,
+                    "blind_penalty": 0.0,
+                    "low_population_penalty": 0.0,
+                },
+                "regular_monitoring": {
+                    "count_reward": 0.0,
+                    "count_interval": 15,
+                    "count_min_interval": 3,
+                    "safe_nondosing_reward": 0.0,
+                },
+                "critical_inaction": {
+                    "high_population_threshold": 3.0,
+                    "no_action_penalty": 0.0,
+                    "no_dose_penalty": 0.0,
+                    "freshness_window": 5,
+                    "noop_penalty": 0.0,
+                    "noop_threshold": 15,
+                },
+                "sequencing": {
+                    "redundant_penalty": 0.001,
                 },
             },
         },
@@ -384,6 +422,18 @@ def _merge_with_defaults(config: Dict[str, Any]) -> Dict[str, Any]:
         for key, default_val in defaults[section].items():
             if key not in config[section]:
                 config[section][key] = default_val
+
+    # Ensure reward subsections are populated with defaults
+    rewards_defaults = defaults["environment"].get("rewards", {})
+    rewards_config = config["environment"].setdefault("rewards", {})
+    for subsection, subsection_defaults in rewards_defaults.items():
+        if isinstance(subsection_defaults, dict):
+            user_section = rewards_config.setdefault(subsection, {})
+            for key, default_val in subsection_defaults.items():
+                if key not in user_section:
+                    user_section[key] = default_val
+        else:
+            rewards_config.setdefault(subsection, subsection_defaults)
     
     return config
 
@@ -463,6 +513,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     informed_dosing_cfg = InformedDosingConfig(**rewards_dict["informed_dosing"])
     regular_monitoring_cfg = RegularMonitoringConfig(**rewards_dict["regular_monitoring"])
     critical_inaction_cfg = CriticalInactionConfig(**rewards_dict["critical_inaction"])
+    sequencing_cfg = SequencingRewardConfig(**rewards_dict["sequencing"])
     
     reward_cfg = RewardConfig(
         population=population_reward_cfg,
@@ -473,6 +524,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         informed_dosing=informed_dosing_cfg,
         regular_monitoring=regular_monitoring_cfg,
         critical_inaction=critical_inaction_cfg,
+        sequencing=sequencing_cfg,
     )
     
     # Create environment config with nested structures
@@ -540,6 +592,18 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                     },
                     "budget_conservation": {
                         k: v for k, v in config.environment.rewards.budget_conservation.__dict__.items()
+                    },
+                    "informed_dosing": {
+                        k: v for k, v in config.environment.rewards.informed_dosing.__dict__.items()
+                    },
+                    "regular_monitoring": {
+                        k: v for k, v in config.environment.rewards.regular_monitoring.__dict__.items()
+                    },
+                    "critical_inaction": {
+                        k: v for k, v in config.environment.rewards.critical_inaction.__dict__.items()
+                    },
+                    "sequencing": {
+                        k: v for k, v in config.environment.rewards.sequencing.__dict__.items()
                     },
                 },
             },

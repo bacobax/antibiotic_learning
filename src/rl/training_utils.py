@@ -116,6 +116,7 @@ def rollout(
     episode_reward_informed_dosing_bonus = []
     episode_reward_count_population = []
     episode_reward_critical_inaction_penalty = []
+    episode_reward_critical_noop_penalty = []
     
     current_episode_reward = 0.0
     current_episode_length = 0
@@ -139,6 +140,7 @@ def rollout(
     current_reward_informed_dosing_bonus = 0.0
     current_reward_count_population = 0.0
     current_reward_critical_inaction_penalty = 0.0
+    current_reward_critical_noop_penalty = 0.0
     
     agent.start_episode()
     
@@ -190,6 +192,7 @@ def rollout(
         current_reward_informed_dosing_bonus += info.get('reward_informed_dosing_bonus', 0.0)
         current_reward_count_population += info.get('reward_count_population', 0.0)
         current_reward_critical_inaction_penalty += info.get('reward_critical_inaction_penalty', 0.0)
+        current_reward_critical_noop_penalty += info.get('reward_critical_noop_penalty', 0.0)
         
         # Store in buffer
         buffer.add(
@@ -227,6 +230,7 @@ def rollout(
             episode_reward_informed_dosing_bonus.append(current_reward_informed_dosing_bonus)
             episode_reward_count_population.append(current_reward_count_population)
             episode_reward_critical_inaction_penalty.append(current_reward_critical_inaction_penalty)
+            episode_reward_critical_noop_penalty.append(current_reward_critical_noop_penalty)
             
             # Log population at end of episode
             final_population = env.get_bacteria_population()
@@ -253,6 +257,7 @@ def rollout(
             current_reward_informed_dosing_bonus = 0.0
             current_reward_count_population = 0.0
             current_reward_critical_inaction_penalty = 0.0
+            current_reward_critical_noop_penalty = 0.0
             
             obs = env.reset()
             # Reset hidden state on episode boundary
@@ -302,6 +307,7 @@ def rollout(
         "rewards/informed_dosing_bonus": float(np.mean(episode_reward_informed_dosing_bonus)) if episode_reward_informed_dosing_bonus else 0.0,
         "rewards/count_population": float(np.mean(episode_reward_count_population)) if episode_reward_count_population else 0.0,
         "rewards/critical_inaction_penalty": float(np.mean(episode_reward_critical_inaction_penalty)) if episode_reward_critical_inaction_penalty else 0.0,
+    "rewards/critical_noop_penalty": float(np.mean(episode_reward_critical_noop_penalty)) if episode_reward_critical_noop_penalty else 0.0,
         "rewards/total": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
     }
     
@@ -584,6 +590,7 @@ def _create_environment(
         # Action costs
         sequencing_cost=config.actions.sequencing_cost,
         sequencing_duration=config.actions.sequencing_duration,
+        redundant_sequencing_penalty=rewards.sequencing.redundant_penalty,
         dose_cost=config.actions.dose_cost,
         dose_cost_per_unit=config.actions.dose_cost_per_unit,
         count_cost=config.actions.count_cost,
@@ -605,6 +612,9 @@ def _create_environment(
         critical_no_action_penalty=rewards.critical_inaction.no_action_penalty,
         critical_no_dose_penalty=rewards.critical_inaction.no_dose_penalty,
         critical_freshness_window=rewards.critical_inaction.freshness_window,
+    critical_noop_penalty=rewards.critical_inaction.noop_penalty,
+    critical_noop_threshold=rewards.critical_inaction.noop_threshold,
+        dose_missing_feedback_penalty=rewards.dose.missing_feedback_penalty,
         # Device config
         device=config.environment.device,
         dtype=config.torch_dtype,

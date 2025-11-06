@@ -90,8 +90,10 @@ class PetriEnvWrapper:
         # costs & durations
         sequencing_cost: float = 1.0,
         sequencing_duration: int = 5,   # steps to finish
+        redundant_sequencing_penalty: float = 0.001,  # penalty magnitude for redundant sequencing
         dose_cost: float = 2.0,         # fixed cost per dose action
         dose_cost_per_unit: float = 0.2,  # variable cost per unit of antibiotic
+        dose_missing_feedback_penalty: float = 0.5,  # penalty magnitude when dose efficacy can't be scored
         count_cost: float = 0.0,        # cost for COUNT action
         # informed dosing params
         informed_dosing_reward: float = 0.0,    # bonus for dosing after recent count AND sequencing
@@ -111,6 +113,8 @@ class PetriEnvWrapper:
         critical_no_action_penalty: float = 0.0,  # penalty for not seq/dosing when count shows critical pop
         critical_no_dose_penalty: float = 0.0,    # penalty for not dosing when count+seq fresh and critical
         critical_freshness_window: int = 5,       # steps to consider data "fresh"
+    critical_noop_penalty: float = 0.0,       # penalty for letting counts go stale
+    critical_noop_threshold: int = 15,        # steps before stale-count penalty activates
         # shaping & norms
         target_population: int = 500,   # P*
         w_pop: float = 1.0,             # weight for population term in dose reward
@@ -137,8 +141,10 @@ class PetriEnvWrapper:
         # economics & timing
         self.sequencing_cost = sequencing_cost
         self.sequencing_duration = sequencing_duration
+        self.redundant_sequencing_penalty = redundant_sequencing_penalty
         self.dose_cost = dose_cost
         self.dose_cost_per_unit = dose_cost_per_unit
+        self.dose_missing_feedback_penalty = dose_missing_feedback_penalty
         self.count_cost = count_cost
         self.budget_penalty = budget_penalty
         self.unaffordable_action_penalty = unaffordable_action_penalty
@@ -163,6 +169,8 @@ class PetriEnvWrapper:
         self.critical_no_action_penalty = critical_no_action_penalty
         self.critical_no_dose_penalty = critical_no_dose_penalty
         self.critical_freshness_window = critical_freshness_window
+        self.critical_noop_penalty = critical_noop_penalty
+        self.critical_noop_threshold = int(max(0, critical_noop_threshold))
 
         # reward shaping
         self.target_population = target_population
@@ -187,6 +195,7 @@ class PetriEnvWrapper:
         self.episode_return = 0.0
         self.budget = budget_init
         self.last_action_completed = 0.0
+        self.last_critical_noop_penalty = 0.0
 
         # Budget tracking per episode
         self.episode_start_budget = budget_init
@@ -264,6 +273,7 @@ class PetriEnvWrapper:
         self.last_safe_behavior_bonus = 0.0
         self.last_informed_dosing_bonus = 0.0
         self.last_count_population_reward = 0.0
+        self.last_critical_noop_penalty = 0.0
 
         # clear caches
         self.last_count_obs = None
@@ -299,6 +309,7 @@ class PetriEnvWrapper:
         # Reset reward component tracking (will be set if applicable)
         self.last_safe_behavior_bonus = 0.0
         self.last_informed_dosing_bonus = 0.0
+        self.last_critical_noop_penalty = 0.0
         
         # Check if action is affordable BEFORE executing
         # If not affordable, silently convert to NOOP
@@ -365,6 +376,22 @@ class PetriEnvWrapper:
                     #     print(f"[CRITICAL NO DOSE] t={self.t}, pop={self.last_count_obs}, threshold={critical_threshold}, count_age={steps_since_count}, seq_age={steps_since_seq}, action={a_discrete}, penalty={critical_inaction_penalty}")
         
         immediate_reward += critical_inaction_penalty
+
+        # 1d) Critical NOOP penalty: encourage timely counts
+        critical_noop_penalty_value = 0.0
+        if self.critical_noop_penalty > 0.0 and a_discrete != ACTION_COUNT_BACTERIA:
+            count_missing = self.ts_last_count is None
+            count_stale = False
+            if not count_missing:
+                if self.critical_noop_threshold > 0:
+                    count_stale = (self.t - self.ts_last_count) > self.critical_noop_threshold
+                else:
+                    # Threshold of 0 means any delay after the counting step incurs penalty
+                    count_stale = (self.t - self.ts_last_count) > 0
+            if count_missing or count_stale:
+                critical_noop_penalty_value = -self.critical_noop_penalty
+        self.last_critical_noop_penalty = critical_noop_penalty_value
+        immediate_reward += critical_noop_penalty_value
 
         # 2) Advance simulation one base step
         self.model.step()
@@ -476,6 +503,7 @@ class PetriEnvWrapper:
             "reward_informed_dosing_bonus": self.last_informed_dosing_bonus,
             "reward_count_population": self.last_count_population_reward,
             "reward_critical_inaction_penalty": critical_inaction_penalty,
+            "reward_critical_noop_penalty": self.last_critical_noop_penalty,
             "reward_total": reward,
         }
         return obs, float(reward), bool(done), info
@@ -613,7 +641,7 @@ class PetriEnvWrapper:
                 self.seq_pending = True
                 self.seq_eta = int(self.sequencing_duration)
             else:
-                return -0.001  # Small penalty for redundant sequencing
+                return -float(self.redundant_sequencing_penalty)
             return 0.0
 
         if a_discrete == ACTION_DOSE:
@@ -799,7 +827,7 @@ class PetriEnvWrapper:
 
         pre_count = event.get("pre_count")
         if post_count is None:
-            pop_term_raw = -0.5
+            pop_term_raw = -float(self.dose_missing_feedback_penalty)
         elif pre_count is None:
             gap = abs(float(post_count) - self.target_population)
             pop_term_raw = -gap / max(1.0, self.population_norm)
