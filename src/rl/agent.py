@@ -18,7 +18,7 @@ class RLAgent:
         self.prev_h_state = self.model.init_hidden(device=self.device, batch_size=1)
         self.model.eval()
 
-    def select_action(self, obs: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def select_action(self, obs: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
         obs_tensor = torch.from_numpy(obs).unsqueeze(0).to(self.device)  # [1, obs_dim]
         
@@ -34,11 +34,12 @@ class RLAgent:
         logp_disc = action_dict["logp_disc"]
         logp_cont = action_dict["logp_cont"]
         value = action_dict["value"]
+        pred_next_pop = action_dict["pred_next_pop"]
         h_next = action_dict["h_next"]
         h_prev = self.prev_h_state
         self.prev_h_state = h_next
 
-        return a_disc , a_cont, logp_disc, logp_cont, value, h_prev
+        return a_disc , a_cont, logp_disc, logp_cont, value, pred_next_pop, h_prev
 
     def update_policy(self, buffer: RolloutBuffer) -> dict:
         if self.trainer is None:

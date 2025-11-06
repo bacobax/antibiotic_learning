@@ -55,6 +55,9 @@ class PPOTrainer:
                 reward: [T, B]
                 done: [T, B]
                 h_in: [T, layers, B, hidden_dim]
+                pred_next_pop: [T, B]
+                population_counted_norm: [T, B]
+                count_mask: [T, B]
         
         Returns:
             Dictionary with training statistics
@@ -69,6 +72,9 @@ class PPOTrainer:
         rewards = data["reward"].to(self.cfg.device)
         dones = data["done"].to(self.cfg.device)
         h_in = data["h_in"].to(self.cfg.device)
+        pred_next_pop = data["pred_next_pop"].to(self.cfg.device)
+        population_counted_norm = data["population_counted_norm"].to(self.cfg.device)
+        count_mask = data["count_mask"].to(self.cfg.device)
         
         T, B = obs.shape[:2]
         
@@ -87,6 +93,7 @@ class PPOTrainer:
             "loss_total": 0.0,
             "loss_actor": 0.0,
             "loss_critic": 0.0,
+            "loss_pred": 0.0,
             "entropy": 0.0,
             "clip_fraction": 0.0,
             "grad_norm": 0.0,
@@ -116,6 +123,8 @@ class PPOTrainer:
                 advantages_chunk = advantages[t_start:t_end]
                 returns_chunk = returns[t_start:t_end]
                 h_init = h_in[t_start]  # [layers, B, hidden_dim]
+                population_counted_norm_chunk = population_counted_norm[t_start:t_end]
+                count_mask_chunk = count_mask[t_start:t_end]
                 
                 # Evaluate actions with current policy
                 eval_dict = self.model.evaluate_actions(
@@ -125,8 +134,13 @@ class PPOTrainer:
                 new_logp_disc = eval_dict["logp_disc"]
                 new_logp_cont = eval_dict["logp_cont"]
                 new_values = eval_dict["value"]
+                new_pred_next_pop = eval_dict["pred_next_pop"]
                 entropy_disc = eval_dict["entropy_disc"]
                 entropy_cont = eval_dict["entropy_cont"]
+                
+                # Masked prediction loss (only on COUNT steps)
+                pred_error = (new_pred_next_pop - population_counted_norm_chunk) ** 2
+                pred_loss = (pred_error * count_mask_chunk).mean()
                 
                 # Compute PPO ratios
                 ratio_disc = torch.exp(new_logp_disc - old_logp_disc_chunk)
@@ -156,7 +170,8 @@ class PPOTrainer:
                 # Total loss
                 total_loss = (
                     actor_loss 
-                    + self.cfg.vf_coef * critic_loss 
+                    + self.cfg.vf_coef * critic_loss
+                    + pred_loss
                     - self.cfg.ent_coef * entropy
                 )
                 
@@ -177,6 +192,7 @@ class PPOTrainer:
                 stats["loss_total"] += float(total_loss.item())
                 stats["loss_actor"] += float(actor_loss.item())
                 stats["loss_critic"] += float(critic_loss.item())
+                stats["loss_pred"] += float(pred_loss.item())
                 stats["entropy"] += float(entropy.item())
                 stats["clip_fraction"] += float(clip_frac.item())
                 stats["grad_norm"] += float(grad_norm)

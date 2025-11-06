@@ -117,6 +117,10 @@ def rollout(
     episode_reward_count_population = []
     episode_reward_critical_inaction_penalty = []
     episode_reward_critical_noop_penalty = []
+    episode_reward_prediction = []
+    
+    # Prediction tracking (diagnostic only - error metric)
+    episode_pred_error = []
     
     current_episode_reward = 0.0
     current_episode_length = 0
@@ -141,6 +145,9 @@ def rollout(
     current_reward_count_population = 0.0
     current_reward_critical_inaction_penalty = 0.0
     current_reward_critical_noop_penalty = 0.0
+    current_reward_prediction = 0.0
+    
+    current_pred_error = 0.0
     
     agent.start_episode()
     
@@ -156,6 +163,7 @@ def rollout(
                 logp_disc, 
                 logp_cont, 
                 value, 
+                pred_next_pop,
                 h_prev 
             ) = agent.select_action(obs)
         
@@ -176,8 +184,22 @@ def rollout(
             
         total_actions += 1
         
-        # Environment step
-        next_obs, reward, done, info = env.step(pure_a_disc, pure_a_cont)
+        # Get prediction value for passing to environment
+        pred_next_pop_value = pred_next_pop.cpu().item()
+        
+        # Environment step (now includes prediction reward computation)
+        next_obs, reward, done, info = env.step(pure_a_disc, pure_a_cont, pred_population=pred_next_pop_value)
+        
+        # Extract prediction supervision and diagnostics
+        population_counted_norm = info.get('population_next_norm', 0.0)
+        count_was_performed = info.get('count_was_performed', False)
+        count_mask_value = 1.0 if count_was_performed else 0.0
+        
+        # Track prediction error for diagnostics (separate from reward which is in info)
+        if count_was_performed:
+            pred_error = abs(pred_next_pop_value - population_counted_norm)
+            current_pred_error += pred_error
+            # Note: prediction reward is now computed by environment and included in total reward
         
         # Accumulate reward components for current episode
         current_reward_immediate += info.get('reward_immediate', 0.0)
@@ -193,6 +215,7 @@ def rollout(
         current_reward_count_population += info.get('reward_count_population', 0.0)
         current_reward_critical_inaction_penalty += info.get('reward_critical_inaction_penalty', 0.0)
         current_reward_critical_noop_penalty += info.get('reward_critical_noop_penalty', 0.0)
+        current_reward_prediction += info.get('reward_prediction', 0.0)
         
         # Store in buffer
         buffer.add(
@@ -205,6 +228,9 @@ def rollout(
             reward=torch.tensor([reward], dtype=torch.float32),
             done=torch.tensor([float(done)], dtype=torch.float32),
             h_in=h_prev.cpu(),
+            pred_next_pop=pred_next_pop.cpu(),
+            population_counted_norm=torch.tensor([population_counted_norm], dtype=torch.float32),
+            count_mask=torch.tensor([count_mask_value], dtype=torch.float32),
         )
         
         # Update state
@@ -231,6 +257,10 @@ def rollout(
             episode_reward_count_population.append(current_reward_count_population)
             episode_reward_critical_inaction_penalty.append(current_reward_critical_inaction_penalty)
             episode_reward_critical_noop_penalty.append(current_reward_critical_noop_penalty)
+            episode_reward_prediction.append(current_reward_prediction)
+            
+            # Store prediction metrics
+            episode_pred_error.append(current_pred_error)
             
             # Log population at end of episode
             final_population = env.get_bacteria_population()
@@ -258,6 +288,8 @@ def rollout(
             current_reward_count_population = 0.0
             current_reward_critical_inaction_penalty = 0.0
             current_reward_critical_noop_penalty = 0.0
+            current_reward_prediction = 0.0
+            current_pred_error = 0.0
             
             obs = env.reset()
             # Reset hidden state on episode boundary
@@ -273,6 +305,11 @@ def rollout(
     print(f"SEQUENCING ACTION RATE: {sequencing_action_percentage:.2f}%")
     print(f"COUNT BACTERIA ACTION RATE: {count_action_percentage:.2f}%")
     print(f"NOOP ACTION RATE: {noop_action_percentage:.2f}%")
+    
+    # Print prediction metrics
+    mean_pred_reward = float(np.mean(episode_reward_prediction)) if episode_reward_prediction else 0.0
+    mean_pred_error = float(np.mean(episode_pred_error)) if episode_pred_error else 0.0
+    print(f"PREDICTION REWARD (AVG): {mean_pred_reward:.4f} | ERROR: {mean_pred_error:.4f}")
     
     metrics = {
         "mean_episode_reward": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
@@ -307,8 +344,11 @@ def rollout(
         "rewards/informed_dosing_bonus": float(np.mean(episode_reward_informed_dosing_bonus)) if episode_reward_informed_dosing_bonus else 0.0,
         "rewards/count_population": float(np.mean(episode_reward_count_population)) if episode_reward_count_population else 0.0,
         "rewards/critical_inaction_penalty": float(np.mean(episode_reward_critical_inaction_penalty)) if episode_reward_critical_inaction_penalty else 0.0,
-    "rewards/critical_noop_penalty": float(np.mean(episode_reward_critical_noop_penalty)) if episode_reward_critical_noop_penalty else 0.0,
+        "rewards/critical_noop_penalty": float(np.mean(episode_reward_critical_noop_penalty)) if episode_reward_critical_noop_penalty else 0.0,
+        "rewards/prediction": float(np.mean(episode_reward_prediction)) if episode_reward_prediction else 0.0,
         "rewards/total": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
+        # Prediction metrics
+        "prediction/error": float(np.mean(episode_pred_error)) if episode_pred_error else 0.0,
     }
     
     return metrics
@@ -615,6 +655,8 @@ def _create_environment(
     critical_noop_penalty=rewards.critical_inaction.noop_penalty,
     critical_noop_threshold=rewards.critical_inaction.noop_threshold,
         dose_missing_feedback_penalty=rewards.dose.missing_feedback_penalty,
+        # Prediction reward
+        prediction_reward_weight=rewards.prediction.weight if rewards.prediction.enabled else 0.0,
         # Device config
         device=config.environment.device,
         dtype=config.torch_dtype,
@@ -641,6 +683,10 @@ def _create_environment(
         )
         logger.log_info(f"✓ Budget conservation enabled: weight={rewards.budget_conservation.weight}, "
                        f"threshold={rewards.budget_conservation.reserve_bonus_threshold}")
+    
+    # Log prediction reward configuration
+    if rewards.prediction.enabled:
+        logger.log_info(f"✓ Prediction reward enabled: weight={rewards.prediction.weight}")
     
     logger.log_debug("✓ Environment created successfully")
     return env

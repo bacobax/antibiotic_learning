@@ -126,6 +126,13 @@ class SequencingRewardConfig:
 
 
 @dataclass
+class PredictionRewardConfig:
+    """Configuration for prediction accuracy rewards."""
+    enabled: bool = True
+    weight: float = 1.0  # Weight multiplier for prediction accuracy reward
+
+
+@dataclass
 class RewardConfig:
     """Unified reward configuration."""
     population: PopulationRewardConfig
@@ -137,6 +144,7 @@ class RewardConfig:
     regular_monitoring: RegularMonitoringConfig
     critical_inaction: CriticalInactionConfig
     sequencing: SequencingRewardConfig
+    prediction: PredictionRewardConfig
 
 
 @dataclass

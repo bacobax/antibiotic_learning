@@ -13,7 +13,7 @@ environment:
     # Population-based rewards
     population:
       target_population: 100
-      population_norm: 400.0
+      population_norm: 500.0
       w_population_maintenance: 0.0    # DISABLED: No continuous maintenance reward
       count_population_reward: 10.0    # NEW: Immediate reward after COUNT based on distance to target
       noop_band_factor: 0.1            # Deadband around target for NOOP
@@ -75,6 +75,11 @@ environment:
       spending_penalty_factor: 1.0      # Penalty multiplier for spending rate
       reserve_bonus_threshold: 0.5      # Budget fraction for reserve bonus (50%)
       reserve_bonus_magnitude: 0.005    # Bonus when above threshold
+    
+    # Prediction accuracy reward (encourages accurate population prediction on COUNT)
+    prediction:
+      enabled: true
+      weight: 5.0                       # Weight for prediction accuracy reward (applied only on COUNT)
 
 actions:
   noop:

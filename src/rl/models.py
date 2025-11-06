@@ -92,18 +92,22 @@ class RecurrentActorCritic(nn.Module):
         # Value head
         self.value_head = nn.Linear(hidden_dim, 1)
         
+        # Prediction head (next population)
+        self.pred_head = nn.Linear(hidden_dim, 1)
+        
         # Initialize weights
         self.apply(lambda m: init_weights_orthogonal(m, gain=1.0))
         # Smaller init for output layers
         init_weights_orthogonal(self.discrete_head, gain=0.01)
         init_weights_orthogonal(self.continuous_mu, gain=0.01)
         init_weights_orthogonal(self.value_head, gain=1.0)
+        init_weights_orthogonal(self.pred_head, gain=0.01)
     
     def forward_step(
         self, 
         obs: torch.Tensor, 
         h_prev: torch.Tensor
-    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor], torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Single forward step through the network.
         
@@ -117,6 +121,7 @@ class RecurrentActorCritic(nn.Module):
                 mu: shape [B, k_doses] (pre-squash means)
                 std: shape [B, k_doses]
             value: State value, shape [B, 1]
+            pred_next_pop: Predicted next population (normalized), shape [B, 1]
             h_next: Next hidden state, shape [layers, B, hidden_dim]
         """
         # obs: [B, obs_dim] -> [1, B, obs_dim] for GRU
@@ -139,7 +144,10 @@ class RecurrentActorCritic(nn.Module):
         # Value estimate
         value = self.value_head(features)  # [B, 1]
         
-        return logits_disc, (mu, std), value, h_next
+        # Prediction head (next population normalized)
+        pred_next_pop = F.softplus(self.pred_head(features))  # [B, 1], non-negative
+        
+        return logits_disc, (mu, std), value, pred_next_pop, h_next
     
     def act(
         self,
@@ -163,9 +171,10 @@ class RecurrentActorCritic(nn.Module):
                 logp_disc: Discrete action log-probs, shape [B]
                 logp_cont: Continuous action log-probs, shape [B]
                 value: Value estimates, shape [B]
+                pred_next_pop: Predicted next population (normalized), shape [B]
                 h_next: Next hidden state, shape [layers, B, hidden_dim]
         """
-        logits_disc, (mu, std), value, h_next = self.forward_step(obs, h_prev)
+        logits_disc, (mu, std), value, pred_next_pop, h_next = self.forward_step(obs, h_prev)
         
         # Discrete action
         dist_disc = Categorical(logits=logits_disc)
@@ -198,6 +207,7 @@ class RecurrentActorCritic(nn.Module):
             "logp_disc": logp_disc,  # [B]
             "logp_cont": logp_cont,  # [B]
             "value": value.squeeze(-1),  # [B]
+            "pred_next_pop": pred_next_pop.squeeze(-1),  # [B]
             "h_next": h_next,  # [layers, B, hidden_dim]
         }
     
@@ -225,6 +235,7 @@ class RecurrentActorCritic(nn.Module):
                 logp_disc: Discrete log-probs, shape [T, B]
                 logp_cont: Continuous log-probs, shape [T, B]
                 value: Value estimates, shape [T, B]
+                pred_next_pop: Predicted next population (normalized), shape [T, B]
                 entropy_disc: Discrete entropy, shape [T, B]
                 entropy_cont: Continuous entropy, shape [T, B]
         """
@@ -238,6 +249,7 @@ class RecurrentActorCritic(nn.Module):
         mu = self.continuous_mu(gru_out)  # [T, B, k_doses]
         std = torch.exp(self.continuous_log_std).expand_as(mu)  # [T, B, k_doses]
         value = self.value_head(gru_out).squeeze(-1)  # [T, B]
+        pred_next_pop = F.softplus(self.pred_head(gru_out)).squeeze(-1)  # [T, B]
         
         # Discrete distribution
         dist_disc = Categorical(logits=logits_disc)
@@ -263,6 +275,7 @@ class RecurrentActorCritic(nn.Module):
             "logp_disc": logp_disc,
             "logp_cont": logp_cont,
             "value": value,
+            "pred_next_pop": pred_next_pop,
             "entropy_disc": entropy_disc,
             "entropy_cont": entropy_cont,
         }

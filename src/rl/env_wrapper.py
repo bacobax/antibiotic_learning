@@ -115,6 +115,8 @@ class PetriEnvWrapper:
         critical_freshness_window: int = 5,       # steps to consider data "fresh"
         critical_noop_penalty: float = 0.0,       # penalty for letting counts go stale
         critical_noop_threshold: int = 15,        # steps before stale-count penalty activates
+        # prediction accuracy reward
+        prediction_reward_weight: float = 0.0,    # weight for prediction accuracy reward (COUNT-only)
         # shaping & norms
         target_population: int = 500,   # P*
         w_pop: float = 1.0,             # weight for population term in dose reward
@@ -171,6 +173,9 @@ class PetriEnvWrapper:
         self.critical_freshness_window = critical_freshness_window
         self.critical_noop_penalty = critical_noop_penalty
         self.critical_noop_threshold = int(max(0, critical_noop_threshold))
+        
+        # prediction accuracy reward
+        self.prediction_reward_weight = prediction_reward_weight
 
         # reward shaping
         self.target_population = target_population
@@ -301,7 +306,21 @@ class PetriEnvWrapper:
 
         return self._build_observation()
 
-    def step(self, a_discrete: int, a_cont: np.ndarray) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+    def step(self, a_discrete: int, a_cont: np.ndarray, pred_population: Optional[float] = None) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+        """
+        Execute one step in the environment.
+        
+        Args:
+            a_discrete: Discrete action (NOOP=0, COUNT=1, SEQUENCING=2, DOSE=3)
+            a_cont: Continuous action (dose amounts for k antibiotics)
+            pred_population: Optional prediction of normalized population (for prediction reward)
+        
+        Returns:
+            obs: Next observation
+            reward: Total reward for this step
+            done: Whether episode is complete
+            info: Additional information dict
+        """
         assert 0 <= a_discrete <= 3, f"a_discrete out of range: {a_discrete}"
         assert isinstance(a_cont, np.ndarray) and a_cont.shape == (self.k_doses,), \
             f"a_cont must be np.ndarray shape ({self.k_doses},)"
@@ -415,18 +434,18 @@ class PetriEnvWrapper:
 
         # COUNT has duration 0 → if the agent performed COUNT this step, cache count obs immediately
         count_result_landed = False
+        population_counted_norm = 0.0
         if a_discrete == ACTION_COUNT_BACTERIA:
             # Count action was executed (we already checked affordability upfront)
             count_now = self._read_true_population()
             self._cache_count_obs(count_now)
             count_result_landed = True
+            # Store the population revealed by COUNT for prediction supervision
+            population_counted_norm = float(count_now) / self.population_norm
 
-        # 4) Build obs from what the agent knows (cached), never from the hidden true state directly
         # 4) Build obs from what the agent knows (cached), never from the hidden true state directly
         obs = self._build_observation()
 
-        # 5) Termination conditions
-        true_population = self._read_true_population()
         # 5) Termination conditions
         true_population = self._read_true_population()
         done = (true_population == 0) or (self.t >= self.max_steps) or (self.budget <= 0.0)
@@ -472,6 +491,14 @@ class PetriEnvWrapper:
         if action_was_unaffordable and self.unaffordable_action_penalty > 0.0:
             unaffordable_action_penalty = -self.unaffordable_action_penalty
         
+        # 7f) Add prediction accuracy reward (COUNT-only)
+        prediction_reward = 0.0
+        if count_result_landed and pred_population is not None and self.prediction_reward_weight > 0.0:
+            # Compute prediction error (absolute difference from true normalized population)
+            pred_error = abs(pred_population - population_counted_norm)
+            # Reward is negative error, scaled by weight (reward accuracy, penalize inaccuracy)
+            prediction_reward = -pred_error * self.prediction_reward_weight
+        
         reward = (
             immediate_reward + 
             maintenance_penalty + 
@@ -479,7 +506,8 @@ class PetriEnvWrapper:
             unaffordable_action_penalty +
             delayed_reward +
             survival_bonus +
-            budget_conservation_bonus
+            budget_conservation_bonus +
+            prediction_reward
         )
         self.episode_return += reward
 
@@ -504,7 +532,11 @@ class PetriEnvWrapper:
             "reward_count_population": self.last_count_population_reward,
             "reward_critical_inaction_penalty": critical_inaction_penalty,
             "reward_critical_noop_penalty": self.last_critical_noop_penalty,
+            "reward_prediction": prediction_reward,
             "reward_total": reward,
+            # Prediction supervision signal (only meaningful when COUNT was performed)
+            "population_next_norm": population_counted_norm,
+            "count_was_performed": count_result_landed,
         }
         return obs, float(reward), bool(done), info
 

@@ -541,6 +541,8 @@ class TrainingVisualizer:
             'count_population': [],
             'critical_inaction_penalty': [],
             'critical_noop_penalty': [],
+            'prediction': [],
+            'pred_error': [],  # Diagnostic only
         }
         
         # Current episode reward component accumulators
@@ -558,6 +560,8 @@ class TrainingVisualizer:
             'count_population': 0.0,
             'critical_inaction_penalty': 0.0,
             'critical_noop_penalty': 0.0,
+            'prediction': 0.0,
+            'pred_error': 0.0,  # Diagnostic only
         }
         
         # Budget tracking for rollout metrics
@@ -741,6 +745,7 @@ class TrainingVisualizer:
                 logp_disc,
                 logp_cont,
                 value,
+                pred_next_pop,
                 h_prev
             ) = self.agent.select_action(self.current_obs)
         
@@ -754,9 +759,23 @@ class TrainingVisualizer:
         self.action_counts_total[pure_a_disc] += 1
         self.action_counts_episode[pure_a_disc] += 1
         
-        # Step environment
-        next_obs, reward, done, info = self.env.step(pure_a_disc, pure_a_cont)
+        # Get prediction value for passing to environment
+        pred_next_pop_value = pred_next_pop.cpu().item()
+        
+        # Step environment (now includes prediction reward computation)
+        next_obs, reward, done, info = self.env.step(pure_a_disc, pure_a_cont, pred_population=pred_next_pop_value)
         self.last_reward = reward
+        
+        # Extract prediction supervision and diagnostics
+        population_counted_norm = info.get('population_next_norm', 0.0)
+        count_was_performed = info.get('count_was_performed', False)
+        count_mask_value = 1.0 if count_was_performed else 0.0
+        
+        # Track prediction error for diagnostics (separate from reward which is in info)
+        if count_was_performed:
+            pred_error = abs(pred_next_pop_value - population_counted_norm)
+            self.current_episode_rewards['pred_error'] += pred_error
+            # Note: prediction reward is now computed by environment and included in total reward
         
         # Accumulate reward components for current episode
         self.current_episode_rewards['immediate'] += info.get('reward_immediate', 0.0)
@@ -772,6 +791,7 @@ class TrainingVisualizer:
         self.current_episode_rewards['count_population'] += info.get('reward_count_population', 0.0)
         self.current_episode_rewards['critical_inaction_penalty'] += info.get('reward_critical_inaction_penalty', 0.0)
         self.current_episode_rewards['critical_noop_penalty'] += info.get('reward_critical_noop_penalty', 0.0)
+        self.current_episode_rewards['prediction'] += info.get('reward_prediction', 0.0)
         
         # Store in buffer
         self.buffer.add(
@@ -784,6 +804,9 @@ class TrainingVisualizer:
             reward=torch.tensor([reward], dtype=torch.float32),
             done=torch.tensor([float(done)], dtype=torch.float32),
             h_in=h_prev.cpu(),
+            pred_next_pop=pred_next_pop.cpu(),
+            population_counted_norm=torch.tensor([population_counted_norm], dtype=torch.float32),
+            count_mask=torch.tensor([count_mask_value], dtype=torch.float32),
         )
         
         self.current_obs = next_obs
@@ -821,6 +844,8 @@ class TrainingVisualizer:
                 'count_population': self.current_episode_rewards['count_population'],
                 'critical_inaction_penalty': self.current_episode_rewards['critical_inaction_penalty'],
                 'critical_noop_penalty': self.current_episode_rewards['critical_noop_penalty'],
+                'prediction': self.current_episode_rewards['prediction'],
+                'pred_error': self.current_episode_rewards['pred_error'],
             }
             
             # Reset episode reward accumulators
@@ -903,7 +928,10 @@ class TrainingVisualizer:
             "rewards/count_population": float(np.mean(self.rollout_reward_components['count_population'])) if self.rollout_reward_components['count_population'] else 0.0,
             "rewards/critical_inaction_penalty": float(np.mean(self.rollout_reward_components['critical_inaction_penalty'])) if self.rollout_reward_components['critical_inaction_penalty'] else 0.0,
             "rewards/critical_noop_penalty": float(np.mean(self.rollout_reward_components['critical_noop_penalty'])) if self.rollout_reward_components['critical_noop_penalty'] else 0.0,
+            "rewards/prediction": float(np.mean(self.rollout_reward_components['prediction'])) if self.rollout_reward_components['prediction'] else 0.0,
             "rewards/total": float(np.mean(self.rollout_episode_returns)) if self.rollout_episode_returns else 0.0,
+            # Prediction metrics
+            "prediction/error": float(np.mean(self.rollout_reward_components['pred_error'])) if self.rollout_reward_components['pred_error'] else 0.0,
         }
         
         # Clear reward components and budget tracking for next rollout
