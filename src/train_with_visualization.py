@@ -556,6 +556,8 @@ class TrainingVisualizer:
         self.rollout_budget_spent = []
         self.rollout_budget_remaining = []
         self.rollout_budget_per_step = []
+        self.rollout_episode_returns = []
+        self.rollout_episode_lengths = []
         
         # Initialize agent (reusing normal training function)
         self.agent = _initialize_agent(ppo_cfg)
@@ -792,6 +794,8 @@ class TrainingVisualizer:
             # Store reward components for completed episode (for rollout metrics)
             for key in self.rollout_reward_components.keys():
                 self.rollout_reward_components[key].append(self.current_episode_rewards[key])
+            self.rollout_episode_returns.append(info['episode_return'])
+            self.rollout_episode_lengths.append(info.get('t', self.current_step))
             
             # Extract reward components from accumulated values
             reward_components = {
@@ -856,14 +860,14 @@ class TrainingVisualizer:
         noop_action_percentage = (self.action_counts_total[ACTION_NOOP] / total_actions * 100) if total_actions > 0 else 0.0
         
         rollout_metrics = {
-            "mean_episode_reward": self.env.episode_return,
-            "std_episode_reward": 0.0,  # Single episode, no std
-            "max_episode_reward": self.env.episode_return,
-            "min_episode_reward": self.env.episode_return,
-            "mean_episode_length": self.current_step,
-            "std_episode_length": 0.0,
-            "min_episode_length": self.current_step,
-            "max_episode_length": self.current_step,
+            "mean_episode_reward": float(np.mean(self.rollout_episode_returns)) if self.rollout_episode_returns else 0.0,
+            "std_episode_reward": float(np.std(self.rollout_episode_returns)) if self.rollout_episode_returns else 0.0,
+            "max_episode_reward": float(np.max(self.rollout_episode_returns)) if self.rollout_episode_returns else 0.0,
+            "min_episode_reward": float(np.min(self.rollout_episode_returns)) if self.rollout_episode_returns else 0.0,
+            "mean_episode_length": float(np.mean(self.rollout_episode_lengths)) if self.rollout_episode_lengths else 0.0,
+            "std_episode_length": float(np.std(self.rollout_episode_lengths)) if self.rollout_episode_lengths else 0.0,
+            "min_episode_length": float(np.min(self.rollout_episode_lengths)) if self.rollout_episode_lengths else 0.0,
+            "max_episode_length": float(np.max(self.rollout_episode_lengths)) if self.rollout_episode_lengths else 0.0,
             "num_episodes": self.episodes_completed,
             "mean_population_per_episode": self.env.get_bacteria_population(),
             "final_population": self.env.get_bacteria_population(),
@@ -886,7 +890,7 @@ class TrainingVisualizer:
             "rewards/safe_behavior_bonus": float(np.mean(self.rollout_reward_components['safe_behavior_bonus'])) if self.rollout_reward_components['safe_behavior_bonus'] else 0.0,
             "rewards/informed_dosing_bonus": float(np.mean(self.rollout_reward_components['informed_dosing_bonus'])) if self.rollout_reward_components['informed_dosing_bonus'] else 0.0,
             "rewards/count_population": float(np.mean(self.rollout_reward_components['count_population'])) if self.rollout_reward_components['count_population'] else 0.0,
-            "rewards/total": self.env.episode_return,
+            "rewards/total": float(np.mean(self.rollout_episode_returns)) if self.rollout_episode_returns else 0.0,
         }
         
         # Clear reward components and budget tracking for next rollout
@@ -895,6 +899,8 @@ class TrainingVisualizer:
         self.rollout_budget_spent.clear()
         self.rollout_budget_remaining.clear()
         self.rollout_budget_per_step.clear()
+        self.rollout_episode_returns.clear()
+        self.rollout_episode_lengths.clear()
         
         # Update policy
         train_stats = self.agent.update_policy(self.buffer)
