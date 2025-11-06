@@ -117,6 +117,7 @@ class PetriEnvWrapper:
         budget_norm: float = 100.0,     # divisor for budget normalization
         population_norm: float = 1000.0, # to map counts to ~[0,1]
         budget_penalty: float = 10.0,   # big penalty when budget reaches 0
+        unaffordable_action_penalty: float = 0.0,  # penalty for attempting unaffordable action
         # NOOP action reward shaping
         noop_band_factor: float = 0.02,      # deadband around target as fraction of population_norm
         noop_reward_magnitude: float = 0.01, # small shaping magnitude for NOOP action
@@ -135,6 +136,7 @@ class PetriEnvWrapper:
         self.dose_cost_per_unit = dose_cost_per_unit
         self.count_cost = count_cost
         self.budget_penalty = budget_penalty
+        self.unaffordable_action_penalty = unaffordable_action_penalty
         
         # informed dosing parameters
         self.informed_dosing_reward = informed_dosing_reward
@@ -235,6 +237,7 @@ class PetriEnvWrapper:
         # Reset budget tracking for new episode
         self.episode_start_budget = self.budget_init
         self.episode_budget_spent = 0.0
+        self.last_step_budget = self.budget_init
         
         # Reset reward component tracking
         self.last_regular_count_bonus = 0.0
@@ -270,6 +273,9 @@ class PetriEnvWrapper:
         # Also calculate cost to avoid recalculating in _execute_action
         original_action = a_discrete
         a_discrete, action_cost = self._check_action_affordability(a_discrete, a_cont)
+        
+        # Track if action was converted to NOOP due to insufficient budget
+        action_was_unaffordable = (original_action != ACTION_NOOP and a_discrete == ACTION_NOOP)
 
         # 1) Execute action: computes immediate reward (only instant penalties/shaping)
         # This now includes regular_count_reward for COUNT actions and informed_dosing_bonus for DOSE actions
@@ -396,10 +402,16 @@ class PetriEnvWrapper:
         if self.budget <= 0.0 and self.budget_penalty > 0.0:
             budget_penalty = -self.budget_penalty
         
+        # 7e) Add unaffordable action penalty if agent tried action it couldn't afford
+        unaffordable_action_penalty = 0.0
+        if action_was_unaffordable and self.unaffordable_action_penalty > 0.0:
+            unaffordable_action_penalty = -self.unaffordable_action_penalty
+        
         reward = (
             immediate_reward + 
             maintenance_penalty + 
-            budget_penalty + 
+            budget_penalty +
+            unaffordable_action_penalty +
             delayed_reward +
             survival_bonus +
             budget_conservation_bonus
@@ -417,6 +429,7 @@ class PetriEnvWrapper:
             "reward_immediate": immediate_reward,
             "reward_maintenance": maintenance_penalty,
             "reward_budget_penalty": budget_penalty,
+            "reward_unaffordable_action_penalty": unaffordable_action_penalty,
             "reward_delayed": delayed_reward,
             "reward_survival_bonus": survival_bonus,
             "reward_budget_conservation": budget_conservation_bonus,

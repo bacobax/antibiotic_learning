@@ -526,6 +526,7 @@ class TrainingVisualizer:
             'immediate': [],
             'maintenance': [],
             'budget_penalty': [],
+            'unaffordable_action_penalty': [],
             'delayed': [],
             'survival_bonus': [],
             'budget_conservation': [],
@@ -540,6 +541,7 @@ class TrainingVisualizer:
             'immediate': 0.0,
             'maintenance': 0.0,
             'budget_penalty': 0.0,
+            'unaffordable_action_penalty': 0.0,
             'delayed': 0.0,
             'survival_bonus': 0.0,
             'budget_conservation': 0.0,
@@ -750,6 +752,7 @@ class TrainingVisualizer:
         self.current_episode_rewards['immediate'] += info.get('reward_immediate', 0.0)
         self.current_episode_rewards['maintenance'] += info.get('reward_maintenance', 0.0)
         self.current_episode_rewards['budget_penalty'] += info.get('reward_budget_penalty', 0.0)
+        self.current_episode_rewards['unaffordable_action_penalty'] += info.get('reward_unaffordable_action_penalty', 0.0)
         self.current_episode_rewards['delayed'] += info.get('reward_delayed', 0.0)
         self.current_episode_rewards['survival_bonus'] += info.get('reward_survival_bonus', 0.0)
         self.current_episode_rewards['budget_conservation'] += info.get('reward_budget_conservation', 0.0)
@@ -795,6 +798,7 @@ class TrainingVisualizer:
                 'immediate': self.current_episode_rewards['immediate'],
                 'maintenance': self.current_episode_rewards['maintenance'],
                 'budget_penalty': self.current_episode_rewards['budget_penalty'],
+                'unaffordable_action_penalty': self.current_episode_rewards['unaffordable_action_penalty'],
                 'delayed': self.current_episode_rewards['delayed'],
                 'survival_bonus': self.current_episode_rewards['survival_bonus'],
                 'budget_conservation': self.current_episode_rewards['budget_conservation'],
@@ -847,6 +851,9 @@ class TrainingVisualizer:
         # Compute rollout metrics for logging (add all expected keys)
         total_actions = sum(self.action_counts_total.values())
         dose_action_percentage = (self.action_counts_total[ACTION_DOSE] / total_actions * 100) if total_actions > 0 else 0.0
+        count_action_percentage = (self.action_counts_total[ACTION_COUNT_BACTERIA] / total_actions * 100) if total_actions > 0 else 0.0
+        sequencing_action_percentage = (self.action_counts_total[ACTION_SEQUENCING] / total_actions * 100) if total_actions > 0 else 0.0
+        noop_action_percentage = (self.action_counts_total[ACTION_NOOP] / total_actions * 100) if total_actions > 0 else 0.0
         
         rollout_metrics = {
             "mean_episode_reward": self.env.episode_return,
@@ -861,6 +868,9 @@ class TrainingVisualizer:
             "mean_population_per_episode": self.env.get_bacteria_population(),
             "final_population": self.env.get_bacteria_population(),
             "dose_action_percentage": float(dose_action_percentage),
+            "count_action_percentage": float(count_action_percentage),
+            "sequencing_action_percentage": float(sequencing_action_percentage),
+            "noop_action_percentage": float(noop_action_percentage),
             # Budget metrics (matching rollout() function)
             "mean_budget_spent": float(np.mean(self.rollout_budget_spent)) if self.rollout_budget_spent else 0.0,
             "mean_budget_remaining": float(np.mean(self.rollout_budget_remaining)) if self.rollout_budget_remaining else 0.0,

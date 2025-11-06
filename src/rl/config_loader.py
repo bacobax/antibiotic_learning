@@ -84,6 +84,7 @@ class BudgetConfig:
     budget_init: float
     budget_norm: float
     budget_penalty: float  # Penalty when budget reaches 0
+    unaffordable_action_penalty: float  # Penalty for attempting unaffordable action
 
 
 @dataclass

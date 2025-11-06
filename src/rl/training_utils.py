@@ -107,6 +107,7 @@ def rollout(
     episode_reward_immediate = []
     episode_reward_maintenance = []
     episode_reward_budget_penalty = []
+    episode_reward_unaffordable_action_penalty = []
     episode_reward_delayed = []
     episode_reward_survival_bonus = []
     episode_reward_budget_conservation = []
@@ -129,6 +130,7 @@ def rollout(
     current_reward_immediate = 0.0
     current_reward_maintenance = 0.0
     current_reward_budget_penalty = 0.0
+    current_reward_unaffordable_action_penalty = 0.0
     current_reward_delayed = 0.0
     current_reward_survival_bonus = 0.0
     current_reward_budget_conservation = 0.0
@@ -179,6 +181,7 @@ def rollout(
         current_reward_immediate += info.get('reward_immediate', 0.0)
         current_reward_maintenance += info.get('reward_maintenance', 0.0)
         current_reward_budget_penalty += info.get('reward_budget_penalty', 0.0)
+        current_reward_unaffordable_action_penalty += info.get('reward_unaffordable_action_penalty', 0.0)
         current_reward_delayed += info.get('reward_delayed', 0.0)
         current_reward_survival_bonus += info.get('reward_survival_bonus', 0.0)
         current_reward_budget_conservation += info.get('reward_budget_conservation', 0.0)
@@ -215,6 +218,7 @@ def rollout(
             episode_reward_immediate.append(current_reward_immediate)
             episode_reward_maintenance.append(current_reward_maintenance)
             episode_reward_budget_penalty.append(current_reward_budget_penalty)
+            episode_reward_unaffordable_action_penalty.append(current_reward_unaffordable_action_penalty)
             episode_reward_delayed.append(current_reward_delayed)
             episode_reward_survival_bonus.append(current_reward_survival_bonus)
             episode_reward_budget_conservation.append(current_reward_budget_conservation)
@@ -240,6 +244,7 @@ def rollout(
             current_reward_immediate = 0.0
             current_reward_maintenance = 0.0
             current_reward_budget_penalty = 0.0
+            current_reward_unaffordable_action_penalty = 0.0
             current_reward_delayed = 0.0
             current_reward_survival_bonus = 0.0
             current_reward_budget_conservation = 0.0
@@ -277,6 +282,9 @@ def rollout(
         "mean_population_per_episode": float(np.mean(episode_populations)) if episode_populations else 0.0,
         "final_population": float(episode_populations[-1]) if episode_populations else 0.0,
         "dose_action_percentage": float(dose_action_percentage),
+        "count_action_percentage": float(count_action_percentage),
+        "sequencing_action_percentage": float(sequencing_action_percentage),
+        "noop_action_percentage": float(noop_action_percentage),
         # Budget metrics
         "mean_budget_spent": float(np.mean(episode_budgets_spent)) if episode_budgets_spent else 0.0,
         "mean_budget_remaining": float(np.mean(episode_budgets_remaining)) if episode_budgets_remaining else 0.0,
@@ -285,6 +293,7 @@ def rollout(
         "rewards/immediate": float(np.mean(episode_reward_immediate)) if episode_reward_immediate else 0.0,
         "rewards/maintenance": float(np.mean(episode_reward_maintenance)) if episode_reward_maintenance else 0.0,
         "rewards/budget_penalty": float(np.mean(episode_reward_budget_penalty)) if episode_reward_budget_penalty else 0.0,
+        "rewards/unaffordable_action_penalty": float(np.mean(episode_reward_unaffordable_action_penalty)) if episode_reward_unaffordable_action_penalty else 0.0,
         "rewards/delayed": float(np.mean(episode_reward_delayed)) if episode_reward_delayed else 0.0,
         "rewards/survival_bonus": float(np.mean(episode_reward_survival_bonus)) if episode_reward_survival_bonus else 0.0,
         "rewards/budget_conservation": float(np.mean(episode_reward_budget_conservation)) if episode_reward_budget_conservation else 0.0,
@@ -571,6 +580,7 @@ def _create_environment(
         budget_init=rewards.budget.budget_init,
         budget_norm=rewards.budget.budget_norm,
         budget_penalty=rewards.budget.budget_penalty,
+        unaffordable_action_penalty=rewards.budget.unaffordable_action_penalty,
         # Action costs
         sequencing_cost=config.actions.sequencing_cost,
         sequencing_duration=config.actions.sequencing_duration,
