@@ -113,8 +113,8 @@ class PetriEnvWrapper:
         critical_no_action_penalty: float = 0.0,  # penalty for not seq/dosing when count shows critical pop
         critical_no_dose_penalty: float = 0.0,    # penalty for not dosing when count+seq fresh and critical
         critical_freshness_window: int = 5,       # steps to consider data "fresh"
-    critical_noop_penalty: float = 0.0,       # penalty for letting counts go stale
-    critical_noop_threshold: int = 15,        # steps before stale-count penalty activates
+        critical_noop_penalty: float = 0.0,       # penalty for letting counts go stale
+        critical_noop_threshold: int = 15,        # steps before stale-count penalty activates
         # shaping & norms
         target_population: int = 500,   # P*
         w_pop: float = 1.0,             # weight for population term in dose reward
