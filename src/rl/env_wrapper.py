@@ -237,6 +237,7 @@ class PetriEnvWrapper:
         # Reset budget tracking for new episode
         self.episode_start_budget = self.budget_init
         self.episode_budget_spent = 0.0
+        self.last_step_budget = self.budget_init
         
         # Reset reward component tracking
         self.last_regular_count_bonus = 0.0
