@@ -172,31 +172,58 @@ class TrainingLogger:
             f"Reward: {rollout_metrics['mean_episode_reward']:7.2f} "
             f"(±{rollout_metrics['std_episode_reward']:5.2f}) | "
             f"Episodes: {rollout_metrics['num_episodes']:3d} | "
-            f"DOSE: {rollout_metrics.get('dose_action_percentage', 0.0):.1f}% | "
-            f"NOOP: {rollout_metrics.get('noop_action_percentage', 0.0):.1f}% | "
-            f"COUNT: {rollout_metrics.get('bacteria_count', 0):.0f} | "
-            f"SEQUENCING: {rollout_metrics.get('sequencing_count', 0):.0f} | "
-            f"Actor Loss: {train_stats['loss_actor']:.4f} | "
-            f"Critic Loss: {train_stats['loss_critic']:.4f}"
+            f"Pop: {rollout_metrics.get('mean_population_per_episode', 0):.0f} | "
+            f"Budget: {rollout_metrics.get('mean_budget_remaining', 0.0):.1f} | "
+            f"Loss: A={train_stats['loss_actor']:.4f} C={train_stats['loss_critic']:.4f}"
         )
         
-        # Reward component breakdown (second and third lines)
+        # Action distribution
+        self.logger.info(
+            f"  Actions: "
+            f"DOSE={rollout_metrics.get('dose_action_percentage', 0.0):5.1f}% | "
+            f"COUNT={rollout_metrics.get('count_action_percentage', 0.0):5.1f}% | "
+            f"SEQ={rollout_metrics.get('sequencing_action_percentage', 0.0):5.1f}% | "
+            f"NOOP={rollout_metrics.get('noop_action_percentage', 0.0):5.1f}%"
+        )
+        
+        # Reward component breakdown (show individual components and total)
+        total_reward = (
+            rollout_metrics.get('rewards/immediate', 0.0) +
+            rollout_metrics.get('rewards/maintenance', 0.0) +
+            rollout_metrics.get('rewards/budget_penalty', 0.0) +
+            rollout_metrics.get('rewards/unaffordable_action_penalty', 0.0) +
+            rollout_metrics.get('rewards/delayed', 0.0) +
+            rollout_metrics.get('rewards/survival_bonus', 0.0) +
+            rollout_metrics.get('rewards/budget_conservation', 0.0) +
+            rollout_metrics.get('rewards/regular_count_bonus', 0.0) +
+            rollout_metrics.get('rewards/safe_behavior_bonus', 0.0) +
+            rollout_metrics.get('rewards/informed_dosing_bonus', 0.0) +
+            rollout_metrics.get('rewards/count_population', 0.0) +
+            rollout_metrics.get('rewards/critical_inaction_penalty', 0.0)
+        )
+        
         self.logger.info(
             f"  Rewards: "
             f"Immed={rollout_metrics.get('rewards/immediate', 0.0):+6.2f} | "
             f"Maint={rollout_metrics.get('rewards/maintenance', 0.0):+6.2f} | "
             f"BudgPen={rollout_metrics.get('rewards/budget_penalty', 0.0):+6.2f} | "
+            f"UnaffAct={rollout_metrics.get('rewards/unaffordable_action_penalty', 0.0):+6.2f} | "
             f"Delayed={rollout_metrics.get('rewards/delayed', 0.0):+6.2f} | "
-            f"Survival={rollout_metrics.get('rewards/survival_bonus', 0.0):+6.2f} | "
-            f"BudgCons={rollout_metrics.get('rewards/budget_conservation', 0.0):+6.2f}"
+            f"Survival={rollout_metrics.get('rewards/survival_bonus', 0.0):+6.2f}"
         )
         self.logger.info(
             f"           "
+            f"BudgCons={rollout_metrics.get('rewards/budget_conservation', 0.0):+6.2f} | "
             f"RegCount={rollout_metrics.get('rewards/regular_count_bonus', 0.0):+6.2f} | "
             f"SafeBehav={rollout_metrics.get('rewards/safe_behavior_bonus', 0.0):+6.2f} | "
             f"InfDosing={rollout_metrics.get('rewards/informed_dosing_bonus', 0.0):+6.2f} | "
             f"CountPop={rollout_metrics.get('rewards/count_population', 0.0):+6.2f} | "
             f"CritInact={rollout_metrics.get('rewards/critical_inaction_penalty', 0.0):+6.2f}"
+        )
+        self.logger.info(
+            f"           "
+            f"TOTAL (calculated)={total_reward:+7.2f} | "
+            f"TOTAL (reported)={rollout_metrics.get('rewards/total', 0.0):+7.2f}"
         )
         
         # Debug info
