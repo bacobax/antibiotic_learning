@@ -19,23 +19,27 @@ ACTION_SEQUENCING = 2
 ACTION_DOSE = 3
 
 class PetriEnvWrapper:
+    MAX_AGE = 100.0
     """
     Thin wrapper around a Mesa bacteria simulation for RL:
       - Partial observability: agent only "knows" what it measures.
       - Action durations: sequencing has latency; count is instant.
       - Delayed rewards: dose efficacy is evaluated when a measurement lands.
     
-    Observation vector (gated, not the true state):
-      [ budget_norm,
-        last_count_norm,                          # -1 if never observed
-        last_seq_avg_enzyme, last_seq_avg_efflux,
-        last_seq_avg_repair, last_seq_avg_membrane,  # 0 if never observed
-        last_seq_prop_0 .. last_seq_prop_{K-1},      # 0 if never observed
-        time_since_last_measure_norm,
-        is_seq_pending (0/1),
-        steps_until_seq_result_norm
-      ]
-    Length = 1 (budget) + 1 (count) + 4 (genome avgs) + K (proportions) + 3 meta = 9 + K
+        Observation vector (float32, mask aware):
+            [ last_count_norm,
+                has_last_count,
+                last_count_age_norm,
+                avg_genome_flat (12 values),
+                has_last_seq,
+                last_seq_age_norm,
+                measure_age_norm,
+                dose_history_K (has, norm, age),
+                dose_history_I (has, norm, age),
+                dose_history_A (has, norm, age),
+                t_norm
+            ]
+        Length = 28. Missing values are zeroed with companion mask bits.
     
     REWARD COMPONENTS BREAKDOWN:
     ============================
@@ -128,6 +132,7 @@ class PetriEnvWrapper:
         self.k_doses = k_doses
         self.scale_dose = scale_dose if scale_dose is not None else (lambda x: x)
         self.max_steps = max_steps
+        self.episode_length = max_steps
 
         # economics & timing
         self.sequencing_cost = sequencing_cost
@@ -178,8 +183,10 @@ class PetriEnvWrapper:
         # runtime state
         self.model: Any = None
         self.t = 0
+        self.MAX_AGE = float(self.__class__.MAX_AGE)
         self.episode_return = 0.0
         self.budget = budget_init
+        self.last_action_completed = 0.0
 
         # Budget tracking per episode
         self.episode_start_budget = budget_init
@@ -190,6 +197,19 @@ class PetriEnvWrapper:
         self.last_seq_obs: Optional[Dict[str, Any]] = None
         self.ts_last_seq: Optional[int] = None
         self.ts_last_count: Optional[int] = None
+
+        # measurement/state caches
+        self.avg_genome = np.zeros((N_BACTERIA_TYPES, N_TRAITS), dtype=np.float32)
+
+        # dosing history (K, I, A)
+        self.last_dose_K = 0.0
+        self.last_dose_I = 0.0
+        self.last_dose_A = 0.0
+        self.ts_last_dose_K: Optional[int] = None
+        self.ts_last_dose_I: Optional[int] = None
+        self.ts_last_dose_A: Optional[int] = None
+        self._dose_update_buffer: Optional[np.ndarray] = None
+        self.max_dose_values = self._infer_max_dose_values()
 
         # sequencing pipeline
         self.seq_pending = False
@@ -250,6 +270,18 @@ class PetriEnvWrapper:
         self.last_seq_obs = None
         self.ts_last_count = None
         self.ts_last_seq = None
+        self.avg_genome.fill(0.0)
+
+        # reset dosing history
+        self.last_dose_K = 0.0
+        self.last_dose_I = 0.0
+        self.last_dose_A = 0.0
+        self.ts_last_dose_K = None
+        self.ts_last_dose_I = None
+        self.ts_last_dose_A = None
+        self._dose_update_buffer = None
+        self.max_dose_values = self._infer_max_dose_values()
+        self.last_action_completed = 0.0
 
         # clear pipelines
         self.seq_pending = False
@@ -276,10 +308,12 @@ class PetriEnvWrapper:
         
         # Track if action was converted to NOOP due to insufficient budget
         action_was_unaffordable = (original_action != ACTION_NOOP and a_discrete == ACTION_NOOP)
+        executed_noop = (a_discrete == ACTION_NOOP)
 
         # 1) Execute action: computes immediate reward (only instant penalties/shaping)
         # This now includes regular_count_reward for COUNT actions and informed_dosing_bonus for DOSE actions
         immediate_reward = self._execute_action(a_discrete, a_cont, action_cost)
+        self.last_action_completed = 0.0 if executed_noop else 1.0
 
         # 1b) Safe non-dosing reward: reward for NOT dosing when population is below target
         safe_behavior_bonus = 0.0
@@ -335,6 +369,10 @@ class PetriEnvWrapper:
         # 2) Advance simulation one base step
         self.model.step()
         self.t += 1
+
+        if self._dose_update_buffer is not None:
+            self._update_dose_history(self._dose_update_buffer)
+            self._dose_update_buffer = None
 
         # 3) Progress sequencing countdown; when it finishes, publish result
         sequencing_result_landed = False
@@ -586,6 +624,7 @@ class PetriEnvWrapper:
             # Deduct pre-calculated cost
             self.budget -= action_cost
             self.episode_budget_spent += action_cost
+            self._dose_update_buffer = np.array(scaled, dtype=np.float32, copy=True)
 
             # Informed dosing reward/penalty system
             dosing_bonus = 0.0
@@ -706,6 +745,21 @@ class PetriEnvWrapper:
             amt = float(scaled_doses[i])
             self.model.apply_antibiotic(ab_names[i], amt)
 
+    def _infer_max_dose_values(self) -> np.ndarray:
+        """Estimate per-antibiotic max doses using the scaling function."""
+        try:
+            ones = np.ones(self.k_doses, dtype=np.float32)
+            scaled = np.asarray(self.scale_dose(ones), dtype=np.float32)
+        except Exception:
+            scaled = np.ones(self.k_doses, dtype=np.float32)
+        if scaled.shape[0] < self.k_doses:
+            padded = np.ones(self.k_doses, dtype=np.float32)
+            padded[:scaled.shape[0]] = scaled
+            scaled = padded
+        elif scaled.shape[0] > self.k_doses:
+            scaled = scaled[: self.k_doses]
+        return np.maximum(scaled, 1e-6)
+
     # -------------------------
     # Observation management (gated)
     # -------------------------
@@ -713,6 +767,16 @@ class PetriEnvWrapper:
     def _cache_count_obs(self, population: int) -> None:
         self.last_count_obs = int(population)
         self.ts_last_count = self.t
+
+    def _update_dose_history(self, doses: np.ndarray) -> None:
+        """Persist last dose magnitudes and timestamps for antibiotics K, I, A."""
+        mapping = ("K", "I", "A")
+        for idx, label in enumerate(mapping):
+            if idx >= doses.shape[0]:
+                continue
+            value = float(doses[idx])
+            setattr(self, f"last_dose_{label}", value)
+            setattr(self, f"ts_last_dose_{label}", self.t)
 
     def _collect_pending_dose_rewards(self, post_count: Optional[int]) -> float:
         if not self.pending_dose_events:
@@ -765,64 +829,67 @@ class PetriEnvWrapper:
             "t": self.t,
         }
         self.ts_last_seq = self.t
+        self.avg_genome = np.array(seq["avg_genome"], dtype=np.float32, copy=True)
+
+    def _age_norm(self, timestamp: Optional[int]) -> float:
+        if timestamp is None:
+            return 0.0
+        age = max(0, self.t - timestamp)
+        clipped = min(age, self.MAX_AGE)
+        return float(clipped) / self.MAX_AGE if self.MAX_AGE > 0 else 0.0
 
     def _build_observation(self) -> np.ndarray:
         """
         Assemble what the agent is allowed to see (cached measurements + meta).
         """
-        budget_norm = np.clip(self.budget / max(1.0, self.budget_norm), -1.0, 1.0)
-        
-        # Target population (normalized) - gives agent explicit goal
-        target_norm = float(self.target_population) / max(1.0, self.population_norm)
+        last_count_norm = 0.0 if self.last_count_obs is None else float(self.last_count_obs) / max(1.0, self.population_norm)
+        has_last_count = 1.0 if self.last_count_obs is not None else 0.0
+        last_count_age_norm = self._age_norm(self.ts_last_count)
 
-        # Count
-        if self.last_count_obs is None:
-            last_count_norm = -1.0  # sentinel for unknown
-        else:
-            last_count_norm = float(self.last_count_obs) / max(1.0, self.population_norm)
+        genome_values = self.avg_genome.astype(np.float32, copy=False).reshape(-1)
 
-        # Sequencing
-        if self.last_seq_obs is None:
-            avg_genome = np.zeros((N_BACTERIA_TYPES, N_TRAITS), dtype=np.float32)
-            props = np.zeros((self.k_doses,), dtype=np.float32)
-        else:
-            avg_genome = self.last_seq_obs["avg_genome"]
-            props = self.last_seq_obs["proportions"]
+        has_last_seq = 1.0 if self.ts_last_seq is not None else 0.0
+        last_seq_age_norm = self._age_norm(self.ts_last_seq)
 
-        # Meta
-        if self.ts_last_seq is None:
-            ts_since_seq = float('inf')  # Never sequenced yet
-        else:
-            ts_since_seq = self.t - self.ts_last_seq
-        if self.ts_last_count is None:
-            ts_since_count = float('inf')  # Never counted yet
-        else:
-            ts_since_count = self.t - self.ts_last_count
+        age_norms = []
+        if self.ts_last_count is not None:
+            age_norms.append(last_count_age_norm)
+        if self.ts_last_seq is not None:
+            age_norms.append(last_seq_age_norm)
+        measure_age_norm = min(age_norms) if age_norms else 0.0
 
-        ts_since_measure = min(ts_since_seq, ts_since_count)
+        dose_features: List[float] = []
+        dose_state = [
+            (self.last_dose_K, self.ts_last_dose_K, 0),
+            (self.last_dose_I, self.ts_last_dose_I, 1),
+            (self.last_dose_A, self.ts_last_dose_A, 2),
+        ]
+        for value, timestamp, idx in dose_state:
+            ts_exists = timestamp is not None
+            has_last_dose = 1.0 if ts_exists else 0.0
+            max_dose = self.max_dose_values[idx] if idx < self.max_dose_values.shape[0] else 1.0
+            norm = (float(value) / max_dose) if ts_exists and max_dose > 0 else 0.0
+            norm = float(np.clip(norm, 0.0, 1.0))
+            age_norm = self._age_norm(timestamp)
+            if not ts_exists:
+                norm = 0.0
+                age_norm = 0.0
+            dose_features.extend([has_last_dose, norm, age_norm])
 
-        # If never measured, use maximum staleness value
-        if ts_since_measure == float('inf'):
-            time_since_last_measure_norm = 1.0  # Maximum value (never measured)
-        else:
-            time_since_last_measure_norm = min(1.0, ts_since_measure / 100.0)
-        
-        seq_pending_flag = 1.0 if self.seq_pending else 0.0
-        seq_eta_norm = min(1.0, max(0, self.seq_eta) / max(1, self.sequencing_duration))
-
-
-        avg_genome = avg_genome.flatten()
-
+        t_norm = float(self.t) / max(1.0, float(self.episode_length))
+        t_norm = float(np.clip(t_norm, 0.0, 1.0))
 
         obs_parts = [
-            budget_norm,
-            target_norm,
             last_count_norm,
-            *avg_genome.tolist(),
-            *props.tolist(),
-            time_since_last_measure_norm,
-            seq_pending_flag,
-            seq_eta_norm,
+            has_last_count,
+            last_count_age_norm,
+            *genome_values.tolist(),
+            has_last_seq,
+            last_seq_age_norm,
+            measure_age_norm,
+            *dose_features,
+            self.last_action_completed,
+            t_norm,
         ]
         return np.asarray(obs_parts, dtype=np.float32)
 

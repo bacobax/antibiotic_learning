@@ -27,18 +27,18 @@ environment:
     
     # Informed dosing (NEW: encourage count + sequencing before dose)
     informed_dosing:
-      reward: 0.                       # Bonus for dosing after recent count AND sequencing
-      above_target_reward: 0.0          # Additional bonus for informed dosing when population above target
+      reward: 1.                       # Bonus for dosing after recent count AND sequencing
+      above_target_reward: 10.0          # Additional bonus for informed dosing when population above target
       window: 5                         # Steps to consider count "recent"
       sequencing_window: 5             # Steps to consider sequencing "recent"
-      blind_penalty: 0.0              # Penalty for dosing without recent count OR sequencing
-      low_population_penalty: 0.0     # HUGE penalty for dosing when population below target
+      blind_penalty: 30.0              # Penalty for dosing without recent count OR sequencing
+      low_population_penalty: 20.0     # HUGE penalty for dosing when population below target
     
     # Critical action penalties (NEW: penalize inaction when population is dangerously high)
     critical_inaction:
       high_population_threshold: 3.0    # Multiplier of target (3x = critical)
       no_action_penalty: 0.0           # Penalty for not seq/dosing when count shows 3x target
-      no_dose_penalty: 0.0            # Penalty for not dosing when count+seq fresh and 3x target
+      no_dose_penalty: 100.0            # Penalty for not dosing when count+seq fresh and 3x target
       freshness_window: 5               # Steps to consider data "fresh"
     
     # Regular monitoring rewards (encourage proactive information gathering)
@@ -53,15 +53,15 @@ environment:
       budget_init: 100.0
       budget_norm: 100.0
       budget_penalty: 50.0               # INCREASED: Penalty when budget reaches 0
-      unaffordable_action_penalty: 20.0  # NEW: Penalty for attempting unaffordable action (converted to NOOP)
+      unaffordable_action_penalty: 100.0  # NEW: Penalty for attempting unaffordable action (converted to NOOP)
     
     # Survival bonus reward (encourages longer episodes)
     survival_bonus:
       enabled: true
-      base_bonus: 0.5                   # Small base reward per step
+      base_bonus: 0.2                   # Small base reward per step
       scaling_type: "linear"            # "constant", "linear", or "exponential"
       scaling_factor: 0.01              # Gradual linear increase: +0.01 reward per step
-      max_bonus: 0.5                   # Cap at 10 reward/step (reached at ~950 steps)
+      max_bonus: 1                   # Cap at 10 reward/step (reached at ~950 steps)
     
     # Budget conservation reward (DISABLED)
     budget_conservation:

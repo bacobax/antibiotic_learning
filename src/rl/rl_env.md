@@ -25,51 +25,67 @@ The agent **cannot see the true state** of the bacteria simulation. Instead, it 
 
 ### Observation Vector Structure
 
-The agent receives a **19-dimensional observation vector** (for K=3 antibiotic types):
+The agent receives a **29-dimensional observation vector** (for the default K=3 antibiotic channels). Every field is a float32 and anything not yet observed is zeroed while the accompanying mask bit is also zero.
 
 ```python
 obs = [
-    budget_norm,                        # [0] Normalized remaining budget (0-1)
-    target_norm,                        # [1] Normalized target population (static reference)
-    last_count_norm,                    # [2] Last population count (-1 if never measured)
-    
-    # Genome averages (3 bacteria types × 4 traits = 12 values)
-    avg_genome[0][0],                   # [3] Type 0: enzyme
-    avg_genome[0][1],                   # [4] Type 0: efflux
-    avg_genome[0][2],                   # [5] Type 0: repair
-    avg_genome[0][3],                   # [6] Type 0: membrane
-    avg_genome[1][0],                   # [7] Type 1: enzyme
-    avg_genome[1][1],                   # [8] Type 1: efflux
-    avg_genome[1][2],                   # [9] Type 1: repair
-    avg_genome[1][3],                   # [10] Type 1: membrane
-    avg_genome[2][0],                   # [11] Type 2: enzyme
-    avg_genome[2][1],                   # [12] Type 2: efflux
-    avg_genome[2][2],                   # [13] Type 2: repair
-    avg_genome[2][3],                   # [14] Type 2: membrane
-    
-    # Type proportions (currently not used)
-    prop[0],                            # [15] Proportion of antibiotic 0
-    prop[1],                            # [16] Proportion of antibiotic 1
-    prop[2],                            # [17] Proportion of antibiotic 2
-    
-    time_since_last_measure_norm,       # [18] Time since last COUNT/SEQ (0-1, capped at 100 steps)
-    seq_pending_flag,                   # [19] 1.0 if sequencing in progress, 0.0 otherwise
-    seq_eta_norm,                       # [20] Steps until sequencing result (0-1)
+    last_count_norm,                    # [0] Last population count / population_norm
+    has_last_count,                     # [1] 1.0 if a count has been observed, else 0.0
+    last_count_age_norm,                # [2] Age of count (normalized and clipped)
+
+    # Avg genome traits (3 bacteria types × 4 traits = 12 values)
+    avg_genome[0][0],                   # [3]
+    avg_genome[0][1],                   # [4]
+    avg_genome[0][2],                   # [5]
+    avg_genome[0][3],                   # [6]
+    avg_genome[1][0],                   # [7]
+    avg_genome[1][1],                   # [8]
+    avg_genome[1][2],                   # [9]
+    avg_genome[1][3],                   # [10]
+    avg_genome[2][0],                   # [11]
+    avg_genome[2][1],                   # [12]
+    avg_genome[2][2],                   # [13]
+    avg_genome[2][3],                   # [14]
+
+    has_last_seq,                       # [15] 1.0 if sequencing results have landed
+    last_seq_age_norm,                  # [16] Age of sequencing data (normalized and clipped)
+    measure_age_norm,                   # [17] Freshness of the newest measurement (min of count/seq ages)
+
+    has_last_dose_K,                    # [18] 1.0 if K was dosed in this episode
+    last_dose_K_norm,                   # [19] Last dose magnitude for K / max_dose_K
+    last_dose_K_age_norm,               # [20] Age of last K dose (normalized)
+    has_last_dose_I,                    # [21]
+    last_dose_I_norm,                   # [22]
+    last_dose_I_age_norm,               # [23]
+    has_last_dose_A,                    # [24]
+    last_dose_A_norm,                   # [25]
+    last_dose_A_age_norm,               # [26]
+
+    last_action_completed,              # [27] 1.0 if the previous discrete action executed (non-NOOP), else 0.0
+    t_norm,                             # [28] Current timestep / episode_length
 ]
 ```
+
+All mask bits (`has_*`) are either 0.0 or 1.0. Normalized ages are clipped to `MAX_AGE` before division, ensuring the agent never receives values above 1.0 even if an observation is extremely stale.
 
 ### Observation Gating Rules
 
 | Observation Component | Availability | Default Value | Update Trigger |
-|----------------------|--------------|---------------|----------------|
-| `budget_norm` | Always available | Current budget / `budget_norm` | Every step |
-| `target_norm` | Always available | Static (`target_population` / `population_norm`) | Never changes |
-| `last_count_norm` | Only after COUNT | `-1.0` (sentinel) | COUNT action completes |
-| `avg_genome` | Only after SEQUENCING | All zeros | SEQUENCING action completes (after delay) |
-| `proportions` | Only after SEQUENCING | All zeros | SEQUENCING action completes (after delay) |
-| `time_since_last_measure_norm` | Always available | `1.0` (maximum staleness) | Updated every step |
-| `seq_pending_flag` | Always available | `0.0` or `1.0` | SEQUENCING action starts/completes |
-| `seq_eta_norm` | Always available | Steps remaining / duration | Counts down during sequencing |
+|-----------------------|--------------|---------------|----------------|
+| `last_count_norm` | After first COUNT | `0.0` | COUNT completes (instant) |
+| `has_last_count` | After first COUNT | `0.0` | COUNT completes |
+| `last_count_age_norm` | After first COUNT | `0.0` | Updated each step via age normalization |
+| `avg_genome[...]` | After first SEQ | `0.0` | Sequencing result lands (after latency) |
+| `has_last_seq` | After first SEQ | `0.0` | Sequencing result lands |
+| `last_seq_age_norm` | After first SEQ | `0.0` | Updated each step via age normalization |
+| `measure_age_norm` | When any measurement exists | `0.0` | Recomputed each step from freshest measurement |
+| `has_last_dose_X` | After first DOSE for X | `0.0` | Dosing action executes |
+| `last_dose_X_norm` | After first DOSE for X | `0.0` | Normalized when dosing executes |
+| `last_dose_X_age_norm` | After first DOSE for X | `0.0` | Updated each step via age normalization |
+| `last_action_completed` | Always available | `0.0` | Set to 1.0 whenever a non-NOOP action executes |
+| `t_norm` | Always available | `0.0` | Updated each step |
+
+> `X ∈ {K, I, A}` for the default three antibiotics. Additional antibiotics would add corresponding triplets.
 
 ### Key Staleness Mechanics
 
@@ -80,16 +96,25 @@ obs = [
    - Tracked via `ts_last_count` (timestep of last count)
 
 2. **Genome Data Staleness**
-   - SEQUENCING action has configurable delay (default: 5 steps)
-   - Genome averages from `sequencing_duration` steps ago
-   - By the time results arrive, bacteria may have evolved
-   - Tracked via `ts_last_seq` (timestep when sequencing completed)
+    - SEQUENCING action has configurable delay (default: 5 steps)
+    - Genome averages reflect the state when results land
+    - Tracked via `ts_last_seq` and exposed through `has_last_seq` / `last_seq_age_norm`
 
-3. **Age-Based Reward Normalization**
-   - Older measurements receive diminished reward contributions
-   - Three normalization types: `linear`, `log`, `sqrt`
-   - Example (sqrt): `normalized_reward = reward / (1 + sqrt(age))`
-   - Applied to both population and genome-based rewards
+3. **Age Normalization (MAX_AGE)**
+    - Every age-based field uses `age_norm = min(age, MAX_AGE) / MAX_AGE`
+    - `MAX_AGE` defaults to 100 steps; values never exceed 1.0
+    - `measure_age_norm` captures the freshest available measurement (`min` of count/seq ages)
+    - Dose ages (`last_dose_X_age_norm`) reset to 0 when a new dose of X is applied
+
+4. **Dosing History Exposure**
+    - The agent sees the magnitude and freshness of the last dose for each antibiotic channel
+    - Normalization uses the environment’s scaled maximum dose per channel
+    - Useful for policies that condition decisions on recent dosing activity
+
+5. **Action Execution Flag**
+    - `last_action_completed` reports whether the previous step executed a non-NOOP action
+    - Equals 0.0 both when the agent intentionally chose NOOP and when an unaffordable action was auto-converted
+    - Helpful for training to detect suppressed actions (e.g., budget gating)
 
 ### Information Asymmetry
 
