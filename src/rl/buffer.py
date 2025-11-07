@@ -28,6 +28,7 @@ class RolloutBuffer:
         pred_next_pop: Predicted next population [T, B]
         population_counted_norm: True population revealed by COUNT [T, B]
         count_mask: COUNT action mask [T, B]
+        action_mask: Action masks for hybrid masking [T, B, n_discrete]
     """
     
     def __init__(self):
@@ -44,6 +45,7 @@ class RolloutBuffer:
         self.pred_next_pop: List[torch.Tensor] = []
         self.population_counted_norm: List[torch.Tensor] = []
         self.count_mask: List[torch.Tensor] = []
+        self.action_mask: List[torch.Tensor] = []
     
     def add(
         self,
@@ -59,6 +61,7 @@ class RolloutBuffer:
         pred_next_pop: torch.Tensor,
         population_counted_norm: torch.Tensor,
         count_mask: torch.Tensor,
+        action_mask: torch.Tensor,
     ) -> None:
         """
         Add one timestep of data.
@@ -78,6 +81,7 @@ class RolloutBuffer:
             pred_next_pop: Predicted next population, shape [B]
             population_counted_norm: True population revealed by COUNT (normalized), shape [B]
             count_mask: COUNT action mask (1.0 if COUNT, 0.0 otherwise), shape [B]
+            action_mask: Action mask for hybrid masking, shape [B, n_discrete]
         """
         self.obs.append(obs.cpu())
         self.a_disc.append(a_disc.cpu())
@@ -91,6 +95,7 @@ class RolloutBuffer:
         self.pred_next_pop.append(pred_next_pop.cpu())
         self.population_counted_norm.append(population_counted_norm.cpu())
         self.count_mask.append(count_mask.cpu())
+        self.action_mask.append(action_mask.cpu())
     
     def stacked(self) -> Dict[str, torch.Tensor]:
         """
@@ -110,6 +115,7 @@ class RolloutBuffer:
                 pred_next_pop: [T, B]
                 population_counted_norm: [T, B]
                 count_mask: [T, B]
+                action_mask: [T, B, n_discrete]
         """
         if len(self.obs) == 0:
             raise ValueError("Buffer is empty")
@@ -127,6 +133,7 @@ class RolloutBuffer:
             "pred_next_pop": torch.stack(self.pred_next_pop, dim=0),  # [T, B]
             "population_counted_norm": torch.stack(self.population_counted_norm, dim=0),  # [T, B]
             "count_mask": torch.stack(self.count_mask, dim=0),  # [T, B]
+            "action_mask": torch.stack(self.action_mask, dim=0),  # [T, B, n_discrete]
         }
     
     def clear(self) -> None:
@@ -143,6 +150,7 @@ class RolloutBuffer:
         self.pred_next_pop.clear()
         self.population_counted_norm.clear()
         self.count_mask.clear()
+        self.action_mask.clear()
     
     def __len__(self) -> int:
         """Return number of timesteps stored."""

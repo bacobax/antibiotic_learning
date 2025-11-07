@@ -23,8 +23,8 @@ environment:
     dose:
       w_pop: 0.0                        # DISABLED: No immediate population feedback on DOSE
       w_genome: 0.0                     # DISABLED: No resistance term
-      w_cost: 1.0                     # Small cost penalty to discourage spam
-      missing_feedback_penalty: 0.5     # Penalty when dose efficacy can't be evaluated
+      w_cost: 0.5                     # Small cost penalty to discourage spam
+      missing_feedback_penalty: 0.0     # Penalty when dose efficacy can't be evaluated
 
     # Sequencing behavior
     sequencing:
@@ -33,18 +33,20 @@ environment:
     # Informed dosing (NEW: encourage count + sequencing before dose)
     informed_dosing:
       reward: 1.                       # Bonus for dosing after recent count AND sequencing
-      above_target_reward: 10.0          # Additional bonus for informed dosing when population above target
+      above_target_reward: 3.0          # Additional bonus for informed dosing when population above target
       window: 5                         # Steps to consider count "recent"
       sequencing_window: 5             # Steps to consider sequencing "recent"
-      blind_penalty: 30.0              # Penalty for dosing without recent count OR sequencing
-      low_population_penalty: 20.0     # HUGE penalty for dosing when population below target
+      blind_penalty: 3.0              # Penalty for dosing without recent count OR sequencing
+      low_population_penalty: 2.0     # HUGE penalty for dosing when population below target
     
     # Critical action penalties (NEW: penalize inaction when population is dangerously high)
     critical_inaction:
-      high_population_threshold: 3.0    # Multiplier of target (3x = critical)
+      high_population_threshold: 5.0    # Multiplier of target (3x = critical)
       no_action_penalty: 0.0           # Penalty for not seq/dosing when count shows 3x target
-      no_dose_penalty: 100.0            # Penalty for not dosing when count+seq fresh and 3x target
+      no_dose_penalty: 10.0            # Penalty for not dosing when count+seq fresh and 3x target
       freshness_window: 5               # Steps to consider data "fresh"
+      noop_penalty: 2.0
+      noop_threshold: 30
     
     # Regular monitoring rewards (encourage proactive information gathering)
     regular_monitoring:
@@ -57,8 +59,9 @@ environment:
     budget:
       budget_init: 100.0
       budget_norm: 100.0
-      budget_penalty: 50.0               # INCREASED: Penalty when budget reaches 0
-      unaffordable_action_penalty: 100.0  # NEW: Penalty for attempting unaffordable action (converted to NOOP)
+      budget_penalty: 0.0               # INCREASED: Penalty when budget reaches 0
+      # NOTE: unaffordable_action_penalty REMOVED - now using hybrid action masking (Option C)
+      # Agent CANNOT select unaffordable actions (they have probability 0 via masked logits)
     
     # Survival bonus reward (encourages longer episodes)
     survival_bonus:
@@ -107,7 +110,7 @@ actions:
     id: 3
     name: "Administer antibiotics"
     cost: 2.0                           # Fixed cost per dose action (regardless of quantity)
-    cost_per_unit: 10.0                  # Variable cost per unit of antibiotic
+    cost_per_unit: 3.0                  # Variable cost per unit of antibiotic
     duration: 0
     description: "Dose antibiotics"
 

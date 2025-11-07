@@ -522,6 +522,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     regular_monitoring_cfg = RegularMonitoringConfig(**rewards_dict["regular_monitoring"])
     critical_inaction_cfg = CriticalInactionConfig(**rewards_dict["critical_inaction"])
     sequencing_cfg = SequencingRewardConfig(**rewards_dict["sequencing"])
+    prediction_cfg = PredictionRewardConfig(**rewards_dict["prediction"])
     
     reward_cfg = RewardConfig(
         population=population_reward_cfg,
@@ -533,6 +534,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         regular_monitoring=regular_monitoring_cfg,
         critical_inaction=critical_inaction_cfg,
         sequencing=sequencing_cfg,
+        prediction=prediction_cfg,
     )
     
     # Create environment config with nested structures

@@ -93,8 +93,8 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.current_episode_budget_values = []
         
         # Reward component tracking
-        # Note: "immediate" is not plotted as it's a composite of the sub-components below
-        self.reward_immediate_history = []  # Stored but not plotted
+        self.reward_immediate_history = []  # Stored but typically not plotted (composite)
+        self.reward_action_cost_penalty_history = []  # Pure cost penalty from w_cost
         self.reward_maintenance_history = []
         self.reward_budget_penalty_history = []
         self.reward_delayed_history = []
@@ -106,6 +106,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.reward_count_population_history = []
         self.reward_critical_inaction_penalty_history = []
         self.reward_critical_noop_penalty_history = []
+        self.reward_prediction_history = []
         
         # Create central widget
         central_widget = QtWidgets.QWidget()
@@ -294,6 +295,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         # Track reward components if provided
         if reward_components:
             self.reward_immediate_history.append(reward_components.get('immediate', 0.0))
+            self.reward_action_cost_penalty_history.append(reward_components.get('action_cost_penalty', 0.0))
             self.reward_maintenance_history.append(reward_components.get('maintenance', 0.0))
             self.reward_budget_penalty_history.append(reward_components.get('budget_penalty', 0.0))
             self.reward_delayed_history.append(reward_components.get('delayed', 0.0))
@@ -305,6 +307,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             self.reward_count_population_history.append(reward_components.get('count_population', 0.0))
             self.reward_critical_inaction_penalty_history.append(reward_components.get('critical_inaction_penalty', 0.0))
             self.reward_critical_noop_penalty_history.append(reward_components.get('critical_noop_penalty', 0.0))
+            self.reward_prediction_history.append(reward_components.get('prediction', 0.0))
         
         # Update episode length plot
         self.episode_length_ax.clear()
@@ -331,9 +334,12 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         if reward_components and len(self.episode_numbers) > 0:
             self.reward_components_ax.clear()
             
-            # Plot each reward component (EXCLUDING immediate as it's a composite)
+            # Plot each reward component separately (no double-counting)
             # Only plot components that are non-zero in at least one episode
             
+            if any(x != 0 for x in self.reward_action_cost_penalty_history):
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_action_cost_penalty_history, 
+                                               label='Action Cost Penalty', linewidth=1.5, alpha=0.9)
             if any(x != 0 for x in self.reward_maintenance_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_maintenance_history, 
                                                label='Maintenance', linewidth=1.5, alpha=0.9)
@@ -367,6 +373,9 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             if any(x != 0 for x in self.reward_critical_noop_penalty_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_critical_noop_penalty_history,
                                                label='Critical NOOP Penalty', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_prediction_history):
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_prediction_history,
+                                               label='Prediction', linewidth=1.5, alpha=0.9)
             
             self.reward_components_ax.set_xlabel('Episode')
             self.reward_components_ax.set_ylabel('Reward Value')
@@ -378,7 +387,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             self.reward_components_canvas.draw()
     
     def update_training_stats(self, stats):
-        """Update training statistics display (LEFT COLUMN)"""
+        # Update training statistics display (LEFT COLUMN)
         text = f"""Update: {stats.get('update', 0)}/{stats.get('total_updates', 0)}
 Elapsed Time: {stats.get('elapsed', 0):.1f}s
 Mean Episode Reward: {stats.get('mean_reward', 0):.2f}
@@ -411,6 +420,7 @@ Episode Return: {stats.get('episode_return', 0):.2f}
 Last Action: {stats.get('last_action', 'N/A')}
 Last Reward: {stats.get('last_reward', 0):.4f}
 Budget: {stats.get('budget', 0):.2f}
+Predicted Pop: {stats.get('prediction', 0):.1f}
 """
         self.episode_display.setText(text)
         
@@ -507,6 +517,7 @@ class TrainingVisualizer:
         self.current_step = 0
         self.last_action = None
         self.last_reward = 0.0
+        self.last_prediction = 0.0  # Track last population prediction (not normalized)
         self.episodes_completed = 0
         self.last_train_stats = {'loss_actor': 0.0, 'loss_critic': 0.0}
         
@@ -529,6 +540,7 @@ class TrainingVisualizer:
         # Reward component tracking for rollout
         self.rollout_reward_components = {
             'immediate': [],
+            'action_cost_penalty': [],
             'maintenance': [],
             'budget_penalty': [],
             'unaffordable_action_penalty': [],
@@ -548,6 +560,7 @@ class TrainingVisualizer:
         # Current episode reward component accumulators
         self.current_episode_rewards = {
             'immediate': 0.0,
+            'action_cost_penalty': 0.0,
             'maintenance': 0.0,
             'budget_penalty': 0.0,
             'unaffordable_action_penalty': 0.0,
@@ -572,7 +585,7 @@ class TrainingVisualizer:
         self.rollout_episode_lengths = []
         
         # Initialize agent (reusing normal training function)
-        self.agent = _initialize_agent(ppo_cfg)
+        self.agent = _initialize_agent(ppo_cfg, self.env)
         _log_training_start(ppo_cfg, self.total_updates, logger)
         
         # IMPORTANT: Reset environment to initialize the model BEFORE setting up visualization
@@ -746,7 +759,8 @@ class TrainingVisualizer:
                 logp_cont,
                 value,
                 pred_next_pop,
-                h_prev
+                h_prev,
+                action_mask
             ) = self.agent.select_action(self.current_obs)
         
         pure_a_disc = a_disc.cpu().numpy()[0]
@@ -761,6 +775,9 @@ class TrainingVisualizer:
         
         # Get prediction value for passing to environment
         pred_next_pop_value = pred_next_pop.cpu().item()
+        
+        # Store denormalized prediction for display
+        self.last_prediction = pred_next_pop_value * self.env.population_norm
         
         # Step environment (now includes prediction reward computation)
         next_obs, reward, done, info = self.env.step(pure_a_disc, pure_a_cont, pred_population=pred_next_pop_value)
@@ -779,6 +796,7 @@ class TrainingVisualizer:
         
         # Accumulate reward components for current episode
         self.current_episode_rewards['immediate'] += info.get('reward_immediate', 0.0)
+        self.current_episode_rewards['action_cost_penalty'] += info.get('reward_action_cost_penalty', 0.0)
         self.current_episode_rewards['maintenance'] += info.get('reward_maintenance', 0.0)
         self.current_episode_rewards['budget_penalty'] += info.get('reward_budget_penalty', 0.0)
         self.current_episode_rewards['unaffordable_action_penalty'] += info.get('reward_unaffordable_action_penalty', 0.0)
@@ -807,6 +825,7 @@ class TrainingVisualizer:
             pred_next_pop=pred_next_pop.cpu(),
             population_counted_norm=torch.tensor([population_counted_norm], dtype=torch.float32),
             count_mask=torch.tensor([count_mask_value], dtype=torch.float32),
+            action_mask=action_mask.cpu(),
         )
         
         self.current_obs = next_obs
@@ -832,6 +851,7 @@ class TrainingVisualizer:
             # Extract reward components from accumulated values
             reward_components = {
                 'immediate': self.current_episode_rewards['immediate'],
+                'action_cost_penalty': self.current_episode_rewards['action_cost_penalty'],
                 'maintenance': self.current_episode_rewards['maintenance'],
                 'budget_penalty': self.current_episode_rewards['budget_penalty'],
                 'unaffordable_action_penalty': self.current_episode_rewards['unaffordable_action_penalty'],
@@ -1040,6 +1060,7 @@ class TrainingVisualizer:
             'last_action': ACTION_NAMES.get(self.last_action, 'N/A'),
             'last_reward': self.last_reward,
             'budget': self.env.budget,
+            'prediction': self.last_prediction,
             'action_counts_episode': self.action_counts_episode
         }
         self.control_panel.update_episode_stats(episode_stats)

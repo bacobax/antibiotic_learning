@@ -155,7 +155,7 @@ def rollout(
         # Prepare observation
         obs_tensor = torch.from_numpy(obs).unsqueeze(0).to(cfg.device)  # [1, obs_dim]
         
-        # Get action from policy
+        # Get action from policy (now includes action mask)
         with torch.no_grad():
             (
                 a_disc, 
@@ -164,7 +164,8 @@ def rollout(
                 logp_cont, 
                 value, 
                 pred_next_pop,
-                h_prev 
+                h_prev,
+                action_mask
             ) = agent.select_action(obs)
         
 
@@ -217,7 +218,7 @@ def rollout(
         current_reward_critical_noop_penalty += info.get('reward_critical_noop_penalty', 0.0)
         current_reward_prediction += info.get('reward_prediction', 0.0)
         
-        # Store in buffer
+        # Store in buffer (now includes action mask)
         buffer.add(
             obs=obs_tensor.cpu(),
             a_disc=a_disc.cpu(),
@@ -231,6 +232,7 @@ def rollout(
             pred_next_pop=pred_next_pop.cpu(),
             population_counted_norm=torch.tensor([population_counted_norm], dtype=torch.float32),
             count_mask=torch.tensor([count_mask_value], dtype=torch.float32),
+            action_mask=action_mask.cpu(),
         )
         
         # Update state
@@ -354,12 +356,13 @@ def rollout(
     return metrics
 
 
-def _initialize_agent(cfg: PPOConfig) -> RLAgent:
+def _initialize_agent(cfg: PPOConfig, env: PetriEnvWrapper) -> RLAgent:
     """
     Create and initialize agent with model and trainer.
     
     Args:
         cfg: PPO configuration
+        env: Environment wrapper (needed for action masking)
     
     Returns:
         Initialized RLAgent with trainer
@@ -373,7 +376,7 @@ def _initialize_agent(cfg: PPOConfig) -> RLAgent:
         dose_action_index=cfg.dose_action_index
     )
 
-    agent = RLAgent(model,cfg.device).with_trainer(cfg)
+    agent = RLAgent(model, cfg.device, env=env).with_trainer(cfg)
     return agent
 
 
@@ -463,7 +466,7 @@ def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: i
     # ========================================================================
     # SETUP
     # ========================================================================
-    agent = _initialize_agent(cfg)
+    agent = _initialize_agent(cfg, env)
     _log_training_start(cfg, total_updates, logger)
     
     # Training state
@@ -652,8 +655,8 @@ def _create_environment(
         critical_no_action_penalty=rewards.critical_inaction.no_action_penalty,
         critical_no_dose_penalty=rewards.critical_inaction.no_dose_penalty,
         critical_freshness_window=rewards.critical_inaction.freshness_window,
-    critical_noop_penalty=rewards.critical_inaction.noop_penalty,
-    critical_noop_threshold=rewards.critical_inaction.noop_threshold,
+        critical_noop_penalty=rewards.critical_inaction.noop_penalty,
+        critical_noop_threshold=rewards.critical_inaction.noop_threshold,
         dose_missing_feedback_penalty=rewards.dose.missing_feedback_penalty,
         # Prediction reward
         prediction_reward_weight=rewards.prediction.weight if rewards.prediction.enabled else 0.0,

@@ -279,6 +279,7 @@ class PetriEnvWrapper:
         self.last_informed_dosing_bonus = 0.0
         self.last_count_population_reward = 0.0
         self.last_critical_noop_penalty = 0.0
+        self.last_action_cost_penalty = 0.0  # Pure cost penalty from w_cost
 
         # clear caches
         self.last_count_obs = None
@@ -329,20 +330,17 @@ class PetriEnvWrapper:
         self.last_safe_behavior_bonus = 0.0
         self.last_informed_dosing_bonus = 0.0
         self.last_critical_noop_penalty = 0.0
+        self.last_action_cost_penalty = 0.0
         
-        # Check if action is affordable BEFORE executing
-        # If not affordable, silently convert to NOOP
-        # Also calculate cost to avoid recalculating in _execute_action
-        original_action = a_discrete
-        a_discrete, action_cost = self._check_action_affordability(a_discrete, a_cont)
-        
-        # Track if action was converted to NOOP due to insufficient budget
-        action_was_unaffordable = (original_action != ACTION_NOOP and a_discrete == ACTION_NOOP)
+        # NOTE: With hybrid action masking (Option C), the agent CANNOT select
+        # unaffordable actions. The mask ensures invalid actions have probability 0.
+        # Therefore, we don't need to check affordability or convert actions to NOOP.
+        # We can directly execute the action that was selected.
         executed_noop = (a_discrete == ACTION_NOOP)
 
         # 1) Execute action: computes immediate reward (only instant penalties/shaping)
         # This now includes regular_count_reward for COUNT actions and informed_dosing_bonus for DOSE actions
-        immediate_reward = self._execute_action(a_discrete, a_cont, action_cost)
+        immediate_reward = self._execute_action(a_discrete, a_cont)
         self.last_action_completed = 0.0 if executed_noop else 1.0
 
         # 1b) Safe non-dosing reward: reward for NOT dosing when population is below target
@@ -486,10 +484,8 @@ class PetriEnvWrapper:
         if self.budget <= 0.0 and self.budget_penalty > 0.0:
             budget_penalty = -self.budget_penalty
         
-        # 7e) Add unaffordable action penalty if agent tried action it couldn't afford
-        unaffordable_action_penalty = 0.0
-        if action_was_unaffordable and self.unaffordable_action_penalty > 0.0:
-            unaffordable_action_penalty = -self.unaffordable_action_penalty
+        # NOTE: unaffordable_action_penalty removed - with hybrid action masking,
+        # the agent CANNOT select unaffordable actions (mask ensures prob=0)
         
         # 7f) Add prediction accuracy reward (COUNT-only)
         prediction_reward = 0.0
@@ -503,7 +499,6 @@ class PetriEnvWrapper:
             immediate_reward + 
             maintenance_penalty + 
             budget_penalty +
-            unaffordable_action_penalty +
             delayed_reward +
             survival_bonus +
             budget_conservation_bonus +
@@ -520,9 +515,9 @@ class PetriEnvWrapper:
             "seq_eta": self.seq_eta,
             # Detailed reward breakdown
             "reward_immediate": immediate_reward,
+            "reward_action_cost_penalty": self.last_action_cost_penalty,
             "reward_maintenance": maintenance_penalty,
             "reward_budget_penalty": budget_penalty,
-            "reward_unaffordable_action_penalty": unaffordable_action_penalty,
             "reward_delayed": delayed_reward,
             "reward_survival_bonus": survival_bonus,
             "reward_budget_conservation": budget_conservation_bonus,
@@ -544,49 +539,12 @@ class PetriEnvWrapper:
     # Action execution
     # -------------------------
 
-    def _check_action_affordability(self, a_discrete: int, a_cont: np.ndarray) -> Tuple[int, float]:
-        """
-        Check if the agent can afford the requested action.
-        If not affordable, return ACTION_NOOP instead.
-        
-        This ensures that budget constraints are respected without breaking
-        the action execution logic - the agent simply performs NOOP when broke.
-        
-        Args:
-            a_discrete: Requested discrete action
-            a_cont: Continuous action parameters
-            
-        Returns:
-            Tuple of (action_to_execute, action_cost)
-        """
-        if a_discrete == ACTION_NOOP:
-            return ACTION_NOOP, 0.0
-        
-        if a_discrete == ACTION_COUNT_BACTERIA:
-            if self.budget < self.count_cost:
-                return ACTION_NOOP, 0.0
-            return ACTION_COUNT_BACTERIA, self.count_cost
-        
-        if a_discrete == ACTION_SEQUENCING:
-            if self.budget < self.sequencing_cost:
-                return ACTION_NOOP, 0.0
-            return ACTION_SEQUENCING, self.sequencing_cost
-        
-        if a_discrete == ACTION_DOSE:
-            # Calculate total dose cost
-            scaled = self.scale_dose(np.clip(a_cont, 0.0, 1.0))
-            variable_cost = float(np.sum(scaled) * self.dose_cost_per_unit)
-            total_cost = self.dose_cost + variable_cost
-            
-            if self.budget < total_cost:
-                return ACTION_NOOP, 0.0
-            return ACTION_DOSE, total_cost
-        
-        return a_discrete, 0.0
-
-    def _execute_action(self, a_discrete: int, a_cont: np.ndarray, action_cost: float) -> float:
+    def _execute_action(self, a_discrete: int, a_cont: np.ndarray) -> float:
         """
         Applies the chosen action. Returns *immediate* reward as float.
+        
+        NOTE: With hybrid action masking (Option C), all actions are guaranteed
+        to be affordable when called. No need to check budget here.
         
         Simplified approach: Let natural consequences (population changes) 
         drive learning through maintenance reward, rather than predicting
@@ -614,7 +572,8 @@ class PetriEnvWrapper:
             return bonus
 
         if a_discrete == ACTION_COUNT_BACTERIA:
-            # Apply count cost (pre-calculated and passed in)
+            # Calculate and apply count cost
+            action_cost = self.count_cost
             self.budget -= action_cost
             self.episode_budget_spent += action_cost
             
@@ -663,25 +622,33 @@ class PetriEnvWrapper:
             
             # Store for tracking
             self.last_regular_count_bonus = regular_monitoring_bonus
-            return -action_cost + regular_monitoring_bonus + count_pop_reward
+            self.last_action_cost_penalty = -self.count_cost * self.w_cost
+            return -self.count_cost * self.w_cost + regular_monitoring_bonus + count_pop_reward
 
         if a_discrete == ACTION_SEQUENCING:
-            # Cost now, reward 0 now; result later (pre-calculated cost)
+            # Calculate and apply sequencing cost
+            action_cost = self.sequencing_cost
             self.budget -= action_cost
             self.episode_budget_spent += action_cost
             if not self.seq_pending:
                 self.seq_pending = True
                 self.seq_eta = int(self.sequencing_duration)
+                self.last_action_cost_penalty = -action_cost * self.w_cost
+                return -action_cost * self.w_cost
             else:
-                return -float(self.redundant_sequencing_penalty)
-            return 0.0
+                self.last_action_cost_penalty = -action_cost * self.w_cost
+                return -action_cost * self.w_cost - float(self.redundant_sequencing_penalty)
 
         if a_discrete == ACTION_DOSE:
-            # Apply antibiotics (cost already calculated and checked)
+            # Calculate dose cost from continuous action
             scaled = self.scale_dose(np.clip(a_cont, 0.0, 1.0))
+            variable_cost = float(np.sum(scaled) * self.dose_cost_per_unit)
+            action_cost = self.dose_cost + variable_cost
+            
+            # Apply antibiotics
             self._apply_antibiotics(scaled)
             
-            # Deduct pre-calculated cost
+            # Deduct cost
             self.budget -= action_cost
             self.episode_budget_spent += action_cost
             self._dose_update_buffer = np.array(scaled, dtype=np.float32, copy=True)
@@ -739,6 +706,7 @@ class PetriEnvWrapper:
             
             # Store for tracking
             self.last_informed_dosing_bonus = dosing_bonus
+            self.last_action_cost_penalty = -action_cost * self.w_cost
             
             # ✅ SIMPLIFIED: Return cost penalty + informed dosing bonus/penalty
             # Let population maintenance reward (computed every step) capture efficacy
@@ -1044,3 +1012,50 @@ class PetriEnvWrapper:
             "budget_spent": float(self.episode_budget_spent),
             "budget_per_step": float(budget_per_step),
         }
+    
+    def get_action_mask(self, a_cont: np.ndarray) -> np.ndarray:
+        """
+        Compute action mask based on budget and continuous dose action.
+        
+        This implements Option C: continuous-dependent dose masking.
+        The continuous dose is used to compute the exact cost of DOSE action,
+        and DOSE is masked out if this specific dose is unaffordable.
+        
+        Args:
+            a_cont: Continuous action (dose amounts), shape [K], values in [0,1]
+        
+        Returns:
+            mask: Binary mask of shape [4], where:
+                [0] = NOOP (always 1.0)
+                [1] = COUNT (1.0 if affordable, 0.0 otherwise)
+                [2] = SEQUENCING (1.0 if affordable, 0.0 otherwise)
+                [3] = DOSE (1.0 if this specific dose is affordable, 0.0 otherwise)
+        """
+        mask = np.zeros(4, dtype=np.float32)
+        
+        # NOOP is always valid
+        mask[ACTION_NOOP] = 1.0
+        
+        # COUNT validity (fixed cost)
+        if self.budget >= self.count_cost:
+            mask[ACTION_COUNT_BACTERIA] = 1.0
+        
+        # SEQUENCING validity (fixed cost)
+        if self.budget >= self.sequencing_cost:
+            mask[ACTION_SEQUENCING] = 1.0
+        
+        # DOSE validity (depends on the specific continuous action)
+        # Clip continuous action to [0,1] and scale
+        a_cont_clipped = np.clip(a_cont, 0.0, 1.0)
+        scaled = self.scale_dose(a_cont_clipped)
+        variable_cost = float(np.sum(scaled) * self.dose_cost_per_unit)
+        total_dose_cost = self.dose_cost + variable_cost
+        
+        if self.budget >= total_dose_cost:
+            mask[ACTION_DOSE] = 1.0
+        
+        # Safety: if all actions are invalid (shouldn't happen), force NOOP
+        if np.sum(mask) == 0.0:
+            mask[ACTION_NOOP] = 1.0
+        
+        return mask

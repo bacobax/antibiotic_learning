@@ -153,15 +153,22 @@ class RecurrentActorCritic(nn.Module):
         self,
         obs: torch.Tensor,
         h_prev: torch.Tensor,
+        action_mask: torch.Tensor = None,
         deterministic: bool = False,
     ) -> Dict[str, torch.Tensor]:
         """
-        Sample actions from policy.
+        Sample actions from policy with optional action masking.
+        
+        HYBRID ACTION MASKING (Option C):
+        1. Sample continuous action first
+        2. Use it to compute action mask (if provided)
+        3. Apply mask to discrete logits
+        4. Sample discrete action from masked distribution
         
         Args:
             obs: Observations, shape [B, obs_dim]
             h_prev: Previous hidden state, shape [layers, B, hidden_dim]
-            dose_action_index: Index of DOSE action in discrete set
+            action_mask: Optional action mask, shape [B, 4], where mask[i,j]=1 means action j is valid
             deterministic: If True, use mode instead of sampling
         
         Returns:
@@ -173,18 +180,11 @@ class RecurrentActorCritic(nn.Module):
                 value: Value estimates, shape [B]
                 pred_next_pop: Predicted next population (normalized), shape [B]
                 h_next: Next hidden state, shape [layers, B, hidden_dim]
+                action_mask: Action mask used (if provided), shape [B, 4]
         """
         logits_disc, (mu, std), value, pred_next_pop, h_next = self.forward_step(obs, h_prev)
         
-        # Discrete action
-        dist_disc = Categorical(logits=logits_disc)
-        if deterministic:
-            a_disc = logits_disc.argmax(dim=-1)
-        else:
-            a_disc = dist_disc.sample()
-        logp_disc = dist_disc.log_prob(a_disc)
-        
-        # Continuous action (always sample, but only used if a_disc == DOSE)
+        # STEP 1: Sample continuous action FIRST (always sample, used for DOSE and for masking)
         dist_cont = Normal(mu, std)
         if deterministic:
             a_cont_raw = mu
@@ -196,6 +196,24 @@ class RecurrentActorCritic(nn.Module):
         
         # Log-prob (pre-tanh space, no Jacobian correction for simplicity)
         logp_cont_raw = dist_cont.log_prob(a_cont_raw).sum(dim=-1)  # [B]
+        
+        # STEP 2: Apply action mask if provided
+        # Mask is applied to logits: masked_logits = logits + log(mask)
+        # This ensures invalid actions get probability 0
+        if action_mask is not None:
+            # Add small epsilon to avoid log(0)
+            mask_log = torch.log(action_mask + 1e-10)  # [B, n_discrete]
+            logits_disc_masked = logits_disc + mask_log
+        else:
+            logits_disc_masked = logits_disc
+        
+        # STEP 3: Sample discrete action from masked distribution
+        dist_disc = Categorical(logits=logits_disc_masked)
+        if deterministic:
+            a_disc = logits_disc_masked.argmax(dim=-1)
+        else:
+            a_disc = dist_disc.sample()
+        logp_disc = dist_disc.log_prob(a_disc)
         
         # Mask: only use continuous log-prob if discrete action is DOSE
         is_dose = (a_disc == self.dose_action_index).float()  # [B]
@@ -209,6 +227,7 @@ class RecurrentActorCritic(nn.Module):
             "value": value.squeeze(-1),  # [B]
             "pred_next_pop": pred_next_pop.squeeze(-1),  # [B]
             "h_next": h_next,  # [layers, B, hidden_dim]
+            "action_mask": action_mask if action_mask is not None else torch.ones(obs.shape[0], self.n_discrete, device=obs.device),  # [B, 4]
         }
     
     def evaluate_actions(
@@ -217,18 +236,20 @@ class RecurrentActorCritic(nn.Module):
         h_init: torch.Tensor,
         a_disc: torch.Tensor,
         a_cont: torch.Tensor,
+        action_masks: torch.Tensor = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Evaluate log-probs and values for given actions over a sequence.
         
         Used during PPO update to recompute log-probs for old actions.
+        Supports action masking for consistency with act() method.
         
         Args:
             obs_seq: Observation sequence, shape [T, B, obs_dim]
             h_init: Initial hidden state, shape [layers, B, hidden_dim]
             a_disc: Discrete actions, shape [T, B]
             a_cont: Continuous doses, shape [T, B, K] (in [0,1])
-            dose_action_index: Index of DOSE action
+            action_masks: Optional action masks, shape [T, B, n_discrete]
         
         Returns:
             Dictionary containing:
@@ -251,8 +272,16 @@ class RecurrentActorCritic(nn.Module):
         value = self.value_head(gru_out).squeeze(-1)  # [T, B]
         pred_next_pop = F.softplus(self.pred_head(gru_out)).squeeze(-1)  # [T, B]
         
-        # Discrete distribution
-        dist_disc = Categorical(logits=logits_disc)
+        # Apply action masks if provided
+        if action_masks is not None:
+            # Add small epsilon to avoid log(0)
+            mask_log = torch.log(action_masks + 1e-10)  # [T, B, n_discrete]
+            logits_disc_masked = logits_disc + mask_log
+        else:
+            logits_disc_masked = logits_disc
+        
+        # Discrete distribution (with masked logits)
+        dist_disc = Categorical(logits=logits_disc_masked)
         logp_disc = dist_disc.log_prob(a_disc)  # [T, B]
         entropy_disc = dist_disc.entropy()  # [T, B]
         
