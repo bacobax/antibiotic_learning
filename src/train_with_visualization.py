@@ -871,7 +871,7 @@ class TrainingVisualizer:
         
         # Handle episode termination
         if done:
-            print("Episode done processing..., number of steps:", self.current_step)
+            # print("Episode done processing..., number of steps:", self.current_step)
             # ⚠️ IMPORTANT: Get budget metrics BEFORE resetting environment!
             budget_metrics = self.env.get_episode_budget_metrics()
             

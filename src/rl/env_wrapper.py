@@ -480,7 +480,7 @@ class PetriEnvWrapper:
             population_unrecoverable = (true_population >= unrecoverable_threshold)
             
             # Check budget condition if required
-            budget_condition_met = True
+            budget_condition_met = False
             if self.early_termination_require_budget_depleted:
                 budget_condition_met = (self.budget <= 0.0)
                 
