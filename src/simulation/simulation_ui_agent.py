@@ -463,7 +463,19 @@ class AgentSimulatorUI:
     def _agent_step(self):
         """Execute one agent step in the environment"""
         # Get agent action
-        a_disc, a_cont, logp_disc, logp_cont, value, h_prev = self.agent.select_action(self.last_obs)
+        (
+            a_disc,
+            a_cont,
+            logp_disc,
+            logp_cont,
+            value,
+            _pred_next_pop,
+            h_prev,
+            _action_mask,
+            _prev_action_onehot,
+            _prev_action_cont,
+            _prev_pred_next_pop,
+        ) = self.agent.select_action(self.last_obs)
         
         # Extract numpy arrays
         a_disc_np = int(a_disc.squeeze().cpu().numpy())

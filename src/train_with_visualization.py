@@ -19,6 +19,7 @@ from typing import Optional
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from PyQt5 import QtWidgets, QtCore
 
 from simulation.model import BacteriaModel
@@ -782,7 +783,10 @@ class TrainingVisualizer:
                 value,
                 pred_next_pop,
                 h_prev,
-                action_mask
+                action_mask,
+                prev_action_onehot,
+                prev_action_cont,
+                prev_pred_next_pop,
             ) = self.agent.select_action(self.current_obs)
         
         pure_a_disc = a_disc.cpu().numpy()[0]
@@ -834,6 +838,12 @@ class TrainingVisualizer:
         self.current_episode_rewards['prediction'] += info.get('reward_prediction', 0.0)
         self.current_episode_rewards['early_termination_penalty'] += info.get('reward_early_termination_penalty', 0.0)
         
+        # Build prediction head input features (matches training rollout)
+        a_disc_onehot = F.one_hot(a_disc, num_classes=self.agent.model.n_discrete).float()
+        dose_mask_tensor = (a_disc == self.agent.model.dose_action_index).float().unsqueeze(-1)
+        a_cont_for_pred = a_cont * dose_mask_tensor
+        pred_action_input = torch.cat([a_disc_onehot, a_cont_for_pred], dim=-1)
+
         # Store in buffer
         self.buffer.add(
             obs=obs_tensor.cpu(),
@@ -849,6 +859,10 @@ class TrainingVisualizer:
             population_counted_norm=torch.tensor([population_counted_norm], dtype=torch.float32),
             count_mask=torch.tensor([count_mask_value], dtype=torch.float32),
             action_mask=action_mask.cpu(),
+            prev_action_onehot=prev_action_onehot.cpu(),
+            prev_action_cont=prev_action_cont.cpu(),
+            pred_action_input=pred_action_input.cpu(),
+            prev_pred_next_pop=prev_pred_next_pop.cpu(),
         )
         
         self.current_obs = next_obs
@@ -857,6 +871,7 @@ class TrainingVisualizer:
         
         # Handle episode termination
         if done:
+            print("Episode done processing..., number of steps:", self.current_step)
             # ⚠️ IMPORTANT: Get budget metrics BEFORE resetting environment!
             budget_metrics = self.env.get_episode_budget_metrics()
             

@@ -59,6 +59,11 @@ class PPOTrainer:
                 population_counted_norm: [T, B]
                 count_mask: [T, B]
                 action_mask: [T, B, n_discrete]
+                prev_action_onehot: [T, B, n_discrete]
+                prev_action_cont: [T, B, K]
+                prev_action_encoding: [T, B, n_discrete + K + 1]
+                pred_action_input: [T, B, n_discrete + K]
+                prev_pred_next_pop: [T, B, 1]
         
         Returns:
             Dictionary with training statistics
@@ -77,6 +82,8 @@ class PPOTrainer:
         population_counted_norm = data["population_counted_norm"].to(self.cfg.device)
         count_mask = data["count_mask"].to(self.cfg.device)
         action_masks = data["action_mask"].to(self.cfg.device)
+        prev_action_encoding = data["prev_action_encoding"].to(self.cfg.device)
+        pred_action_input = data["pred_action_input"].to(self.cfg.device)
         
         T, B = obs.shape[:2]
         
@@ -128,11 +135,18 @@ class PPOTrainer:
                 population_counted_norm_chunk = population_counted_norm[t_start:t_end]
                 count_mask_chunk = count_mask[t_start:t_end]
                 action_masks_chunk = action_masks[t_start:t_end]
+                prev_action_encoding_chunk = prev_action_encoding[t_start:t_end]
+                pred_action_input_chunk = pred_action_input[t_start:t_end]
                 
                 # Evaluate actions with current policy (with action masks for consistency)
                 eval_dict = self.model.evaluate_actions(
-                    obs_chunk, h_init, a_disc_chunk, a_cont_chunk,
-                    action_masks=action_masks_chunk
+                    obs_chunk,
+                    prev_action_encoding_chunk,
+                    h_init,
+                    a_disc_chunk,
+                    a_cont_chunk,
+                    pred_action_input=pred_action_input_chunk,
+                    action_masks=action_masks_chunk,
                 )
                 
                 new_logp_disc = eval_dict["logp_disc"]

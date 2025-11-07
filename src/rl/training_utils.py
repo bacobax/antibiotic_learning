@@ -20,6 +20,7 @@ from datetime import datetime
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 try:
     from tqdm import tqdm
@@ -163,14 +164,17 @@ def rollout(
         # Get action from policy (now includes action mask)
         with torch.no_grad():
             (
-                a_disc, 
-                a_cont, 
-                logp_disc, 
-                logp_cont, 
-                value, 
+                a_disc,
+                a_cont,
+                logp_disc,
+                logp_cont,
+                value,
                 pred_next_pop,
                 h_prev,
-                action_mask
+                action_mask,
+                prev_action_onehot,
+                prev_action_cont,
+                prev_pred_next_pop,
             ) = agent.select_action(obs)
         
 
@@ -228,7 +232,13 @@ def rollout(
         if info.get('early_termination_triggered', False):
             early_termination_count += 1
         
-        # Store in buffer (now includes action mask)
+        # Build prediction head input features and store in buffer (includes action mask)
+        a_disc_onehot = F.one_hot(a_disc, num_classes=cfg.n_discrete).float()
+        dose_mask_tensor = (a_disc == cfg.dose_action_index).float().unsqueeze(-1)
+        a_cont_for_pred = a_cont * dose_mask_tensor
+        pred_action_input = torch.cat([a_disc_onehot, a_cont_for_pred], dim=-1)
+
+        # Store in buffer (now includes action mask and action conditioning)
         buffer.add(
             obs=obs_tensor.cpu(),
             a_disc=a_disc.cpu(),
@@ -243,6 +253,10 @@ def rollout(
             population_counted_norm=torch.tensor([population_counted_norm], dtype=torch.float32),
             count_mask=torch.tensor([count_mask_value], dtype=torch.float32),
             action_mask=action_mask.cpu(),
+            prev_action_onehot=prev_action_onehot.cpu(),
+            prev_action_cont=prev_action_cont.cpu(),
+            pred_action_input=pred_action_input.cpu(),
+            prev_pred_next_pop=prev_pred_next_pop.cpu(),
         )
         
         # Update state

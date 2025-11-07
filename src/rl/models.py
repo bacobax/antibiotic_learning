@@ -73,10 +73,11 @@ class RecurrentActorCritic(nn.Module):
         self.hidden_dim = hidden_dim
         self.rnn_layers = rnn_layers
         self.dose_action_index = dose_action_index
+        self.prev_action_dim = n_discrete + k_doses + 1
         
         # GRU core
         self.gru = nn.GRU(
-            input_size=obs_dim,
+            input_size=self.obs_dim + self.prev_action_dim,
             hidden_size=hidden_dim,
             num_layers=rnn_layers,
             batch_first=False,  # Expect [T, B, obs_dim]
@@ -93,6 +94,7 @@ class RecurrentActorCritic(nn.Module):
         self.value_head = nn.Linear(hidden_dim, 1)
         
         # Prediction head (next population)
+        self.prediction_fc = nn.Linear(hidden_dim + self.prev_action_dim, hidden_dim)
         self.pred_head = nn.Linear(hidden_dim, 1)
         
         # Initialize weights
@@ -101,11 +103,13 @@ class RecurrentActorCritic(nn.Module):
         init_weights_orthogonal(self.discrete_head, gain=0.01)
         init_weights_orthogonal(self.continuous_mu, gain=0.01)
         init_weights_orthogonal(self.value_head, gain=1.0)
+        init_weights_orthogonal(self.prediction_fc, gain=1.0)
         init_weights_orthogonal(self.pred_head, gain=0.01)
     
     def forward_step(
         self, 
         obs: torch.Tensor, 
+        prev_action: torch.Tensor,
         h_prev: torch.Tensor
     ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
         """
@@ -121,11 +125,13 @@ class RecurrentActorCritic(nn.Module):
                 mu: shape [B, k_doses] (pre-squash means)
                 std: shape [B, k_doses]
             value: State value, shape [B, 1]
-            pred_next_pop: Predicted next population (normalized), shape [B, 1]
+            features: Latent features for heads, shape [B, hidden_dim]
             h_next: Next hidden state, shape [layers, B, hidden_dim]
         """
-        # obs: [B, obs_dim] -> [1, B, obs_dim] for GRU
-        obs_seq = obs.unsqueeze(0)
+        # Concatenate previous action encoding to observation for GRU input
+        gru_input = torch.cat([obs, prev_action], dim=-1)  # [B, obs_dim + prev_action_dim]
+        # gru_input: [B, ...] -> [1, B, ...] for GRU
+        obs_seq = gru_input.unsqueeze(0)
         
         # GRU forward
         gru_out, h_next = self.gru(obs_seq, h_prev)
@@ -140,18 +146,28 @@ class RecurrentActorCritic(nn.Module):
         # Continuous action distribution
         mu = self.continuous_mu(features)  # [B, k_doses]
         std = torch.exp(self.continuous_log_std).expand_as(mu)  # [B, k_doses]
-        
+
         # Value estimate
         value = self.value_head(features)  # [B, 1]
-        
-        # Prediction head (next population normalized)
-        pred_next_pop = F.softplus(self.pred_head(features))  # [B, 1], non-negative
-        
-        return logits_disc, (mu, std), value, pred_next_pop, h_next
+
+        return logits_disc, (mu, std), value, features, h_next
+
+    def _predict_next_population(
+        self,
+        features: torch.Tensor,
+        action_one_hot: torch.Tensor,
+        action_cont: torch.Tensor,
+        prev_pred_next_pop: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute next population prediction conditioned on action."""
+        pred_input = torch.cat([features, action_one_hot, action_cont, prev_pred_next_pop], dim=-1)
+        hidden = F.relu(self.prediction_fc(pred_input))
+        return F.softplus(self.pred_head(hidden))
     
     def act(
         self,
         obs: torch.Tensor,
+        prev_action: torch.Tensor,
         h_prev: torch.Tensor,
         action_mask: torch.Tensor = None,
         deterministic: bool = False,
@@ -182,7 +198,7 @@ class RecurrentActorCritic(nn.Module):
                 h_next: Next hidden state, shape [layers, B, hidden_dim]
                 action_mask: Action mask used (if provided), shape [B, 4]
         """
-        logits_disc, (mu, std), value, pred_next_pop, h_next = self.forward_step(obs, h_prev)
+        logits_disc, (mu, std), value, features, h_next = self.forward_step(obs, prev_action, h_prev)
         
         # STEP 1: Sample continuous action FIRST (always sample, used for DOSE and for masking)
         dist_cont = Normal(mu, std)
@@ -218,6 +234,12 @@ class RecurrentActorCritic(nn.Module):
         # Mask: only use continuous log-prob if discrete action is DOSE
         is_dose = (a_disc == self.dose_action_index).float()  # [B]
         logp_cont = logp_cont_raw * is_dose
+
+        # Build action-conditioned prediction input
+        action_one_hot = F.one_hot(a_disc, num_classes=self.n_discrete).float()
+        action_cont = a_cont * is_dose.unsqueeze(-1)
+        prev_pred_next_pop = prev_action[:, self.n_discrete + self.k_doses :]
+        pred_next_pop = self._predict_next_population(features, action_one_hot, action_cont, prev_pred_next_pop)
         
         return {
             "a_disc": a_disc,  # [B]
@@ -233,9 +255,11 @@ class RecurrentActorCritic(nn.Module):
     def evaluate_actions(
         self,
         obs_seq: torch.Tensor,
+        prev_action_seq: torch.Tensor,
         h_init: torch.Tensor,
         a_disc: torch.Tensor,
         a_cont: torch.Tensor,
+        pred_action_input: torch.Tensor = None,
         action_masks: torch.Tensor = None,
     ) -> Dict[str, torch.Tensor]:
         """
@@ -245,10 +269,12 @@ class RecurrentActorCritic(nn.Module):
         Supports action masking for consistency with act() method.
         
         Args:
-            obs_seq: Observation sequence, shape [T, B, obs_dim]
+        obs_seq: Observation sequence, shape [T, B, obs_dim]
+        prev_action_seq: Previous action encodings, shape [T, B, n_discrete + k_doses + 1]
             h_init: Initial hidden state, shape [layers, B, hidden_dim]
             a_disc: Discrete actions, shape [T, B]
             a_cont: Continuous doses, shape [T, B, K] (in [0,1])
+            pred_action_input: Optional cached action features for prediction head, shape [T, B, n_discrete + k_doses]
             action_masks: Optional action masks, shape [T, B, n_discrete]
         
         Returns:
@@ -263,14 +289,14 @@ class RecurrentActorCritic(nn.Module):
         T, B = obs_seq.shape[:2]
         
         # Forward through GRU
-        gru_out, _ = self.gru(obs_seq, h_init)  # [T, B, hidden_dim]
+        gru_input = torch.cat([obs_seq, prev_action_seq], dim=-1)
+        gru_out, _ = self.gru(gru_input, h_init)  # [T, B, hidden_dim]
         
         # Compute heads
         logits_disc = self.discrete_head(gru_out)  # [T, B, n_discrete]
         mu = self.continuous_mu(gru_out)  # [T, B, k_doses]
         std = torch.exp(self.continuous_log_std).expand_as(mu)  # [T, B, k_doses]
         value = self.value_head(gru_out).squeeze(-1)  # [T, B]
-        pred_next_pop = F.softplus(self.pred_head(gru_out)).squeeze(-1)  # [T, B]
         
         # Apply action masks if provided
         if action_masks is not None:
@@ -299,6 +325,28 @@ class RecurrentActorCritic(nn.Module):
         is_dose = (a_disc == self.dose_action_index).float()  # [T, B]
         logp_cont = logp_cont_raw * is_dose
         entropy_cont = entropy_cont * is_dose
+
+        prev_action_flat = prev_action_seq.reshape(-1, self.prev_action_dim)
+        prev_pred_flat = prev_action_flat[:, self.n_discrete + self.k_doses :]
+
+        if pred_action_input is not None:
+            pred_input_flat = pred_action_input.reshape(-1, pred_action_input.shape[-1])
+            action_one_hot_flat = pred_input_flat[:, :self.n_discrete]
+            action_cont_flat = pred_input_flat[:, self.n_discrete:self.n_discrete + self.k_doses]
+        else:
+            action_one_hot = F.one_hot(a_disc, num_classes=self.n_discrete).float()
+            action_cont = a_cont * is_dose.unsqueeze(-1)
+            action_one_hot_flat = action_one_hot.reshape(-1, self.n_discrete)
+            action_cont_flat = action_cont.reshape(-1, self.k_doses)
+
+        features_flat = gru_out.reshape(-1, self.hidden_dim)
+        pred_next_pop = self._predict_next_population(
+            features_flat,
+            action_one_hot_flat,
+            action_cont_flat,
+            prev_pred_flat,
+        )
+        pred_next_pop = pred_next_pop.view_as(value)
         
         return {
             "logp_disc": logp_disc,

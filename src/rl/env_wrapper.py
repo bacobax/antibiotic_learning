@@ -542,11 +542,11 @@ class PetriEnvWrapper:
         # 7f) Add prediction accuracy reward (COUNT-only)
         prediction_reward = 0.0
         if count_result_landed and pred_population is not None and self.prediction_reward_weight > 0.0:
-            # Compute prediction error (absolute difference from true normalized population)
-            pred_error = abs(pred_population - population_counted_norm)
-            # Reward is negative error, scaled by weight (reward accuracy, penalize inaccuracy)
-            prediction_reward = -pred_error * self.prediction_reward_weight
-        
+            if (self.t < 100):
+                print(f"[PREDICTION REWARD] t={self.t}, predicted={pred_population:.4f}, actual={population_counted_norm:.4f}")
+            pred_error = abs(pred_population - population_counted_norm)  # in [0, 1]
+            prediction_reward = (1.0 - pred_error) * self.prediction_reward_weight
+
         reward = (
             immediate_reward + 
             maintenance_penalty + 
