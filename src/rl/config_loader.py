@@ -120,6 +120,15 @@ class CriticalInactionConfig:
 
 
 @dataclass
+class EarlyTerminationConfig:
+    """Configuration for early termination on unrecoverable NOOP-only states."""
+    enabled: bool = False  # Whether to enable early termination
+    penalty: float = 0.0  # Penalty applied when early termination triggers
+    population_threshold: float = 5.0  # Multiplier of target (e.g., 5.0 = population > 5x target)
+    require_budget_depleted: bool = True  # If True, only trigger when budget is also depleted
+
+
+@dataclass
 class SequencingRewardConfig:
     """Configuration for sequencing-related rewards."""
     redundant_penalty: float = 0.001  # Penalty magnitude for triggering sequencing while one is pending
@@ -145,6 +154,7 @@ class RewardConfig:
     critical_inaction: CriticalInactionConfig
     sequencing: SequencingRewardConfig
     prediction: PredictionRewardConfig
+    early_termination: EarlyTerminationConfig
 
 
 @dataclass
@@ -523,6 +533,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     critical_inaction_cfg = CriticalInactionConfig(**rewards_dict["critical_inaction"])
     sequencing_cfg = SequencingRewardConfig(**rewards_dict["sequencing"])
     prediction_cfg = PredictionRewardConfig(**rewards_dict["prediction"])
+    early_termination_cfg = EarlyTerminationConfig(**rewards_dict["early_termination"])
     
     reward_cfg = RewardConfig(
         population=population_reward_cfg,
@@ -535,6 +546,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         critical_inaction=critical_inaction_cfg,
         sequencing=sequencing_cfg,
         prediction=prediction_cfg,
+        early_termination=early_termination_cfg,
     )
     
     # Create environment config with nested structures

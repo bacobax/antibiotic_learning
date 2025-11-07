@@ -107,6 +107,8 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.reward_critical_inaction_penalty_history = []
         self.reward_critical_noop_penalty_history = []
         self.reward_prediction_history = []
+        self.reward_early_termination_penalty_history = []
+        self.early_termination_count = 0  # Track how many episodes ended early
         
         # Create central widget
         central_widget = QtWidgets.QWidget()
@@ -308,6 +310,11 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             self.reward_critical_inaction_penalty_history.append(reward_components.get('critical_inaction_penalty', 0.0))
             self.reward_critical_noop_penalty_history.append(reward_components.get('critical_noop_penalty', 0.0))
             self.reward_prediction_history.append(reward_components.get('prediction', 0.0))
+            self.reward_early_termination_penalty_history.append(reward_components.get('early_termination_penalty', 0.0))
+            
+            # Track early termination occurrences
+            if reward_components.get('early_termination_triggered', False):
+                self.early_termination_count += 1
         
         # Update episode length plot
         self.episode_length_ax.clear()
@@ -376,6 +383,9 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             if any(x != 0 for x in self.reward_prediction_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_prediction_history,
                                                label='Prediction', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_early_termination_penalty_history):
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_early_termination_penalty_history,
+                                               label='Early Term Penalty', linewidth=1.5, alpha=0.9)
             
             self.reward_components_ax.set_xlabel('Episode')
             self.reward_components_ax.set_ylabel('Reward Value')
@@ -415,12 +425,23 @@ DOSE:     {action_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_total', {}).g
     
     def update_episode_stats(self, stats):
         """Update current episode statistics (LEFT COLUMN)"""
+        # Get current episode reward components if available
+        current_rewards = stats.get('current_episode_rewards', {})
+        early_term_penalty = current_rewards.get('early_termination_penalty', 0.0)
+        prediction_reward = current_rewards.get('prediction', 0.0)
+        action_cost = current_rewards.get('action_cost_penalty', 0.0)
+        
         text = f"""Step: {stats.get('step', 0)}
 Episode Return: {stats.get('episode_return', 0):.2f}
 Last Action: {stats.get('last_action', 'N/A')}
 Last Reward: {stats.get('last_reward', 0):.4f}
 Budget: {stats.get('budget', 0):.2f}
 Predicted Pop: {stats.get('prediction', 0):.1f}
+
+Current Episode Rewards:
+  Prediction: {prediction_reward:.3f}
+  Action Cost: {action_cost:.3f}
+  Early Term: {early_term_penalty:.3f}
 """
         self.episode_display.setText(text)
         
@@ -574,6 +595,7 @@ class TrainingVisualizer:
             'critical_inaction_penalty': 0.0,
             'critical_noop_penalty': 0.0,
             'prediction': 0.0,
+            'early_termination_penalty': 0.0,
             'pred_error': 0.0,  # Diagnostic only
         }
         
@@ -810,6 +832,7 @@ class TrainingVisualizer:
         self.current_episode_rewards['critical_inaction_penalty'] += info.get('reward_critical_inaction_penalty', 0.0)
         self.current_episode_rewards['critical_noop_penalty'] += info.get('reward_critical_noop_penalty', 0.0)
         self.current_episode_rewards['prediction'] += info.get('reward_prediction', 0.0)
+        self.current_episode_rewards['early_termination_penalty'] += info.get('reward_early_termination_penalty', 0.0)
         
         # Store in buffer
         self.buffer.add(
@@ -865,6 +888,8 @@ class TrainingVisualizer:
                 'critical_inaction_penalty': self.current_episode_rewards['critical_inaction_penalty'],
                 'critical_noop_penalty': self.current_episode_rewards['critical_noop_penalty'],
                 'prediction': self.current_episode_rewards['prediction'],
+                'early_termination_penalty': self.current_episode_rewards['early_termination_penalty'],
+                'early_termination_triggered': info.get('early_termination_triggered', False),
                 'pred_error': self.current_episode_rewards['pred_error'],
             }
             
@@ -1061,7 +1086,8 @@ class TrainingVisualizer:
             'last_reward': self.last_reward,
             'budget': self.env.budget,
             'prediction': self.last_prediction,
-            'action_counts_episode': self.action_counts_episode
+            'action_counts_episode': self.action_counts_episode,
+            'current_episode_rewards': self.current_episode_rewards  # Add current reward components
         }
         self.control_panel.update_episode_stats(episode_stats)
         

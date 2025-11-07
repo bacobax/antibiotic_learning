@@ -83,6 +83,13 @@ environment:
     prediction:
       enabled: true
       weight: 5.0                       # Weight for prediction accuracy reward (applied only on COUNT)
+    
+    # Early termination on unrecoverable NOOP-only states
+    early_termination:
+      enabled: false                    # Enable early termination when only NOOP is available in unrecoverable state
+      penalty: 10.0                     # Penalty applied on early termination
+      population_threshold: 5.0         # Population must exceed (target × this factor) to be unrecoverable
+      require_budget_depleted: true     # If true, also require budget depleted to trigger
 
 actions:
   noop:

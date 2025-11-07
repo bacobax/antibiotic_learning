@@ -117,6 +117,11 @@ class PetriEnvWrapper:
         critical_noop_threshold: int = 15,        # steps before stale-count penalty activates
         # prediction accuracy reward
         prediction_reward_weight: float = 0.0,    # weight for prediction accuracy reward (COUNT-only)
+        # early termination (NOOP-only unrecoverable state)
+        early_termination_enabled: bool = False,  # enable early termination when only NOOP available
+        early_termination_penalty: float = 10.0,  # penalty when early termination triggered
+        early_termination_population_threshold: float = 5.0,  # multiplier of target for unrecoverable
+        early_termination_require_budget_depleted: bool = True,  # require budget==0 for early term
         # shaping & norms
         target_population: int = 500,   # P*
         w_pop: float = 1.0,             # weight for population term in dose reward
@@ -173,6 +178,12 @@ class PetriEnvWrapper:
         self.critical_freshness_window = critical_freshness_window
         self.critical_noop_penalty = critical_noop_penalty
         self.critical_noop_threshold = int(max(0, critical_noop_threshold))
+        
+        # early termination parameters
+        self.early_termination_enabled = early_termination_enabled
+        self.early_termination_penalty = early_termination_penalty
+        self.early_termination_population_threshold = early_termination_population_threshold
+        self.early_termination_require_budget_depleted = early_termination_require_budget_depleted
         
         # prediction accuracy reward
         self.prediction_reward_weight = prediction_reward_weight
@@ -280,6 +291,8 @@ class PetriEnvWrapper:
         self.last_count_population_reward = 0.0
         self.last_critical_noop_penalty = 0.0
         self.last_action_cost_penalty = 0.0  # Pure cost penalty from w_cost
+        self.last_early_termination_penalty = 0.0
+        self.early_termination_triggered = False
 
         # clear caches
         self.last_count_obs = None
@@ -331,6 +344,8 @@ class PetriEnvWrapper:
         self.last_informed_dosing_bonus = 0.0
         self.last_critical_noop_penalty = 0.0
         self.last_action_cost_penalty = 0.0
+        self.last_early_termination_penalty = 0.0
+        self.early_termination_triggered = False
         
         # NOTE: With hybrid action masking (Option C), the agent CANNOT select
         # unaffordable actions. The mask ensures invalid actions have probability 0.
@@ -447,6 +462,43 @@ class PetriEnvWrapper:
         # 5) Termination conditions
         true_population = self._read_true_population()
         done = (true_population == 0) or (self.t >= self.max_steps) or (self.budget <= 0.0)
+        
+        # 5b) Early termination: check if agent is stuck with only NOOP available in unrecoverable state
+        early_termination_penalty = 0.0
+        if self.early_termination_enabled and not done:
+            
+            # Get action mask for next step (using dummy continuous action)
+            # We need to check what actions would be available for the next decision
+            dummy_a_cont = np.zeros(self.k_doses, dtype=np.float32)
+            next_action_mask = self.get_action_mask(dummy_a_cont)
+            
+            # Check if only NOOP is available (all other discrete actions are masked)
+            only_noop_available = (np.sum(next_action_mask[1:]) == 0)
+            
+            # Check if state is unrecoverable (population far exceeds target)
+            unrecoverable_threshold = self.target_population * self.early_termination_population_threshold
+            population_unrecoverable = (true_population >= unrecoverable_threshold)
+            
+            # Check budget condition if required
+            budget_condition_met = True
+            if self.early_termination_require_budget_depleted:
+                budget_condition_met = (self.budget <= 0.0)
+                
+            # if (self.t < 2 or self.t % 100 == 0 or only_noop_available or population_unrecoverable):
+            #     print("[EARLY TERMINATION] Checking conditions at step", self.t )
+            #     print(f"  - Only NOOP available: {only_noop_available}")
+            #     print(f"  - Population unrecoverable: {population_unrecoverable} (pop={true_population} >= {unrecoverable_threshold})")
+            #     print(f"  - Budget depleted: {budget_condition_met} (budget={self.budget:.2f})")
+            
+            # Trigger early termination if all conditions are met
+            if only_noop_available or population_unrecoverable or budget_condition_met:
+                # print("[EARLY TERMINATION] Triggered at step", self.t)
+                
+                done = True
+                early_termination_penalty = -self.early_termination_penalty
+                # print("[EARLY TERMINATION] Triggered at step", self.t)
+                self.early_termination_triggered = True
+                self.last_early_termination_penalty = early_termination_penalty
 
         # 6) Release any pending dose rewards when a measurement lands
         delayed_reward = 0.0
@@ -502,7 +554,8 @@ class PetriEnvWrapper:
             delayed_reward +
             survival_bonus +
             budget_conservation_bonus +
-            prediction_reward
+            prediction_reward +
+            early_termination_penalty
         )
         self.episode_return += reward
 
@@ -528,7 +581,10 @@ class PetriEnvWrapper:
             "reward_critical_inaction_penalty": critical_inaction_penalty,
             "reward_critical_noop_penalty": self.last_critical_noop_penalty,
             "reward_prediction": prediction_reward,
+            "reward_early_termination_penalty": self.last_early_termination_penalty,
             "reward_total": reward,
+            # Early termination indicator
+            "early_termination_triggered": self.early_termination_triggered,
             # Prediction supervision signal (only meaningful when COUNT was performed)
             "population_next_norm": population_counted_norm,
             "count_was_performed": count_result_landed,

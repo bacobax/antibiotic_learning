@@ -118,6 +118,10 @@ def rollout(
     episode_reward_critical_inaction_penalty = []
     episode_reward_critical_noop_penalty = []
     episode_reward_prediction = []
+    episode_reward_early_termination_penalty = []
+    
+    # Early termination tracking
+    early_termination_count = 0
     
     # Prediction tracking (diagnostic only - error metric)
     episode_pred_error = []
@@ -146,6 +150,7 @@ def rollout(
     current_reward_critical_inaction_penalty = 0.0
     current_reward_critical_noop_penalty = 0.0
     current_reward_prediction = 0.0
+    current_reward_early_termination_penalty = 0.0
     
     current_pred_error = 0.0
     
@@ -217,6 +222,11 @@ def rollout(
         current_reward_critical_inaction_penalty += info.get('reward_critical_inaction_penalty', 0.0)
         current_reward_critical_noop_penalty += info.get('reward_critical_noop_penalty', 0.0)
         current_reward_prediction += info.get('reward_prediction', 0.0)
+        current_reward_early_termination_penalty += info.get('reward_early_termination_penalty', 0.0)
+        
+        # Track early termination occurrences
+        if info.get('early_termination_triggered', False):
+            early_termination_count += 1
         
         # Store in buffer (now includes action mask)
         buffer.add(
@@ -260,6 +270,7 @@ def rollout(
             episode_reward_critical_inaction_penalty.append(current_reward_critical_inaction_penalty)
             episode_reward_critical_noop_penalty.append(current_reward_critical_noop_penalty)
             episode_reward_prediction.append(current_reward_prediction)
+            episode_reward_early_termination_penalty.append(current_reward_early_termination_penalty)
             
             # Store prediction metrics
             episode_pred_error.append(current_pred_error)
@@ -291,6 +302,7 @@ def rollout(
             current_reward_critical_inaction_penalty = 0.0
             current_reward_critical_noop_penalty = 0.0
             current_reward_prediction = 0.0
+            current_reward_early_termination_penalty = 0.0
             current_pred_error = 0.0
             
             obs = env.reset()
@@ -348,9 +360,13 @@ def rollout(
         "rewards/critical_inaction_penalty": float(np.mean(episode_reward_critical_inaction_penalty)) if episode_reward_critical_inaction_penalty else 0.0,
         "rewards/critical_noop_penalty": float(np.mean(episode_reward_critical_noop_penalty)) if episode_reward_critical_noop_penalty else 0.0,
         "rewards/prediction": float(np.mean(episode_reward_prediction)) if episode_reward_prediction else 0.0,
+        "rewards/early_termination_penalty": float(np.mean(episode_reward_early_termination_penalty)) if episode_reward_early_termination_penalty else 0.0,
         "rewards/total": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
         # Prediction metrics
         "prediction/error": float(np.mean(episode_pred_error)) if episode_pred_error else 0.0,
+        # Early termination metrics
+        "early_termination/count": early_termination_count,
+        "early_termination/rate": float(early_termination_count) / len(episode_rewards) if episode_rewards else 0.0,
     }
     
     return metrics
@@ -582,6 +598,14 @@ def _setup_logger_and_log_startup(
     if rewards.budget_conservation.enabled:
         logger.log_info(f"    - Weight: {rewards.budget_conservation.weight}")
         logger.log_info(f"    - Reserve threshold: {rewards.budget_conservation.reserve_bonus_threshold}")
+    logger.log_info(f"  - Prediction reward: {'enabled' if rewards.prediction.enabled else 'disabled'}")
+    if rewards.prediction.enabled:
+        logger.log_info(f"    - Weight: {rewards.prediction.weight}")
+    logger.log_info(f"  - Early termination: {'enabled' if rewards.early_termination.enabled else 'disabled'}")
+    if rewards.early_termination.enabled:
+        logger.log_info(f"    - Penalty: {rewards.early_termination.penalty}")
+        logger.log_info(f"    - Population threshold: {rewards.early_termination.population_threshold}x target")
+        logger.log_info(f"    - Require budget depleted: {rewards.early_termination.require_budget_depleted}")
     
     logger.log_info(f"Action Costs:")
     logger.log_info(f"  - Sequencing: {config.actions.sequencing_cost}")
@@ -660,6 +684,11 @@ def _create_environment(
         dose_missing_feedback_penalty=rewards.dose.missing_feedback_penalty,
         # Prediction reward
         prediction_reward_weight=rewards.prediction.weight if rewards.prediction.enabled else 0.0,
+        # Early termination
+        early_termination_enabled=rewards.early_termination.enabled,
+        early_termination_penalty=rewards.early_termination.penalty,
+        early_termination_population_threshold=rewards.early_termination.population_threshold,
+        early_termination_require_budget_depleted=rewards.early_termination.require_budget_depleted,
         # Device config
         device=config.environment.device,
         dtype=config.torch_dtype,
