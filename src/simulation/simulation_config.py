@@ -225,29 +225,62 @@ if __name__ == "__main__":
         [2,2,2,2],
         [1,1,1,1]
     ])
-    antibiotic_resistencess(seq_res_test)
+    antibiotic_resistances(seq_res_test, dtype=torch.float32, device='cpu')
+    
 # -----------------------
-# Biofilm Parameters
+# Biofilm Parameters (State-based with QS integration)
 # -----------------------
 BIOFILM_PARAMS = {
-    # Formation parameters
-    "formation_radius": 3.0,        # Detection radius for biofilm formation
-    "min_neighbors": 3,             # Minimum neighbors required to create biofilm (including self)
-    "formation_base_prob": 0.01,    # Base probability of creating biofilm per step
-    "formation_stress_bonus": 1, # Additional formation probability under antibiotic stress
+    # Neighbor detection
+    "formation_radius": 3.0,         # Detection radius for counting neighbors
+    "min_neighbors": 5,              # Minimum non-persister neighbors for attachment
     
-    # Protection and costs
-    "base_protection": 1.5,         # Minimum antibiotic protection multiplier
-    "max_protection": 3.0,          # Maximum antibiotic protection multiplier (at optimal size)
-    "optimal_size": 10,             # Optimal cluster size for maximum protection
-    "energy_cost": 0.03,            # Energy cost per step for maintaining biofilm
-    "movement_penalty": 0.3,        # Movement speed multiplier (0.3 = 70% slower)
+    # Attachment probabilities (per timestep for planktonic cells)
+    "attachment_base_prob": 0.02,    # Base probability without stress/QS
+    "attachment_stress_bonus": 0.08, # Added probability under antibiotic stress
+    "attachment_qs_bonus": 0.10,     # Added probability when QS is active
     
-    # Exit parameters
-    "exit_energy_threshold": 0.15,  # Exit if energy below this
-    "exit_food_threshold": 0.1,     # Exit if local food below this
-    "exit_threat_threshold": 0.05,   # Exit if antibiotic threat below this (low danger)
-    "detachment_cost": 0.02         # Energy cost for detaching from biofilm
+    # Timers and transitions
+    "reversible_duration_min": 5,    # Min steps before irreversible attachment
+    "reversible_duration_max": 15,   # Max steps before irreversible attachment
+    "maturation_time": 20,           # Steps to reach full maturation
+    
+    # EPS (Extracellular Polymeric Substance) production
+    "eps_production_base": 0.05,     # Base EPS production rate per step
+    "eps_production_qs_mult": 2.0,   # Multiplier when QS active
+    "eps_decay_rate": 0.01,          # EPS degradation per step
+    "eps_diffusion_reduction": 0.5,  # Factor to reduce diffusion in high EPS areas
+    
+    # Maturation benefits
+    "maturation_protection_mult": 1.5, # Protection multiplier for mature cells
+    "maturation_detach_resist": 0.7,   # Detachment resistance (0-1, higher = harder to detach)
+    
+    # Growth penalties
+    "reversible_growth_penalty": 0.9,   # Growth rate multiplier for reversibly attached
+    "irreversible_growth_penalty": 0.7, # Growth rate multiplier for irreversibly attached
+    "mature_growth_penalty": 0.5,       # Growth rate multiplier for mature biofilm
+    
+    # Detachment triggers
+    "detach_energy_threshold": 0.2,    # Detach if energy drops below this
+    "detach_food_threshold": 0.05,     # Detach if local food below this
+    "detach_stress_threshold": 0.8,    # Detach if antibiotic stress exceeds this
+    "detach_base_prob": 0.01,          # Random detachment probability per step
+    "detach_shear_prob": 0.05,         # Additional detachment from environmental shear
+    
+    # Movement modifiers
+    "reversible_speed_mult": 0.5,      # Speed multiplier for reversible attach
+    "irreversible_speed_mult": 0.1,    # Speed multiplier for irreversible attach
+    "mature_speed_mult": 0.0,          # Speed multiplier for mature (immobile)
+    
+    # Energy costs
+    "attachment_cost": 0.01,           # Energy cost per step for attachment
+    "eps_production_cost": 0.02,       # Energy cost per step for EPS production
+    "maturation_cost": 0.03,           # Energy cost per step for mature cells
+    
+    # Protection factors (antibiotic resistance)
+    "reversible_protection": 1.2,      # Slight protection when reversibly attached
+    "irreversible_protection": 2.0,    # Moderate protection when irreversibly attached
+    "mature_protection": 3.0,          # Strong protection when fully mature
 }
 
 # -----------------------

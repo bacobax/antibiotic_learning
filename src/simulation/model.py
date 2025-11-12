@@ -31,6 +31,7 @@ from simulation.simulation_config import (
 )
 from simulation.bacterium import Bacterium
 from simulation.tracking import IndividualTracker
+from simulation.biofilm_manager import BiofilmManager
 
 
 
@@ -86,7 +87,10 @@ class BacteriaModel(Model):
         # Tracking system
         self.individual_tracker = IndividualTracker()
         
-        # Biofilm tracking
+        # Biofilm management system
+        self.biofilm_manager = BiofilmManager(self, BIOFILM_PARAMS)
+        
+        # Biofilm tracking (legacy - kept for compatibility)
         self._next_biofilm_id = 0  # Counter for unique biofilm IDs
 
         # History for plotting
@@ -498,6 +502,12 @@ class BacteriaModel(Model):
         
         # Update quorum sensing signal field (diffusion + decay)
         self.update_qs_field()
+        
+        # Update biofilm EPS field (diffusion + decay + production)
+        self.biofilm_manager.update_eps_field()
+        
+        # Update biofilm cell timers and transitions
+        self.biofilm_manager.update_biofilm_cells()
 
         # Prepare collections
         self.to_remove.clear()

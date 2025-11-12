@@ -12,6 +12,7 @@ from simulation.simulation_config import (
     GROWTH_PARAMS, MUTATION_STD, BACTERIA_SPEED, PERSISTENCE_PARAMS,
     BIOFILM_PARAMS, QUORUM_SENSING_PARAMS
 )
+from simulation.biofilm_manager import BiofilmState
 
 
 class Bacterium(Agent):
@@ -26,10 +27,15 @@ class Bacterium(Agent):
         self.age = 0.0  # Float to support fractional aging for persistors
 
         # Initialize persistor state flag
-        self.is_persistor = False
+        self.is_persister = False
         self.has_hgt_gene = random.random() < 0.05  # 5% chance of having HGT gene
         
-        # Initialize biofilm state - now uses unique biofilm ID
+        # Initialize biofilm state (new state-based system)
+        self.biofilm_state = BiofilmState.PLANKTONIC
+        self.adhesion_timer = 0      # Steps since attachment began
+        self.maturation_timer = 0    # Steps since irreversible attachment
+        
+        # Legacy biofilm tracking (kept for compatibility with visualization)
         self.biofilm_id = None  # None = not in biofilm, integer = biofilm cluster ID
         
         # Initialize quorum sensing state
@@ -95,7 +101,7 @@ class Bacterium(Agent):
         Persistors maintain minimal expression states to reduce energy costs.
         """
         # Persistors don't actively respond to antibiotics (dormant metabolism)
-        if self.is_persistor:
+        if self.is_persister:
             # Slow decay of existing expression
             for k in self.expression:
                 X = self.expression[k]
@@ -154,18 +160,23 @@ class Bacterium(Agent):
         """Consume nutrients and update energy
 
         Persistors cannot actively consume nutrients but lose energy slowly.
+        Biofilm cells have reduced uptake due to diffusion barriers.
         """
-        if self.is_persistor:
-            # Persistors don't actively consume nutrients (dormant metabolism)
-            # Only lose energy through minimal maintenance
-            self.energy -= PERSISTENCE_PARAMS["energy_decay_rate"] * GROWTH_PARAMS["dt"]
+        if self.is_persister:
+            # Persistors only lose energy slowly
+            self.energy -= GROWTH_PARAMS["m0"] * PERSISTENCE_PARAMS["energy_decay_rate"]
             return
 
         # Normal nutrient consumption for active bacteria
         # Monod kinetics
-        uptake = GROWTH_PARAMS["u_max"] * (
+        base_uptake = GROWTH_PARAMS["u_max"] * (
             local_food / (GROWTH_PARAMS["k_s"] + local_food)
         )
+        
+        # Apply biofilm growth penalty
+        growth_penalty = self.model.biofilm_manager.get_growth_penalty(self)
+        uptake = base_uptake * growth_penalty
+        
         self.model.subtract_from_field(
             self.model.food_field, fx, fy, uptake * GROWTH_PARAMS["dt"]
         )
@@ -197,8 +208,8 @@ class Bacterium(Agent):
         if not local_antibiotics or sum(local_antibiotics.values()) <= 0:
             return False
         
-        # Get biofilm protection factor (1.0 to 3.0)
-        biofilm_protection = self._calculate_biofilm_protection()
+        # Get biofilm protection factor from biofilm manager
+        biofilm_protection = self.model.biofilm_manager.get_protection_factor(self)
         
         # Calculate effective concentration and kill probability for each antibiotic
         total_kappa = 0.0
@@ -257,7 +268,7 @@ class Bacterium(Agent):
         p_death = 1 - math.exp(-total_kappa * GROWTH_PARAMS["dt"])
 
         # Persistors have dramatically reduced kill probability (dormant cells less affected)
-        if self.is_persistor:
+        if self.is_persister:
             p_death *= PERSISTENCE_PARAMS["antibiotic_resistance_factor"]
 
         return random.random() < p_death
@@ -266,43 +277,38 @@ class Bacterium(Agent):
         """Move bacterium towards nutrient gradient
 
         Persistors move randomly with significantly reduced speed (no chemotaxis).
-        Biofilm bacteria have reduced movement speed due to matrix attachment.
+        Biofilm bacteria have reduced movement speed based on attachment state.
         """
         # Persistors move randomly without chemotaxis
-        if self.is_persistor:
-            # Pure random walk for persistors
-            rand_dir = np.random.normal(size=2)
-            rand_dir /= np.linalg.norm(rand_dir) + 1e-9
-            direction = rand_dir
-
-            # Significantly reduced speed for persistors
-            effective_speed = (
-                self.speed
-                * BACTERIA_SPEED
-                * PERSISTENCE_PARAMS["movement_speed_factor"]
-            )
+        if self.is_persister:
+            direction = np.array([
+                random.uniform(-1, 1),
+                random.uniform(-1, 1)
+            ])
+            norm = np.linalg.norm(direction)
+            if norm > 0:
+                direction = direction / norm
+            effective_speed = self.speed * BACTERIA_SPEED * PERSISTENCE_PARAMS["movement_speed_factor"]
         else:
-            # Normal chemotactic movement for active bacteria
-            grad = self.model.compute_gradient_at_field(fx, fy)
-            g = np.array(grad, dtype=float)
-
-            if np.linalg.norm(g) > 1e-8:
-                g = g / (np.linalg.norm(g) + 1e-9)
+            # Active bacteria follow nutrient gradient
+            gx, gy = self.model.compute_gradient_at_field(fx, fy)
+            direction = np.array([gx, gy])
+            norm = np.linalg.norm(direction)
+            if norm > 0:
+                direction = direction / norm
             else:
-                g = np.zeros(2)
-
-            rand_dir = np.random.normal(size=2)
-            rand_dir /= np.linalg.norm(rand_dir) + 1e-9
-
-            alpha = 0.8
-            direction = alpha * g + (1 - alpha) * rand_dir
-            direction /= np.linalg.norm(direction) + 1e-9
-
+                direction = np.array([
+                    random.uniform(-1, 1),
+                    random.uniform(-1, 1)
+                ])
+                norm = np.linalg.norm(direction)
+                if norm > 0:
+                    direction = direction / norm
             effective_speed = self.speed * BACTERIA_SPEED
         
-        # Apply biofilm movement penalty
-        if self.biofilm_id is not None:
-            effective_speed *= BIOFILM_PARAMS["movement_penalty"]
+        # Apply biofilm movement penalty from biofilm manager
+        speed_mult = self.model.biofilm_manager.get_speed_multiplier(self)
+        effective_speed *= speed_mult
 
         # Calculate new position with proper boundary clamping
         new_x = self.pos[0] + direction[0] * effective_speed
@@ -317,10 +323,7 @@ class Bacterium(Agent):
         new_pos = (float(new_x), float(new_y))
         try:
             self.model.space.move_agent(self, new_pos)
-            self.pos = new_pos
         except Exception as e:
-            print(f"Error moving agent {self.unique_id} to position {new_pos}: {e}")
-            # Keep old position if move fails
             pass
 
     def _try_reproduce(self):
@@ -329,7 +332,7 @@ class Bacterium(Agent):
         Persistors cannot reproduce (dormant state).
         """
         # Persistors cannot reproduce
-        if self.is_persistor:
+        if self.is_persister:
             return
 
         if self.energy < GROWTH_PARAMS["e_div"]:
@@ -377,7 +380,7 @@ class Bacterium(Agent):
         Returns:
             bool: True if bacterium enters persistor state
         """
-        if self.is_persistor:
+        if self.is_persister:
             return False  # Already a persistor
 
         # Calculate total antibiotic threat (weighted by toxicity)
@@ -438,7 +441,7 @@ class Bacterium(Agent):
         Returns:
             bool: True if persistor exits to normal state
         """
-        if not self.is_persistor:
+        if not self.is_persister:
             return False  # Not a persistor
 
         # Calculate total antibiotic threat (weighted by toxicity)
@@ -468,137 +471,68 @@ class Bacterium(Agent):
         return random.random() < prob
 
     # -------------------------
-    # Biofilm Mechanics (Cluster-Based)
+    # Biofilm Mechanics (State-based with QS integration)
     # -------------------------
     
-    def _check_biofilm_formation(self, local_antibiotics):
-        """Check if this bacterium should initiate biofilm formation
+    def _update_biofilm_state(self, local_food, local_antibiotics):
+        """Update biofilm state through lifecycle transitions.
+        
+        Handles all biofilm state logic:
+        - Attachment attempts for planktonic cells
+        - Progression through attachment stages
+        - Detachment under stress conditions
+        - Persister cells are excluded from all biofilm processes
         
         Args:
-            local_antibiotics: dict mapping antibiotic_type -> concentration
-            
-        Formation requires:
-        - Not already in a biofilm
-        - Minimum number of neighbors (5+) within formation radius
-        - Probabilistic check (base + stress bonus)
-        
-        Returns:
-            bool: True if should create biofilm
+            local_food: Local nutrient concentration
+            local_antibiotics: Dict of antibiotic concentrations
         """
-        if self.biofilm_id is not None:
-            return False  # Already in biofilm
-            
-        if self.pos is None:
-            return False
+        # Persisters cannot participate in biofilm formation
+        if self.is_persister:
+            # Force to planktonic if somehow in biofilm state
+            if self.biofilm_state != BiofilmState.PLANKTONIC:
+                self.biofilm_state = BiofilmState.PLANKTONIC
+                self.biofilm_id = None  # Clear legacy ID
+            return
         
-        # Count neighbors within formation radius
-        try:
-            neighbors = self.model.space.get_neighbors(
-                self.pos,
-                BIOFILM_PARAMS["formation_radius"],
-                include_center=True  # Include self in count
-            )
-        except:
-            return False
+        # Delegate to biofilm manager for state transitions
+        manager = self.model.biofilm_manager
         
-        # Need minimum neighbors to create biofilm (including self)
-        if len(neighbors) < BIOFILM_PARAMS["min_neighbors"]:
-            return False
+        # Check for detachment (any attached state)
+        if manager.maybe_detach(self, local_food, local_antibiotics):
+            self.biofilm_id = None  # Clear legacy ID
+            return
         
-        # Calculate antibiotic stress
-        total_threat = sum(
-            conc * ANTIBIOTIC_TYPES[ab_type]["toxicity_constant"]
-            for ab_type, conc in local_antibiotics.items()
-            if conc > 0
-        )
+        # Planktonic → Reversible attachment
+        if self.biofilm_state == BiofilmState.PLANKTONIC:
+            if manager.try_attach(self, local_antibiotics):
+                # Set legacy ID for visualization compatibility
+                self.biofilm_id = self.model._next_biofilm_id
+                self.model._next_biofilm_id += 1
         
-        # Formation probability: base + stress bonus
-        prob = BIOFILM_PARAMS["formation_base_prob"]
-        if total_threat > 0:
-            prob += BIOFILM_PARAMS["formation_stress_bonus"]
+        # Reversible → Irreversible attachment
+        elif self.biofilm_state == BiofilmState.REVERSIBLE_ATTACH:
+            manager.try_irreversible_attach(self)
         
-        return random.random() < prob
+        # Irreversible → Mature
+        elif self.biofilm_state == BiofilmState.IRREVERSIBLE_ATTACH:
+            manager.try_mature(self)
+    
+    # Legacy methods (kept for compatibility but deprecated)
+    def _check_biofilm_formation(self, local_antibiotics):
+        """DEPRECATED: Use _update_biofilm_state instead."""
+        return False
     
     def _get_biofilm_size(self):
-        """Get the number of bacteria in this bacterium's biofilm
-        
-        Returns:
-            int: Number of bacteria in same biofilm cluster
-        """
-        if self.biofilm_id is None:
-            return 0
-        
-        return sum(
-            1 for agent in self.model.agent_set
-            if hasattr(agent, 'biofilm_id') and agent.biofilm_id == self.biofilm_id
-        )
+        """DEPRECATED: Biofilm size is now implicit in state."""
+        return 0
     
     def _calculate_biofilm_protection(self):
-        """Calculate antibiotic protection multiplier from biofilm
-        
-        Protection scales with biofilm size:
-        - Base protection at minimum
-        - Increases with size up to optimal
-        - Caps at max_protection
-        
-        Returns:
-            float: Protection factor (1.0 = no protection, up to max_protection)
-        """
-        if self.biofilm_id is None:
-            return 1.0
-        
-        biofilm_size = self._get_biofilm_size()
-        
-        if biofilm_size == 0:
-            return 1.0
-        
-        # Linear scaling from base to max protection based on size
-        base_prot = BIOFILM_PARAMS["base_protection"]
-        max_prot = BIOFILM_PARAMS["max_protection"]
-        optimal_size = BIOFILM_PARAMS["optimal_size"]
-        
-        size_factor = min(1.0, biofilm_size / optimal_size)
-        protection = base_prot + (max_prot - base_prot) * size_factor
-        
-        return protection
+        """DEPRECATED: Use biofilm_manager.get_protection_factor instead."""
+        return self.model.biofilm_manager.get_protection_factor(self)
     
     def _check_biofilm_exit(self, local_food, local_antibiotics):
-        """Check if bacterium should exit biofilm
-        
-        Exit conditions:
-        - Low energy (< threshold)
-        - Low food (< threshold)
-        - Low antibiotic threat (safe to leave)
-        
-        Args:
-            local_food: local nutrient concentration
-            local_antibiotics: dict of antibiotic concentrations
-        
-        Returns:
-            bool: True if should exit biofilm
-        """
-        if self.biofilm_id is None:
-            return False  # Not in biofilm
-        
-        # Exit if energy too low (starvation)
-        if self.energy < BIOFILM_PARAMS["exit_energy_threshold"]:
-            return True
-        
-        # Exit if food too low (better to seek nutrients)
-        if local_food < BIOFILM_PARAMS["exit_food_threshold"]:
-            return True
-        
-        # Calculate antibiotic threat
-        total_threat = sum(
-            conc * ANTIBIOTIC_TYPES[ab_type]["toxicity_constant"]
-            for ab_type, conc in local_antibiotics.items()
-            if conc > 0
-        )
-        
-        # Exit if threat is low (biofilm protection not needed)
-        if total_threat < BIOFILM_PARAMS["exit_threat_threshold"]:
-            return True
-        
+        """DEPRECATED: Use _update_biofilm_state instead."""
         return False
     
     # -------------------------
@@ -614,7 +548,7 @@ class Bacterium(Agent):
             return
         
         # Persistors don't produce signals (dormant metabolism)
-        if self.is_persistor:
+        if self.is_persister:
             return
         
         fx, fy = self.model.nutrient_to_field_coords(self.pos)
@@ -662,7 +596,7 @@ class Bacterium(Agent):
             return
 
         # Aging mechanism - persistors age slower
-        if self.is_persistor:
+        if self.is_persister:
             # Accumulate fractional aging for persistors
             self.age += PERSISTENCE_PARAMS["aging_rate_factor"]
         else:
@@ -684,9 +618,9 @@ class Bacterium(Agent):
 
         # Check for persistor state transitions (before other actions)
         if self._check_persistor_entry(local_antibiotics):
-            self.is_persistor = True
+            self.is_persister = True
         elif self._check_persistor_exit(local_antibiotics):
-            self.is_persistor = False
+            self.is_persister = False
 
         # Update expression states
         self._update_expression_states(local_antibiotics)
@@ -698,20 +632,9 @@ class Bacterium(Agent):
         self._produce_qs_signal()
         self._sense_qs_signals()
         
-        # Biofilm mechanics: check formation and create cluster
-        if self._check_biofilm_formation(local_antibiotics):
-            # Create new biofilm and assign all nearby bacteria to it
-            self.model.create_biofilm(self)
-        
-        # Check for biofilm exit
-        if self._check_biofilm_exit(local_food, local_antibiotics):
-            # Exit biofilm
-            self.biofilm_id = None
-            self.energy -= BIOFILM_PARAMS["detachment_cost"]
-        
-        # Apply biofilm energy cost
-        if self.biofilm_id is not None:
-            self.energy -= BIOFILM_PARAMS["energy_cost"]
+        # Biofilm mechanics: state-based transitions with QS integration
+        # This handles attachment, maturation, and detachment
+        self._update_biofilm_state(local_food, local_antibiotics)
 
         # Check for starvation
         if self.energy <= 0:

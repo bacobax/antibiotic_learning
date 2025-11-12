@@ -164,6 +164,7 @@ class SimulationVisualizer:
         self.im_food = None
         self.im_ab = None
         self.im_qs = None  # Quorum sensing field overlay
+        self.im_eps = None  # EPS biofilm field overlay
         self.biofilm_lines = []  # List to hold biofilm connection lines
 
 
@@ -340,12 +341,13 @@ class SimulationVisualizer:
 
         try:
             # Separate active and persistor bacteria
-            persistor_agents = [a for a in agents if a.is_persistor and a.pos is not None]
+            # Filter agents to separate persistors
+            persistor_agents = [a for a in agents if a.is_persister and a.pos is not None]
             hgt_agents = [a for a in agents if a.has_hgt_gene and a.pos is not None]
             active_agents = [
                 a
                 for a in agents
-                if (not a.is_persistor and not a.has_hgt_gene and a.pos is not None)
+                if (not a.is_persister and not a.has_hgt_gene and a.pos is not None)
             ]
 
             active_positions = [a.pos for a in active_agents]
@@ -373,10 +375,8 @@ class SimulationVisualizer:
             # Update title
             persistor_count = len(persistor_agents)
             hgt_gene_count = len(hgt_agents)
-            # Count active biofilm clusters (groups with more than one member)
-            biofilm_count = sum(1 for members in self.biofilm_groups.values() if len(members) > 1)
             self.ax.set_title(
-                f"Step: {self.model.step_count} | Agents: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count} | Biofilms: {biofilm_count}",
+                f"Step: {self.model.step_count} | Agents: {len(agents)} | Persistors: {persistor_count} | HGT Gene: {hgt_gene_count}",
                 fontsize=11,
             )
             self.ax.set_xlim(0, self.model.width)
@@ -637,6 +637,28 @@ class SimulationVisualizer:
                     self.im_qs.set_data(qs_scaled.T)
         except Exception as e:
             print(f"Error updating QS field: {e}")
+        
+        # Update EPS biofilm field (orange visualization)
+        try:
+            if hasattr(self.model, "biofilm_manager") and hasattr(self.model.biofilm_manager, "eps_field"):
+                eps_field = self.model.biofilm_manager.eps_field
+                # Normalize EPS field for visualization (values typically 0-1)
+                eps_normalized = np.clip(eps_field, 0.0, 1.0)
+                
+                if self.im_eps is None:
+                    self.im_eps = self.ax.imshow(
+                        eps_normalized.T,
+                        extent=[0, self.model.width, 0, self.model.height],
+                        origin="lower",
+                        cmap="Oranges",  # Orange color palette
+                        alpha=0.4,  # Semi-transparent overlay
+                        vmin=0.0,
+                        vmax=1.0,
+                    )
+                else:
+                    self.im_eps.set_data(eps_normalized.T)
+        except Exception as e:
+            print(f"Error updating EPS field: {e}")
 
     def update_graphs(self):
         """Update only the history plots"""
