@@ -10,7 +10,7 @@ from mesa import Agent
 from simulation.simulation_config import (
     BACTERIAL_TYPES, ANTIBIOTIC_TYPES, ALLOCATION_PARAMS, 
     GROWTH_PARAMS, MUTATION_STD, BACTERIA_SPEED, PERSISTENCE_PARAMS,
-    BIOFILM_PARAMS
+    BIOFILM_PARAMS, QUORUM_SENSING_PARAMS
 )
 
 
@@ -31,6 +31,9 @@ class Bacterium(Agent):
         
         # Initialize biofilm state - now uses unique biofilm ID
         self.biofilm_id = None  # None = not in biofilm, integer = biofilm cluster ID
+        
+        # Initialize quorum sensing state
+        self.qs_active = False  # Whether QS response is active
         
         # Initialize traits
         self._initialize_traits(bacterial_type)
@@ -597,6 +600,59 @@ class Bacterium(Agent):
             return True
         
         return False
+    
+    # -------------------------
+    # Quorum Sensing Methods
+    # -------------------------
+    
+    def _produce_qs_signal(self):
+        """Produce quorum sensing signal molecules into the environment
+        
+        Each bacterium produces signals that diffuse through the environment.
+        """
+        if self.pos is None:
+            return
+        
+        # Persistors don't produce signals (dormant metabolism)
+        if self.is_persistor:
+            return
+        
+        fx, fy = self.model.nutrient_to_field_coords(self.pos)
+        
+        # Produce signal
+        production_amount = QUORUM_SENSING_PARAMS["production_rate"]
+        
+        # Add signal to environment
+        self.model.add_qs_signal(fx, fy, production_amount)
+    
+    def _sense_qs_signals(self):
+        """Detect local quorum sensing signals and update QS state
+        
+        Bacteria sense the local concentration of QS signals.
+        If concentration exceeds threshold, activate QS response.
+        """
+        if self.pos is None:
+            return
+        
+        fx, fy = self.model.nutrient_to_field_coords(self.pos)
+        
+        # Get local QS concentration
+        local_qs = self.model.get_qs_concentration(fx, fy)
+        
+        # Update QS state
+        activation_threshold = QUORUM_SENSING_PARAMS["activation_threshold"]
+        
+        # Track state changes for logging
+        was_active = self.qs_active
+        
+        if local_qs >= activation_threshold:
+            self.qs_active = True
+        else:
+            self.qs_active = False
+        # Log state changes
+        if was_active != self.qs_active:
+            state = "ACTIVE" if self.qs_active else "INACTIVE"
+            print(f"[QS] Bacterium {self.unique_id} ({self.bacterial_type}) entered {state} state (local_qs={local_qs:.4f}, threshold={activation_threshold})")
 
     def step(self):
         """Execute one step of the bacterium lifecycle"""
@@ -636,6 +692,10 @@ class Bacterium(Agent):
 
         # Consume nutrients and update energy
         self._consume_nutrients(local_food, fx, fy)
+        
+        # Quorum Sensing: Produce signals, sense environment
+        self._produce_qs_signal()
+        self._sense_qs_signals()
         
         # Biofilm mechanics: check formation and create cluster
         if self._check_biofilm_formation(local_antibiotics):

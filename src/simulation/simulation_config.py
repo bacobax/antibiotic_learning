@@ -249,3 +249,16 @@ BIOFILM_PARAMS = {
     "exit_threat_threshold": 0.05,   # Exit if antibiotic threat below this (low danger)
     "detachment_cost": 0.02         # Energy cost for detaching from biofilm
 }
+
+# -----------------------
+# Quorum Sensing Parameters
+# -----------------------
+QUORUM_SENSING_PARAMS = {
+    # Signal dynamics
+    "production_rate": 0.07,         # Molecules produced per bacterium per step
+    "diffusion_coefficient": 0.5,    # Rate of signal diffusion across grid
+    "decay_rate": 0.02,              # Rate of signal molecule degradation
+    
+    # Detection and response
+    "activation_threshold": 0.5,     # QS concentration threshold for activation
+}

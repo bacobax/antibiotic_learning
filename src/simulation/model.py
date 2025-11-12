@@ -7,6 +7,8 @@ import numpy as np
 from mesa import Model
 from mesa.space import ContinuousSpace
 import heapq
+from scipy.ndimage import gaussian_filter
+
 
 from simulation.simulation_config import (
     WIDTH,
@@ -25,6 +27,7 @@ from simulation.simulation_config import (
     FOOD_PATCH_SIGMA_MIN,
     FOOD_PATCH_SIGMA_MAX,
     BIOFILM_PARAMS,
+    QUORUM_SENSING_PARAMS,
 )
 from simulation.bacterium import Bacterium
 from simulation.tracking import IndividualTracker
@@ -61,6 +64,9 @@ class BacteriaModel(Model):
             ab_type: np.zeros((self.field_w, self.field_h), dtype=float)
             for ab_type in ANTIBIOTIC_TYPES.keys()
         }
+        
+        # Quorum sensing signal field
+        self.qs_signal_field = np.zeros((self.field_w, self.field_h), dtype=float)
 
         self._initialize_food_patches()
 
@@ -425,6 +431,61 @@ class BacteriaModel(Model):
                         new_nb_val = nb_val * (1 - mix) + a_val * mix
                         setattr(a, trait, float(min(max(new_a_val, 0.0), 1.0)))
                         setattr(nb, trait, float(min(max(new_nb_val, 0.0), 1.0)))
+    
+    # -----------------------
+    # Quorum Sensing Methods
+    # -----------------------
+    
+    def add_qs_signal(self, fx, fy, amount):
+        """Add quorum sensing signal to the field at a specific position
+        
+        Args:
+            fx, fy: Field coordinates
+            amount: Amount of signal to add
+        """
+        x = int(round(fx))
+        y = int(round(fy))
+        x = min(max(x, 0), self.field_w - 1)
+        y = min(max(y, 0), self.field_h - 1)
+        
+        self.qs_signal_field[x, y] += amount
+    
+    def get_qs_concentration(self, fx, fy):
+        """Get quorum sensing signal concentration at a position
+        
+        Args:
+            fx, fy: Field coordinates
+            
+        Returns:
+            Concentration of QS signal at the position
+        """
+        return self.sample_field(self.qs_signal_field, fx, fy)
+    
+    def update_qs_field(self):
+        """Update quorum sensing signal field with diffusion and decay
+        
+        Applies:
+        1. Diffusion (spreading of signals)
+        2. Decay (degradation of signals)
+        """
+        
+        diffusion_coef = QUORUM_SENSING_PARAMS["diffusion_coefficient"]
+        decay_rate = QUORUM_SENSING_PARAMS["decay_rate"]
+        
+        # Apply diffusion using Gaussian filter
+        if diffusion_coef > 0:
+            self.qs_signal_field = gaussian_filter(
+                self.qs_signal_field, 
+                sigma=diffusion_coef, 
+                mode='constant', 
+                cval=0.0
+            )
+        
+        # Apply decay
+        self.qs_signal_field *= (1.0 - decay_rate)
+        
+        # Ensure non-negative
+        self.qs_signal_field = np.maximum(self.qs_signal_field, 0.0)
 
     def step(self):
         """Execute one simulation step"""
@@ -434,6 +495,9 @@ class BacteriaModel(Model):
         for ab_type, ab_field in self.antibiotic_fields.items():
             decay_rate = ANTIBIOTIC_TYPES[ab_type].get("decay_rate", ANTIBIOTIC_DECAY)
             self.antibiotic_fields[ab_type] *= 1 - decay_rate
+        
+        # Update quorum sensing signal field (diffusion + decay)
+        self.update_qs_field()
 
         # Prepare collections
         self.to_remove.clear()
