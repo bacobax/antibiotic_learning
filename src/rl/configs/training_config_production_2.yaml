@@ -16,7 +16,7 @@ environment:
     dose:
       w_pop: 0.0
       w_genome: 0.0
-      w_cost: 0.25
+      w_cost: 0.1
       missing_feedback_penalty: 0.0
 
     sequencing:
@@ -31,40 +31,40 @@ environment:
       low_population_penalty: 1.0
 
     critical_inaction:
-      high_population_threshold: 4.0
-      no_action_penalty: 0.0
-      no_dose_penalty: 5.0
-      freshness_window: 8
-      noop_penalty: 1.0
+      high_population_threshold: 5.0
+      no_action_penalty: 0
+      no_dose_penalty: 0
+      freshness_window: 5
+      noop_penalty: 0.1
       noop_threshold: 30
 
     regular_monitoring:
-      count_reward: 0.2
+      count_reward: 5.0
       count_interval: 30
       count_min_interval: 3
-      safe_nondosing_reward: 0.2
+      safe_nondosing_reward: 0.0
 
     budget:
       budget_init: 100.0
       budget_norm: 100.0
-      budget_penalty: 0.0
+      budget_penalty: 5.0
 
     survival_bonus:
       enabled: true
-      base_bonus: 0.01
+      base_bonus: 0.1
       scaling_type: "linear"
-      scaling_factor: 0.005
-      max_bonus: 0.1
+      scaling_factor: 0.001
+      max_bonus: 2
 
     prediction:
       enabled: true
-      weight: 2.0
+      weight: 1.0
 
         # Early termination on unrecoverable NOOP-only states
     early_termination:
       enabled: true                    # Enable early termination when only NOOP is available in unrecoverable state
-      penalty: 30.0                     # Penalty applied on early termination
-      population_threshold: 5.0         # Population must exceed (target × this factor) to be unrecoverable
+      penalty: 5.0                     # Penalty applied on early termination
+      population_threshold: 1.5         # Population must exceed (target × this factor) to be unrecoverable
       require_budget_depleted: false     # If true, also require budget depleted to trigger
 
 

@@ -15,7 +15,6 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import torch
@@ -237,7 +236,10 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         
         layout.addWidget(graphs_row1_container)
         
-        # ===== NEW: Budget Over Steps in Current Episode =====
+        # ===== NEW: Budget Over Steps and Prediction Tracking =====
+        current_stats_container = QtWidgets.QWidget()
+        current_stats_layout = QtWidgets.QHBoxLayout(current_stats_container)
+
         current_budget_group = QtWidgets.QGroupBox("Budget Over Steps (Current Episode)")
         current_budget_layout = QtWidgets.QVBoxLayout()
         
@@ -253,7 +255,29 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         
         current_budget_layout.addWidget(self.current_budget_canvas)
         current_budget_group.setLayout(current_budget_layout)
-        layout.addWidget(current_budget_group)
+        current_stats_layout.addWidget(current_budget_group)
+
+        prediction_group = QtWidgets.QGroupBox("Prediction Over Steps (Current Episode)")
+        prediction_layout = QtWidgets.QVBoxLayout()
+
+        self.prediction_fig = Figure(figsize=(8, 2), dpi=100)
+        self.prediction_ax = self.prediction_fig.add_subplot(111)
+        self.prediction_canvas = FigureCanvas(self.prediction_fig)
+        self.prediction_canvas.setMaximumHeight(200)
+
+        self.prediction_ax.set_xlabel('Step')
+        self.prediction_ax.set_ylabel('Predicted Population')
+        self.prediction_ax.set_title('Prediction Over Steps (Current Episode)')
+        self.prediction_ax.grid(True, alpha=0.3)
+
+        prediction_layout.addWidget(self.prediction_canvas)
+        prediction_group.setLayout(prediction_layout)
+        current_stats_layout.addWidget(prediction_group)
+
+        layout.addWidget(current_stats_container)
+        
+        self.current_episode_prediction_steps = []
+        self.current_episode_prediction_values = []
         
         # ===== NEW: Reward Components Graph =====
         reward_components_group = QtWidgets.QGroupBox("Reward Components Per Episode")
@@ -287,14 +311,20 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         
         layout.addStretch()
     
-    def add_episode_data(self, episode_num: int, episode_length: int, budget_spent: float, budget_remaining: float, 
-                         reward_components: dict = None):
+    def add_episode_data(
+        self,
+        episode_num: int,
+        episode_length: int,
+        budget_spent: float,
+        budget_remaining: float,
+        reward_components: dict = None,
+    ):
         """Add data point for completed episode"""
         self.episode_numbers.append(episode_num)
         self.episode_lengths.append(episode_length)
         self.budget_spent_history.append(budget_spent)
         self.budget_remaining_history.append(budget_remaining)
-        
+
         # Track reward components if provided
         if reward_components:
             self.reward_immediate_history.append(reward_components.get('immediate', 0.0))
@@ -337,7 +367,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.budget_ax.grid(True, alpha=0.3)
         self.budget_fig.tight_layout()
         self.budget_canvas.draw()
-        
+
         # Update reward components plot if we have data
         if reward_components and len(self.episode_numbers) > 0:
             self.reward_components_ax.clear()
@@ -481,6 +511,42 @@ DOSE:     {episode_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_episode', {}
         self.current_budget_fig.tight_layout()
         self.current_budget_canvas.draw()
     
+    def update_current_prediction_graph(self, step: int, prediction: float):
+        """Update the current episode prediction graph"""
+        if prediction is None:
+            return
+
+        self.current_episode_prediction_steps.append(step)
+        self.current_episode_prediction_values.append(prediction)
+
+        self.prediction_ax.clear()
+        self.prediction_ax.plot(
+            self.current_episode_prediction_steps,
+            self.current_episode_prediction_values,
+            'm-', linewidth=1.5,
+        )
+        self.prediction_ax.set_xlabel('Step')
+        self.prediction_ax.set_ylabel('Predicted Population')
+        self.prediction_ax.set_title('Prediction Over Steps (Current Episode)')
+        self.prediction_ax.set_xlim(0, self.max_steps)
+
+        if self.current_episode_prediction_values:
+            y_min = min(self.current_episode_prediction_values)
+            y_max = max(self.current_episode_prediction_values)
+            if y_min == y_max:
+                delta = max(abs(y_min) * 0.1, 1.0)
+                y_min -= delta
+                y_max += delta
+            else:
+                pad = (y_max - y_min) * 0.1
+                y_min -= pad
+                y_max += pad
+            self.prediction_ax.set_ylim(y_min, y_max)
+
+        self.prediction_ax.grid(True, alpha=0.3)
+        self.prediction_fig.tight_layout()
+        self.prediction_canvas.draw()
+
     def reset_current_episode_budget(self):
         """Reset current episode budget tracking for new episode"""
         self.current_episode_budget_steps.clear()
@@ -496,6 +562,20 @@ DOSE:     {episode_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_episode', {}
         self.current_budget_ax.grid(True, alpha=0.3)
         self.current_budget_fig.tight_layout()
         self.current_budget_canvas.draw()
+
+    def reset_current_episode_prediction(self):
+        """Reset current episode prediction tracking for new episode"""
+        self.current_episode_prediction_steps.clear()
+        self.current_episode_prediction_values.clear()
+
+        self.prediction_ax.clear()
+        self.prediction_ax.set_xlabel('Step')
+        self.prediction_ax.set_ylabel('Predicted Population')
+        self.prediction_ax.set_title('Prediction Over Steps (Current Episode)')
+        self.prediction_ax.set_xlim(0, self.max_steps)
+        self.prediction_ax.grid(True, alpha=0.3)
+        self.prediction_fig.tight_layout()
+        self.prediction_canvas.draw()
     
     def update_env_stats(self, stats):
         """Update environment statistics"""
@@ -937,11 +1017,12 @@ class TrainingVisualizer:
                 episode_length=info.get('t', self.current_step),
                 budget_spent=budget_metrics['budget_spent'],
                 budget_remaining=budget_metrics['current_budget'],
-                reward_components=reward_components
+                reward_components=reward_components,
             )
             
             # Reset current episode budget graph for new episode
             self.control_panel.reset_current_episode_budget()
+            self.control_panel.reset_current_episode_prediction()
     
     def _update_policy(self):
         """Update the policy using collected rollout data (matching normal training)"""
@@ -1106,8 +1187,9 @@ class TrainingVisualizer:
         }
         self.control_panel.update_episode_stats(episode_stats)
         
-        # Update current episode budget graph
+        # Update current episode graphs
         self.control_panel.update_current_budget_graph(self.current_step, self.env.budget)
+        self.control_panel.update_current_prediction_graph(self.current_step, self.last_prediction)
         
         # Environment stats
         pop_stats = self.env.model.get_population_stats()

@@ -480,7 +480,7 @@ class PetriEnvWrapper:
             population_unrecoverable = (true_population >= unrecoverable_threshold)
             
             # Check budget condition if required
-            budget_condition_met = False
+            budget_condition_met = True
             if self.early_termination_require_budget_depleted:
                 budget_condition_met = (self.budget <= 0.0)
                 
@@ -491,7 +491,7 @@ class PetriEnvWrapper:
             #     print(f"  - Budget depleted: {budget_condition_met} (budget={self.budget:.2f})")
             
             # Trigger early termination if all conditions are met
-            if only_noop_available or population_unrecoverable or budget_condition_met:
+            if only_noop_available and population_unrecoverable and budget_condition_met:
                 # print("[EARLY TERMINATION] Triggered at step", self.t)
                 
                 done = True
@@ -542,8 +542,8 @@ class PetriEnvWrapper:
         # 7f) Add prediction accuracy reward (COUNT-only)
         prediction_reward = 0.0
         if count_result_landed and pred_population is not None and self.prediction_reward_weight > 0.0:
-            if (self.t < 100):
-                print(f"[PREDICTION REWARD] t={self.t}, predicted={pred_population:.4f}, actual={population_counted_norm:.4f}")
+            # if (self.t < 100):
+            #     print(f"[PREDICTION REWARD] t={self.t}, predicted={pred_population:.4f}, actual={population_counted_norm:.4f}")
             pred_error = abs(pred_population - population_counted_norm)  # in [0, 1]
             prediction_reward = (1.0 - pred_error) * self.prediction_reward_weight
 
