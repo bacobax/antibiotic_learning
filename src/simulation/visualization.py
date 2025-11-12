@@ -163,6 +163,7 @@ class SimulationVisualizer:
         self.highlight_scat = None
         self.im_food = None
         self.im_ab = None
+        self.im_qs = None  # Quorum sensing field overlay
         self.biofilm_lines = []  # List to hold biofilm connection lines
 
 
@@ -510,6 +511,13 @@ class SimulationVisualizer:
     def _update_field_overlays(self):
         """Update food and antibiotic field overlays"""
         try:
+        #     # Debug food field values every 100 steps
+        #     if self.model.step_count % 100 == 0:
+        #         food_max = np.max(self.model.food_field)
+        #         food_min = np.min(self.model.food_field)
+        #         food_mean = np.mean(self.model.food_field)
+        #         print(f"[Food Field] Step {self.model.step_count}: min={food_min:.6f}, max={food_max:.6f}, mean={food_mean:.6f}")
+            
             if self.im_food is None:
                 self.im_food = self.ax.imshow(
                     self.model.food_field.T,
@@ -606,6 +614,29 @@ class SimulationVisualizer:
                     self.im_ab.set_data(np.transpose(empty_rgb, (1, 0, 2)))
         except Exception as e:
             print(f"Error updating antibiotic field: {e}")
+
+        # Quorum sensing field overlay - with enhanced visualization for low values
+        try:
+            if hasattr(self.model, "qs_signal_field"):
+                # Scale QS field for better visualization
+                # Since QS values are typically 0-0.2, we need to amplify them
+                # to match the food field scale (0.2-0.8)
+                qs_scaled = np.clip(self.model.qs_signal_field * 4.0, 0.0, 1.0)  # Amplify by 4x
+                
+                if self.im_qs is None:
+                    self.im_qs = self.ax.imshow(
+                        qs_scaled.T,
+                        extent=[0, self.model.width, 0, self.model.height],
+                        origin="lower",
+                        cmap="Blues",
+                        alpha=0.3,  # Increased alpha for visibility
+                        vmin=0.0,   # Explicitly set range
+                        vmax=1.0,   # after scaling
+                    )
+                else:
+                    self.im_qs.set_data(qs_scaled.T)
+        except Exception as e:
+            print(f"Error updating QS field: {e}")
 
     def update_graphs(self):
         """Update only the history plots"""

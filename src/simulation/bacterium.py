@@ -652,7 +652,8 @@ class Bacterium(Agent):
         # Log state changes
         if was_active != self.qs_active:
             state = "ACTIVE" if self.qs_active else "INACTIVE"
-            print(f"[QS] Bacterium {self.unique_id} ({self.bacterial_type}) entered {state} state (local_qs={local_qs:.4f}, threshold={activation_threshold})")
+             # QS state change logging (commented out for performance)
+             #print(f"[QS] Bacterium {self.unique_id} ({self.bacterial_type}) entered {state} state (local_qs={local_qs:.4f}, threshold={activation_threshold})")
 
     def step(self):
         """Execute one step of the bacterium lifecycle"""
