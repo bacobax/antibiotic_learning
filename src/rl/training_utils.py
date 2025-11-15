@@ -616,9 +616,23 @@ def _setup_logger_and_log_startup(
     if rewards.prediction.enabled:
         logger.log_info(f"    - Weight: {rewards.prediction.weight}")
     logger.log_info(f"  - Early termination: {'enabled' if rewards.early_termination.enabled else 'disabled'}")
+    logger.log_info(
+        f"    - Population thresholds: ≤{rewards.early_termination.population_low_threshold}x "
+        f"or ≥{rewards.early_termination.population_threshold}x target"
+    )
+    logger.log_info(f"    - Extinction penalty: {rewards.early_termination.extinction_penalty}")
     if rewards.early_termination.enabled:
-        logger.log_info(f"    - Penalty: {rewards.early_termination.penalty}")
-        logger.log_info(f"    - Population threshold: {rewards.early_termination.population_threshold}x target")
+        late_penalty = (
+            rewards.early_termination.min_penalty
+            if rewards.early_termination.min_penalty is not None
+            else rewards.early_termination.penalty
+        )
+        logger.log_info(
+            f"    - Penalty (early → late): {rewards.early_termination.penalty} → {late_penalty}"
+        )
+        logger.log_info(
+            f"    - Penalty decay power: {rewards.early_termination.penalty_decay_power}"
+        )
         logger.log_info(f"    - Require budget depleted: {rewards.early_termination.require_budget_depleted}")
     
     logger.log_info(f"Action Costs:")
@@ -701,7 +715,11 @@ def _create_environment(
         # Early termination
         early_termination_enabled=rewards.early_termination.enabled,
         early_termination_penalty=rewards.early_termination.penalty,
+    early_termination_min_penalty=rewards.early_termination.min_penalty,
+    early_termination_penalty_decay_power=rewards.early_termination.penalty_decay_power,
         early_termination_population_threshold=rewards.early_termination.population_threshold,
+        early_termination_population_low_threshold=rewards.early_termination.population_low_threshold,
+        early_termination_zero_population_penalty=rewards.early_termination.extinction_penalty,
         early_termination_require_budget_depleted=rewards.early_termination.require_budget_depleted,
         # Device config
         device=config.environment.device,

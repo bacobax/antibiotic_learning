@@ -119,8 +119,12 @@ class PetriEnvWrapper:
         prediction_reward_weight: float = 0.0,    # weight for prediction accuracy reward (COUNT-only)
         # early termination (NOOP-only unrecoverable state)
         early_termination_enabled: bool = False,  # enable early termination when only NOOP available
-        early_termination_penalty: float = 10.0,  # penalty when early termination triggered
-        early_termination_population_threshold: float = 5.0,  # multiplier of target for unrecoverable
+        early_termination_penalty: float = 10.0,  # maximum penalty when early termination triggers early
+        early_termination_min_penalty: Optional[float] = None,  # penalty applied near the end of an episode
+        early_termination_penalty_decay_power: float = 1.0,  # exponent controlling decay rate over time
+        early_termination_population_threshold: float = 5.0,  # multiplier of target for unrecoverable (upper)
+        early_termination_population_low_threshold: float = 0.2,  # multiplier of target for unrecoverable (lower)
+        early_termination_zero_population_penalty: float = 0.0,  # penalty when population collapses to zero
         early_termination_require_budget_depleted: bool = True,  # require budget==0 for early term
         # shaping & norms
         target_population: int = 500,   # P*
@@ -181,8 +185,20 @@ class PetriEnvWrapper:
         
         # early termination parameters
         self.early_termination_enabled = early_termination_enabled
-        self.early_termination_penalty = early_termination_penalty
+        self.early_termination_penalty = max(0.0, float(early_termination_penalty))
+        min_penalty = early_termination_min_penalty
+        if min_penalty is None:
+            min_penalty = self.early_termination_penalty
+        self.early_termination_penalty_min = max(0.0, float(min_penalty))
+        if self.early_termination_penalty_min > self.early_termination_penalty:
+            self.early_termination_penalty_min = self.early_termination_penalty
+        self.early_termination_penalty_decay_power = max(1e-6, float(early_termination_penalty_decay_power))
+        self._early_termination_penalty_span = (
+            self.early_termination_penalty - self.early_termination_penalty_min
+        )
         self.early_termination_population_threshold = early_termination_population_threshold
+        self.early_termination_population_low_threshold = max(0.0, early_termination_population_low_threshold)
+        self.early_termination_zero_population_penalty = max(0.0, early_termination_zero_population_penalty)
         self.early_termination_require_budget_depleted = early_termination_require_budget_depleted
         
         # prediction accuracy reward
@@ -461,11 +477,21 @@ class PetriEnvWrapper:
 
         # 5) Termination conditions
         true_population = self._read_true_population()
-        done = (true_population == 0) or (self.t >= self.max_steps) or (self.budget <= 0.0)
+        base_done = (self.t >= self.max_steps) or (self.budget <= 0.0)
+        done = base_done
         
-        # 5b) Early termination: check if agent is stuck with only NOOP available in unrecoverable state
+        # 5b) Early termination handling, including extinction
         early_termination_penalty = 0.0
-        if self.early_termination_enabled and not done:
+        early_termination_triggered = False
+
+        # Immediate termination on population collapse (extinction)
+        if true_population <= 0:
+            done = True
+            early_termination_triggered = True
+            early_termination_penalty -= self.early_termination_zero_population_penalty
+        
+        # Check for unrecoverable states where only NOOP is available
+        if self.early_termination_enabled and not base_done:
             
             # Get action mask for next step (using dummy continuous action)
             # We need to check what actions would be available for the next decision
@@ -475,9 +501,15 @@ class PetriEnvWrapper:
             # Check if only NOOP is available (all other discrete actions are masked)
             only_noop_available = (np.sum(next_action_mask[1:]) == 0)
             
-            # Check if state is unrecoverable (population far exceeds target)
-            unrecoverable_threshold = self.target_population * self.early_termination_population_threshold
-            population_unrecoverable = (true_population >= unrecoverable_threshold)
+            # Check if state is unrecoverable (population outside safe operating band)
+            unrecoverable_high_threshold = self.target_population * self.early_termination_population_threshold
+            unrecoverable_low_threshold = self.target_population * self.early_termination_population_low_threshold
+            if unrecoverable_low_threshold < 0.0:
+                unrecoverable_low_threshold = 0.0
+            population_unrecoverable = (
+                true_population >= unrecoverable_high_threshold
+                or true_population <= unrecoverable_low_threshold
+            )
             
             # Check budget condition if required
             budget_condition_met = True
@@ -487,18 +519,25 @@ class PetriEnvWrapper:
             # if (self.t < 2 or self.t % 100 == 0 or only_noop_available or population_unrecoverable):
             #     print("[EARLY TERMINATION] Checking conditions at step", self.t )
             #     print(f"  - Only NOOP available: {only_noop_available}")
-            #     print(f"  - Population unrecoverable: {population_unrecoverable} (pop={true_population} >= {unrecoverable_threshold})")
+            #     print(
+            #         f"  - Population unrecoverable: {population_unrecoverable} "
+            #         f"(pop={true_population} outside [{unrecoverable_low_threshold}, {unrecoverable_high_threshold}])"
+            #     )
             #     print(f"  - Budget depleted: {budget_condition_met} (budget={self.budget:.2f})")
             
             # Trigger early termination if all conditions are met
             if only_noop_available and population_unrecoverable and budget_condition_met:
-                # print("[EARLY TERMINATION] Triggered at step", self.t)
-                
                 done = True
-                early_termination_penalty = -self.early_termination_penalty
-                # print("[EARLY TERMINATION] Triggered at step", self.t)
-                self.early_termination_triggered = True
-                self.last_early_termination_penalty = early_termination_penalty
+                early_termination_triggered = True
+                scaled_penalty = self._compute_step_scaled_early_termination_penalty()
+                early_termination_penalty -= scaled_penalty
+
+        if early_termination_triggered:
+            self.early_termination_triggered = True
+            self.last_early_termination_penalty = early_termination_penalty
+        else:
+            self.early_termination_triggered = False
+            self.last_early_termination_penalty = 0.0
 
         # 6) Release any pending dose rewards when a measurement lands
         delayed_reward = 0.0
@@ -590,6 +629,29 @@ class PetriEnvWrapper:
             "count_was_performed": count_result_landed,
         }
         return obs, float(reward), bool(done), info
+
+    # -------------------------
+    # Early termination helpers
+    # -------------------------
+
+    def _compute_step_scaled_early_termination_penalty(self) -> float:
+        """Scale the early termination penalty based on how far the episode has progressed."""
+        if self.max_steps <= 0:
+            remaining_fraction = 1.0
+        else:
+            remaining_fraction = max(0.0, min(1.0, (self.max_steps - self.t) / float(self.max_steps)))
+
+        if self._early_termination_penalty_span <= 0.0:
+            scaled_penalty = self.early_termination_penalty_min
+        else:
+            scaled_penalty = self.early_termination_penalty_min + (
+                self._early_termination_penalty_span
+                * (remaining_fraction ** self.early_termination_penalty_decay_power)
+            )
+
+        # Clamp to configured bounds to avoid floating point drift
+        scaled_penalty = min(self.early_termination_penalty, max(self.early_termination_penalty_min, scaled_penalty))
+        return float(scaled_penalty)
 
     # -------------------------
     # Action execution

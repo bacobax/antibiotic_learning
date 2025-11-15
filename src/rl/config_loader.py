@@ -123,9 +123,13 @@ class CriticalInactionConfig:
 class EarlyTerminationConfig:
     """Configuration for early termination on unrecoverable NOOP-only states."""
     enabled: bool = False  # Whether to enable early termination
-    penalty: float = 0.0  # Penalty applied when early termination triggers
-    population_threshold: float = 5.0  # Multiplier of target (e.g., 5.0 = population > 5x target)
+    penalty: float = 0.0  # Maximum penalty applied when termination happens very early
+    min_penalty: Optional[float] = None  # Penalty applied at/near max_steps (defaults to penalty)
+    penalty_decay_power: float = 1.0  # Curve exponent controlling how fast the penalty decays with time
+    population_threshold: float = 5.0  # Multiplier of target for high-population cutoff
+    population_low_threshold: float = 0.2  # Multiplier of target for low-population cutoff
     require_budget_depleted: bool = True  # If True, only trigger when budget is also depleted
+    extinction_penalty: float = 0.0  # Penalty applied when population collapses to zero
 
 
 @dataclass
@@ -304,6 +308,20 @@ def _get_default_config() -> Dict[str, Any]:
                 "sequencing": {
                     "redundant_penalty": 0.001,
                 },
+                "prediction": {
+                    "enabled": True,
+                    "weight": 1.0,
+                },
+                "early_termination": {
+                    "enabled": False,
+                    "penalty": 0.0,
+                    "min_penalty": None,
+                    "penalty_decay_power": 1.0,
+                    "population_threshold": 5.0,
+                    "population_low_threshold": 0.2,
+                    "extinction_penalty": 0.0,
+                    "require_budget_depleted": True,
+                },
             },
         },
         "actions": {
@@ -370,6 +388,7 @@ def _validate_config(config: Dict[str, Any]) -> None:
     model = config.get("model", {})
     ppo = config.get("ppo", {})
     training = config.get("training", {})
+    rewards = env.get("rewards", {})
     
     # Environment validation
     if env.get("k_doses", 1) <= 0:
@@ -378,6 +397,32 @@ def _validate_config(config: Dict[str, Any]) -> None:
         raise ValueError(f"Invalid device: {env.get('device')}")
     if env.get("dtype", "float32").lower() not in ["float32", "float64", "float16"]:
         raise ValueError(f"Invalid dtype: {env.get('dtype')}")
+
+    early_term_cfg = rewards.get("early_termination", {})
+    base_penalty = early_term_cfg.get("penalty", 0.0)
+    min_penalty = early_term_cfg.get("min_penalty", None)
+    penalty_decay_power = early_term_cfg.get("penalty_decay_power", 1.0)
+    high_thresh = early_term_cfg.get("population_threshold", 0.0)
+    low_thresh = early_term_cfg.get("population_low_threshold", 0.0)
+    extinction_penalty = early_term_cfg.get("extinction_penalty", 0.0)
+    if base_penalty < 0.0:
+        raise ValueError("early_termination.penalty must be >= 0")
+    if min_penalty is None:
+        min_penalty = base_penalty
+    if min_penalty < 0.0:
+        raise ValueError("early_termination.min_penalty must be >= 0")
+    if min_penalty > base_penalty:
+        raise ValueError("early_termination.min_penalty must be <= penalty")
+    if penalty_decay_power <= 0.0:
+        raise ValueError("early_termination.penalty_decay_power must be > 0")
+    if low_thresh < 0.0:
+        raise ValueError("early_termination.population_low_threshold must be >= 0")
+    if high_thresh <= 0.0:
+        raise ValueError("early_termination.population_threshold must be > 0")
+    if low_thresh >= high_thresh:
+        raise ValueError("early_termination.population_low_threshold must be < population_threshold")
+    if extinction_penalty < 0.0:
+        raise ValueError("early_termination.extinction_penalty must be >= 0")
     
     # Actions validation
     seq = actions.get("sequencing", {})
