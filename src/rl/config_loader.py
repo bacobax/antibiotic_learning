@@ -64,8 +64,11 @@ class PopulationRewardConfig:
     """Configuration for population-based rewards."""
     target_population: float
     population_norm: float
+    population_norm_reward: float
     w_population_maintenance: float  # Weight for maintenance penalty
     count_population_reward: float  # Immediate reward after COUNT based on distance to target
+    count_population_reward_alpha: float  # Exponential shaping steepness
+    count_population_reward_beta: float  # Exponential shaping shift term
     noop_band_factor: float  # Deadband around target for NOOP reward
     noop_reward_magnitude: float  # NOOP shaping magnitude
 
@@ -252,8 +255,11 @@ def _get_default_config() -> Dict[str, Any]:
                 "population": {
                     "target_population": 500,
                     "population_norm": 1000.0,
+                    "population_norm_reward": 500.0,
                     "w_population_maintenance": 0.01,
                     "count_population_reward": 0.0,
+                    "count_population_reward_alpha": 1.0,
+                    "count_population_reward_beta": 0.5,
                     "noop_band_factor": 0.02,
                     "noop_reward_magnitude": 0.01,
                 },
@@ -389,6 +395,7 @@ def _validate_config(config: Dict[str, Any]) -> None:
     ppo = config.get("ppo", {})
     training = config.get("training", {})
     rewards = env.get("rewards", {})
+    population_cfg = rewards.get("population", {})
     
     # Environment validation
     if env.get("k_doses", 1) <= 0:
@@ -423,6 +430,15 @@ def _validate_config(config: Dict[str, Any]) -> None:
         raise ValueError("early_termination.population_low_threshold must be < population_threshold")
     if extinction_penalty < 0.0:
         raise ValueError("early_termination.extinction_penalty must be >= 0")
+    alpha = population_cfg.get("count_population_reward_alpha", 1.0)
+    beta = population_cfg.get("count_population_reward_beta", 0.5)
+    norm_reward = population_cfg.get("population_norm_reward", population_cfg.get("target_population", 1.0))
+    if norm_reward <= 0.0:
+        raise ValueError("population.population_norm_reward must be > 0")
+    if alpha <= 0.0:
+        raise ValueError("population.count_population_reward_alpha must be > 0")
+    if not (0.0 <= beta <= 1.0):
+        raise ValueError("population.count_population_reward_beta must be in [0, 1]")
     
     # Actions validation
     seq = actions.get("sequencing", {})

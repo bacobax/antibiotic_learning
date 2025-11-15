@@ -108,6 +108,9 @@ class PetriEnvWrapper:
         regular_count_min_interval: int = 3,    # minimum interval to avoid spam-counting
         safe_nondosing_reward: float = 0.0,     # reward for NOT dosing when pop is low
         count_population_reward: float = 0.0,   # reward based on distance from target after COUNT
+        count_population_reward_alpha: float = 1.0,  # exponential shaping steepness
+        count_population_reward_beta: float = 0.5,   # exponential shaping shift term
+        population_norm_reward: float = 500.0,  # reward shaping normalization radius for population distance
         # critical inaction penalties
         critical_high_population_threshold: float = 3.0,  # multiplier of target for critical level
         critical_no_action_penalty: float = 0.0,  # penalty for not seq/dosing when count shows critical pop
@@ -174,6 +177,13 @@ class PetriEnvWrapper:
         self.regular_count_min_interval = regular_count_min_interval
         self.safe_nondosing_reward = safe_nondosing_reward
         self.count_population_reward = count_population_reward
+        self.count_population_reward_alpha = max(1e-6, float(count_population_reward_alpha))
+        self.count_population_reward_beta = float(np.clip(count_population_reward_beta, 0.0, 1.0))
+        # population_norm_reward is separate from population_norm.
+        # population_norm is ONLY for NN observation normalization.
+        # population_norm_reward defines the reward shaping radius.
+        # This prevents extremely large population deviations from producing flat or weak penalties.
+        self.population_norm_reward = max(1.0, float(population_norm_reward))
         
         # critical inaction penalties
         self.critical_high_population_threshold = critical_high_population_threshold
@@ -703,12 +713,16 @@ class PetriEnvWrapper:
             count_pop_reward = 0.0
             if self.count_population_reward > 0.0:
                 distance = abs(current_population - self.target_population)
-                normalized_distance = distance / self.population_norm
-                # Use exponential decay: reward decreases as distance increases
-                # When distance = 0: reward = count_population_reward
-                # When distance = population_norm: reward ≈ -count_population_reward
-                count_pop_reward = self.count_population_reward * (1.0 - 2.0 * normalized_distance)
-                count_pop_reward = np.clip(count_pop_reward, -self.count_population_reward, self.count_population_reward)
+                denom = max(1.0, float(self.population_norm_reward))
+                normalized_distance = min(distance / denom, 1.0)
+                # Exponential shaping: reward = R * (exp(-alpha * norm_dist) - beta)
+                exp_term = np.exp(-self.count_population_reward_alpha * normalized_distance)
+                shifted = exp_term - self.count_population_reward_beta
+                # Normalize to [-1, 1] before scaling by the configured magnitude
+                scale_bound = max(self.count_population_reward_beta, 1.0 - self.count_population_reward_beta, 1e-6)
+                normalized_reward = shifted / scale_bound
+                count_pop_reward = self.count_population_reward * np.clip(normalized_reward, -1.0, 1.0)
+                count_pop_reward = float(np.clip(count_pop_reward, -self.count_population_reward, self.count_population_reward))
             
             # Store for tracking
             self.last_count_population_reward = count_pop_reward
@@ -948,12 +962,12 @@ class PetriEnvWrapper:
             pop_term_raw = -float(self.dose_missing_feedback_penalty)
         elif pre_count is None:
             gap = abs(float(post_count) - self.target_population)
-            pop_term_raw = -gap / max(1.0, self.population_norm)
+            pop_term_raw = -gap / max(1.0, self.population_norm_reward)
         else:
             pre_gap = abs(float(pre_count) - self.target_population)
             post_gap = abs(float(post_count) - self.target_population)
             improvement = pre_gap - post_gap
-            pop_term_raw = improvement / max(1.0, self.population_norm)
+            pop_term_raw = improvement / max(1.0, self.population_norm_reward)
 
         pop_term_tensor = torch.tensor(pop_term_raw, dtype=self.dtype, device=self.device)
         age_pop = event.get("age_pop", 0) or 0

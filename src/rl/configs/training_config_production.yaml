@@ -14,8 +14,11 @@ environment:
     population:
       target_population: 100
       population_norm: 500.0
+  population_norm_reward: 150.0
       w_population_maintenance: 0.0    # DISABLED: No continuous maintenance reward
       count_population_reward: 10.0    # NEW: Immediate reward after COUNT based on distance to target
+  count_population_reward_alpha: 1.0
+  count_population_reward_beta: 0.5
       noop_band_factor: 0.1            # Deadband around target for NOOP
       noop_reward_magnitude: 0.0       # INCREASED: NOOP shaping magnitude
     

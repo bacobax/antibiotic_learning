@@ -702,6 +702,9 @@ def _create_environment(
         regular_count_min_interval=rewards.regular_monitoring.count_min_interval,
         safe_nondosing_reward=rewards.regular_monitoring.safe_nondosing_reward,
         count_population_reward=rewards.population.count_population_reward,
+    count_population_reward_alpha=rewards.population.count_population_reward_alpha,
+    count_population_reward_beta=rewards.population.count_population_reward_beta,
+    population_norm_reward=rewards.population.population_norm_reward,
         # Critical inaction penalties
         critical_high_population_threshold=rewards.critical_inaction.high_population_threshold,
         critical_no_action_penalty=rewards.critical_inaction.no_action_penalty,
