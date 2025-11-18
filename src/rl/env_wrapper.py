@@ -6,7 +6,6 @@ from rl.reward import (
     PopulationReward,
     GenomeReward,
     CostReward,
-    DoseRewardCompound,
     PopulationMaintenanceReward,
     SurvivalBonusReward,
     BudgetConservationReward,
@@ -52,10 +51,8 @@ class PetriEnvWrapper:
        b) NOOP shaping bonus/penalty: rewards staying in deadband around target population
        c) Regular count bonus: rewards counting at regular intervals (every ~15 steps)
        d) Safe behavior bonus: rewards NOT dosing when population is below target
-       e) Informed dosing bonus/penalty:
-          - Positive bonus: dosing with recent count AND sequencing data
-          - Negative penalty: dosing without recent data (blind dosing)
-          - Large negative penalty: dosing when population is already below target
+         e) Dose bookkeeping: DOSE actions only incur the action cost here. Their
+             efficacy is evaluated later once a COUNT observation arrives.
     
     2. MAINTENANCE REWARD:
        Per-step reward/penalty based on distance from target population.
@@ -66,9 +63,9 @@ class PetriEnvWrapper:
        Large negative penalty when budget reaches 0.
        Prevents running out of resources.
     
-    4. DELAYED REWARD:
-       Evaluates efficacy of past DOSE actions when new measurements land.
-       Only computed when COUNT or SEQUENCING results become available.
+     4. DELAYED REWARD:
+         Evaluates DOSE actions taken since the previous COUNT once a new COUNT lands.
+         Rewards scale with population drop, total dose, and an optional time decay.
     
     5. SURVIVAL BONUS:
        Per-step bonus for staying alive (configurable: constant/linear/exponential).
@@ -95,13 +92,14 @@ class PetriEnvWrapper:
         dose_cost_per_unit: float = 0.2,  # variable cost per unit of antibiotic
         dose_missing_feedback_penalty: float = 0.5,  # penalty magnitude when dose efficacy can't be scored
         count_cost: float = 0.0,        # cost for COUNT action
-        # informed dosing params
-        informed_dosing_reward: float = 0.0,    # bonus for dosing after recent count AND sequencing
-        informed_dosing_above_target_reward: float = 0.0,  # additional bonus for informed dosing when pop above target
-        informed_dosing_window: int = 10,       # steps window for "recent" count
-        informed_sequencing_window: int = 50,   # steps window for "recent" sequencing
-        blind_dosing_penalty: float = 0.0,      # penalty for dosing without count/sequencing
-        dosing_low_population_penalty: float = 0.0,  # BIG penalty for dosing when pop below target
+    # informed dose reward params (configured via YAML)
+    informed_reward_window_steps: int = 5,        # Max steps after last COUNT when DOSE remains eligible
+    informed_reward_weight: float = 1.0,          # Global multiplier for dose reward
+    informed_max_reward_per_dose: float = 10.0,   # Hard cap per individual dose
+    informed_time_decay: bool = True,             # Enable time decay for delayed reward
+    informed_decay_type: str = "linear",          # "linear" or "exponential"
+    informed_decay_rate: float = 0.2,             # Linear fraction lost per step or exponential multiplier
+    informed_min_reward_fraction: float = 0.0,    # Minimum fraction retained after decay
         # regular monitoring rewards
         regular_count_reward: float = 0.0,      # reward for counting regularly
         regular_count_interval: int = 15,       # target interval for regular counting
@@ -163,13 +161,18 @@ class PetriEnvWrapper:
         self.budget_penalty = budget_penalty
         self.unaffordable_action_penalty = unaffordable_action_penalty
         
-        # informed dosing parameters
-        self.informed_dosing_reward = informed_dosing_reward
-        self.informed_dosing_above_target_reward = informed_dosing_above_target_reward
-        self.informed_dosing_window = informed_dosing_window
-        self.informed_sequencing_window = informed_sequencing_window
-        self.blind_dosing_penalty = blind_dosing_penalty
-        self.dosing_low_population_penalty = dosing_low_population_penalty
+        # informed dose delayed reward parameters
+        self.informed_reward_window_steps = max(0, int(informed_reward_window_steps))
+        self.informed_reward_weight = float(informed_reward_weight)
+        self.informed_max_reward_per_dose = float(max(0.0, informed_max_reward_per_dose))
+        self.informed_time_decay_enabled = bool(informed_time_decay)
+        self.informed_decay_type = informed_decay_type.lower()
+        if self.informed_decay_type not in {"linear", "exponential"}:
+            raise ValueError("informed_decay_type must be 'linear' or 'exponential'")
+        self.informed_decay_rate = float(max(0.0, informed_decay_rate))
+        self.informed_min_reward_fraction = float(np.clip(informed_min_reward_fraction, 0.0, 1.0))
+        # Reuse window for safe behavior shaping (avoid extra config)
+        self.safe_behavior_window_steps = self.informed_reward_window_steps
         
         # regular monitoring parameters
         self.regular_count_reward = regular_count_reward
@@ -245,9 +248,11 @@ class PetriEnvWrapper:
 
         # observation cache (what the agent "knows")
         self.last_count_obs: Optional[int] = None
+        self.prev_count_obs: Optional[int] = None
         self.last_seq_obs: Optional[Dict[str, Any]] = None
         self.ts_last_seq: Optional[int] = None
         self.ts_last_count: Optional[int] = None
+        self.prev_count_step: Optional[int] = None
 
         # measurement/state caches
         self.avg_genome = np.zeros((N_BACTERIA_TYPES, N_TRAITS), dtype=np.float32)
@@ -266,8 +271,9 @@ class PetriEnvWrapper:
         self.seq_pending = False
         self.seq_eta = 0  # steps until result is ready
 
-        # pending dose ledger (evaluated when a measurement lands)
-        self.pending_dose_events: List[Dict[str, Any]] = []
+        # recent dose ledger (scored when a COUNT lands)
+        self.recent_dose_events: List[Dict[str, Any]] = []
+        self.last_informed_dose_reward = 0.0
 
         # NOOP action reward shaping
         noop_band = noop_band_factor * population_norm
@@ -313,7 +319,7 @@ class PetriEnvWrapper:
         # Reset reward component tracking
         self.last_regular_count_bonus = 0.0
         self.last_safe_behavior_bonus = 0.0
-        self.last_informed_dosing_bonus = 0.0
+        self.last_informed_dose_reward = 0.0
         self.last_count_population_reward = 0.0
         self.last_critical_noop_penalty = 0.0
         self.last_action_cost_penalty = 0.0  # Pure cost penalty from w_cost
@@ -322,9 +328,11 @@ class PetriEnvWrapper:
 
         # clear caches
         self.last_count_obs = None
+        self.prev_count_obs = None
         self.last_seq_obs = None
         self.ts_last_count = None
         self.ts_last_seq = None
+        self.prev_count_step = None
         self.avg_genome.fill(0.0)
 
         # reset dosing history
@@ -341,8 +349,8 @@ class PetriEnvWrapper:
         # clear pipelines
         self.seq_pending = False
         self.seq_eta = 0
-        self.pending_dose_events.clear()
-
+        self.recent_dose_events.clear()
+        self.last_informed_dose_reward = 0.0
 
         return self._build_observation()
 
@@ -367,7 +375,7 @@ class PetriEnvWrapper:
 
         # Reset reward component tracking (will be set if applicable)
         self.last_safe_behavior_bonus = 0.0
-        self.last_informed_dosing_bonus = 0.0
+        self.last_informed_dose_reward = 0.0
         self.last_critical_noop_penalty = 0.0
         self.last_action_cost_penalty = 0.0
         self.last_early_termination_penalty = 0.0
@@ -380,7 +388,7 @@ class PetriEnvWrapper:
         executed_noop = (a_discrete == ACTION_NOOP)
 
         # 1) Execute action: computes immediate reward (only instant penalties/shaping)
-        # This now includes regular_count_reward for COUNT actions and informed_dosing_bonus for DOSE actions
+        # This now includes regular_count_reward for COUNT actions and dose tracking bookkeeping for COUNT-triggered rewards
         immediate_reward = self._execute_action(a_discrete, a_cont)
         self.last_action_completed = 0.0 if executed_noop else 1.0
 
@@ -389,7 +397,7 @@ class PetriEnvWrapper:
         if a_discrete != ACTION_DOSE:
             # Check if we have recent count data
             steps_since_count = self.t - self.ts_last_count if self.ts_last_count is not None else float('inf')
-            has_recent_count = steps_since_count <= self.informed_dosing_window
+            has_recent_count = steps_since_count <= self.safe_behavior_window_steps
             
             # If count is recent and population is below target, reward for NOT dosing
             if has_recent_count and self.last_count_obs is not None:
@@ -552,9 +560,7 @@ class PetriEnvWrapper:
         # 6) Release any pending dose rewards when a measurement lands
         delayed_reward = 0.0
         if count_result_landed:
-            delayed_reward += self._collect_pending_dose_rewards(self.last_count_obs)
-        elif sequencing_result_landed:
-            delayed_reward += self._collect_pending_dose_rewards(None)
+            delayed_reward += self._score_recent_doses()
 
         # 7) Compute total reward: immediate penalties + delayed efficacy + maintenance
         # Use PopulationMaintenanceReward module for consistent asymmetric penalty
@@ -625,7 +631,7 @@ class PetriEnvWrapper:
             "reward_budget_conservation": budget_conservation_bonus,
             "reward_regular_count_bonus": self.last_regular_count_bonus,
             "reward_safe_behavior_bonus": self.last_safe_behavior_bonus,
-            "reward_informed_dosing_bonus": self.last_informed_dosing_bonus,
+            "reward_informed_dose": self.last_informed_dose_reward,
             "reward_count_population": self.last_count_population_reward,
             "reward_critical_inaction_penalty": critical_inaction_penalty,
             "reward_critical_noop_penalty": self.last_critical_noop_penalty,
@@ -644,7 +650,9 @@ class PetriEnvWrapper:
     # Early termination helpers
     # -------------------------
 
+
     def _compute_step_scaled_early_termination_penalty(self) -> float:
+        
         """Scale the early termination penalty based on how far the episode has progressed."""
         if self.max_steps <= 0:
             remaining_fraction = 1.0
@@ -683,7 +691,7 @@ class PetriEnvWrapper:
         """
         # Reset tracking variables (will be set if applicable)
         self.last_regular_count_bonus = 0.0
-        self.last_informed_dosing_bonus = 0.0
+        self.last_informed_dose_reward = 0.0
         self.last_count_population_reward = 0.0
         
         if a_discrete == ACTION_NOOP:
@@ -784,66 +792,9 @@ class PetriEnvWrapper:
             self.budget -= action_cost
             self.episode_budget_spent += action_cost
             self._dose_update_buffer = np.array(scaled, dtype=np.float32, copy=True)
-
-            # Informed dosing reward/penalty system
-            dosing_bonus = 0.0
-            
-            # Check 1: Do we have recent COUNT data?
-            has_recent_count = False
-            if self.ts_last_count is not None:
-                steps_since_count = self.t - self.ts_last_count
-                has_recent_count = (steps_since_count <= self.informed_dosing_window)
-            
-            # Check 2: Do we have recent SEQUENCING data?
-            has_recent_sequencing = False
-            if self.ts_last_seq is not None:
-                steps_since_seq = self.t - self.ts_last_seq
-                has_recent_sequencing = (steps_since_seq <= self.informed_sequencing_window)
-            
-            # Check 3: Is population BELOW target? (CRITICAL CHECK)
-            population_below_target = None
-            if self.last_count_obs is not None and has_recent_count:
-                population_below_target = (self.last_count_obs < self.target_population)
-            
-            # Apply penalties/rewards based on checks
-            if population_below_target:
-                # CRITICAL: BIG penalty for dosing when population is already below target
-                # This is dangerous - you're killing bacteria that are already too few!
-                dosing_bonus = -self.dosing_low_population_penalty
-                # # Debug output (only first few episodes)
-                # if self.t < 200:
-                #     print(f"[DOSING LOW POP] t={self.t}, pop={self.last_count_obs}, target={self.target_population}, penalty={dosing_bonus}")
-            elif has_recent_count and has_recent_sequencing:
-                # GOOD: Have both recent count AND sequencing data
-                if population_below_target is False:
-                    # Population is ABOVE target - give additional bonus for informed dosing
-                    dosing_bonus = self.informed_dosing_reward + self.informed_dosing_above_target_reward
-                    # # Debug output (only first few episodes)
-                    # if self.t < 200:
-                    #     print(f"[INFORMED DOSING ABOVE TARGET] t={self.t}, pop={self.last_count_obs}, target={self.target_population}, bonus={dosing_bonus}")
-                else:
-                    # Population is close to or at target - give base informed dosing reward
-                    dosing_bonus = self.informed_dosing_reward
-                # # Debug output (only first few episodes)
-                # if self.t < 200:
-                #     print(f"[INFORMED DOSING] t={self.t}, count_age={self.t - self.ts_last_count}, seq_age={self.t - self.ts_last_seq}, bonus={dosing_bonus}")
-            elif not has_recent_count or not has_recent_sequencing:
-                # BAD: Missing recent count OR sequencing data (blind dosing)
-                dosing_bonus = -self.blind_dosing_penalty
-                # # Debug output (only first few episodes)
-                # if self.t < 200:
-                #     count_age = self.t - self.ts_last_count if self.ts_last_count is not None else "None"
-                #     seq_age = self.t - self.ts_last_seq if self.ts_last_seq is not None else "None"
-                #     print(f"[BLIND DOSING] t={self.t}, has_count={has_recent_count} (age={count_age}), has_seq={has_recent_sequencing} (age={seq_age}), penalty={dosing_bonus}")
-            
-            # Store for tracking
-            self.last_informed_dosing_bonus = dosing_bonus
             self.last_action_cost_penalty = -action_cost * self.w_cost
-            
-            # ✅ SIMPLIFIED: Return cost penalty + informed dosing bonus/penalty
-            # Let population maintenance reward (computed every step) capture efficacy
-            # PPO's TD learning will connect: dose → future population drops → better rewards
-            return -action_cost * self.w_cost + dosing_bonus
+
+            return -action_cost * self.w_cost
         
         raise ValueError(f"Unknown discrete action: {a_discrete}")
 
@@ -925,6 +876,8 @@ class PetriEnvWrapper:
     # -------------------------
 
     def _cache_count_obs(self, population: int) -> None:
+        self.prev_count_obs = None if self.last_count_obs is None else int(self.last_count_obs)
+        self.prev_count_step = None if self.ts_last_count is None else int(self.ts_last_count)
         self.last_count_obs = int(population)
         self.ts_last_count = self.t
 
@@ -937,50 +890,78 @@ class PetriEnvWrapper:
             value = float(doses[idx])
             setattr(self, f"last_dose_{label}", value)
             setattr(self, f"ts_last_dose_{label}", self.t)
+        self._record_dose_event(doses)
 
-    def _collect_pending_dose_rewards(self, post_count: Optional[int]) -> float:
-        if not self.pending_dose_events:
+    def _record_dose_event(self, doses: np.ndarray) -> None:
+        """Store dose information so it can be rewarded the next time a COUNT lands."""
+        if self.ts_last_count is None:
+            return  # No baseline COUNT yet → skip
+
+        dose_magnitude = float(np.sum(doses))
+        if dose_magnitude <= 0.0:
+            return
+
+        event = {
+            "step": int(self.t),
+            "doses": np.array(doses, dtype=np.float32, copy=True),
+        }
+        self.recent_dose_events.append(event)
+
+    def _score_recent_doses(self) -> float:
+        """Compute reward for doses taken since the previous COUNT once a new COUNT arrives."""
+        if not self.recent_dose_events:
+            self.last_informed_dose_reward = 0.0
             return 0.0
 
-        total = 0.0
-        for event in self.pending_dose_events:
-            total += self._evaluate_dose_event(event, post_count)
-        self.pending_dose_events.clear()
-        return float(total)
+        if self.prev_count_obs is None or self.last_count_obs is None:
+            self.recent_dose_events.clear()
+            self.last_informed_dose_reward = 0.0
+            return 0.0
 
-    def _evaluate_dose_event(self, event: Dict[str, Any], post_count: Optional[int]) -> float:
-        doses = torch.tensor(event["doses"], dtype=self.dtype, device=self.device)
+        population_drop = max(0.0, float(self.prev_count_obs - self.last_count_obs))
+        if population_drop <= 0.0:
+            self.recent_dose_events.clear()
+            self.last_informed_dose_reward = 0.0
+            return 0.0
 
-        genome_term = self.dose_reward_compound.genome_reward(
-            event.get("avg_genome"),
-            doses,
-            0 if event.get("age_genome") is None else event["age_genome"],
-        )
+        total_reward = 0.0
+        baseline_step = self.prev_count_step
 
-        pre_count = event.get("pre_count")
-        if post_count is None:
-            pop_term_raw = -float(self.dose_missing_feedback_penalty)
-        elif pre_count is None:
-            gap = abs(float(post_count) - self.target_population)
-            pop_term_raw = -gap / max(1.0, self.population_norm_reward)
+        for event in self.recent_dose_events:
+            event_step = int(event.get("step", self.t))
+            steps_since_count = 0
+            if baseline_step is not None:
+                steps_since_count = max(0, event_step - int(baseline_step) - 1)
+
+            if steps_since_count > self.informed_reward_window_steps:
+                continue
+
+            dose_magnitude = float(np.sum(event["doses"]))
+            if dose_magnitude <= 0.0:
+                continue
+
+            decay_factor = self._dose_time_decay_factor(steps_since_count)
+            reward = population_drop * dose_magnitude * self.informed_reward_weight * decay_factor
+            reward = min(reward, self.informed_max_reward_per_dose)
+            total_reward += reward
+
+        self.recent_dose_events.clear()
+        self.last_informed_dose_reward = float(total_reward)
+        return self.last_informed_dose_reward
+
+    def _dose_time_decay_factor(self, steps_since_count: int) -> float:
+        if not self.informed_time_decay_enabled:
+            return 1.0
+
+        if steps_since_count <= 0:
+            factor = 1.0
+        elif self.informed_decay_type == "linear":
+            factor = max(0.0, 1.0 - self.informed_decay_rate * steps_since_count)
         else:
-            pre_gap = abs(float(pre_count) - self.target_population)
-            post_gap = abs(float(post_count) - self.target_population)
-            improvement = pre_gap - post_gap
-            pop_term_raw = improvement / max(1.0, self.population_norm_reward)
+            factor = float(self.informed_decay_rate ** steps_since_count)
 
-        pop_term_tensor = torch.tensor(pop_term_raw, dtype=self.dtype, device=self.device)
-        age_pop = event.get("age_pop", 0) or 0
-        pop_term_tensor = self.dose_reward_compound.pop_reward.age_normalizer(pop_term_tensor, age_pop)
-        pop_term_tensor = torch.clamp(pop_term_tensor, min=-1.0, max=1.0)
-        pop_term = float(pop_term_tensor.item())
-
-        total = (
-            self.dose_reward_compound.w_pop * pop_term
-            + self.dose_reward_compound.w_genome * genome_term
-        )
-
-        return float(total)
+        factor = max(self.informed_min_reward_fraction, factor)
+        return float(min(1.0, factor))
 
     def _cache_sequencing_obs(self, seq: Dict[str, Any]) -> None:
         self.last_seq_obs = {

@@ -94,12 +94,13 @@ class BudgetConfig:
 @dataclass
 class InformedDosingConfig:
     """Configuration for informed dosing rewards and penalties."""
-    reward: float  # Bonus for dosing after recent count AND sequencing
-    above_target_reward: float  # Additional bonus for informed dosing when population is above target
-    window: int  # Steps window for "recent" count
-    sequencing_window: int  # Steps window for "recent" sequencing
-    blind_penalty: float  # Penalty for dosing without count/sequencing
-    low_population_penalty: float  # BIG penalty for dosing when pop below target
+    reward_window_steps: int  # Max steps after COUNT where doses remain eligible
+    reward_weight: float  # Multiplier applied to population drop × dose magnitude
+    max_reward_per_dose: float  # Hard cap per individual dose reward
+    time_decay: bool  # Whether to apply time-based decay
+    decay_type: str  # "linear" or "exponential"
+    decay_rate: float  # Rate parameter for the chosen decay function
+    min_reward_fraction: float  # Floor for decay factor
 
 
 @dataclass
@@ -290,12 +291,13 @@ def _get_default_config() -> Dict[str, Any]:
                     "reserve_bonus_magnitude": 0.005,
                 },
                 "informed_dosing": {
-                    "reward": 0.0,
-                    "above_target_reward": 0.0,
-                    "window": 10,
-                    "sequencing_window": 50,
-                    "blind_penalty": 0.0,
-                    "low_population_penalty": 0.0,
+                    "reward_window_steps": 5,
+                    "reward_weight": 1.0,
+                    "max_reward_per_dose": 5.0,
+                    "time_decay": True,
+                    "decay_type": "linear",
+                    "decay_rate": 0.2,
+                    "min_reward_fraction": 0.0,
                 },
                 "regular_monitoring": {
                     "count_reward": 0.0,
@@ -430,6 +432,20 @@ def _validate_config(config: Dict[str, Any]) -> None:
         raise ValueError("early_termination.population_low_threshold must be < population_threshold")
     if extinction_penalty < 0.0:
         raise ValueError("early_termination.extinction_penalty must be >= 0")
+
+    informed_cfg = rewards.get("informed_dosing", {})
+    if informed_cfg.get("reward_window_steps", 0) < 0:
+        raise ValueError("informed_dosing.reward_window_steps must be >= 0")
+    if informed_cfg.get("max_reward_per_dose", 0.0) < 0.0:
+        raise ValueError("informed_dosing.max_reward_per_dose must be >= 0")
+    if informed_cfg.get("decay_rate", 0.0) < 0.0:
+        raise ValueError("informed_dosing.decay_rate must be >= 0")
+    min_fraction = informed_cfg.get("min_reward_fraction", 0.0)
+    if not (0.0 <= min_fraction <= 1.0):
+        raise ValueError("informed_dosing.min_reward_fraction must be in [0, 1]")
+    decay_type = str(informed_cfg.get("decay_type", "linear")).lower()
+    if decay_type not in {"linear", "exponential"}:
+        raise ValueError("informed_dosing.decay_type must be 'linear' or 'exponential'")
     alpha = population_cfg.get("count_population_reward_alpha", 1.0)
     beta = population_cfg.get("count_population_reward_beta", 0.5)
     norm_reward = population_cfg.get("population_norm_reward", population_cfg.get("target_population", 1.0))

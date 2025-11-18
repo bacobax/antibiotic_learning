@@ -33,14 +33,15 @@ environment:
     sequencing:
       redundant_penalty: 0.001          # Penalty for launching sequencing while one is pending
     
-    # Informed dosing (NEW: encourage count + sequencing before dose)
+    # Informed dosing delayed reward (count-triggered dose evaluation)
     informed_dosing:
-      reward: 1.                       # Bonus for dosing after recent count AND sequencing
-      above_target_reward: 3.0          # Additional bonus for informed dosing when population above target
-      window: 5                         # Steps to consider count "recent"
-      sequencing_window: 5             # Steps to consider sequencing "recent"
-      blind_penalty: 3.0              # Penalty for dosing without recent count OR sequencing
-      low_population_penalty: 2.0     # HUGE penalty for dosing when population below target
+      reward_window_steps: 5            # Max steps after COUNT where doses remain eligible for reward
+      reward_weight: 0.05               # Multiplier applied to population drop × dose magnitude
+      max_reward_per_dose: 25.0         # Cap individual dose rewards to avoid spikes
+      time_decay: true                  # Apply decay based on delay between COUNT and DOSE
+      decay_type: "linear"             # Use linear decay for production runs
+      decay_rate: 0.1                   # Lose 10% reward credit per step after the COUNT baseline
+      min_reward_fraction: 0.05         # Retain at least 5% of reward even if dose is late
     
     # Critical action penalties (NEW: penalize inaction when population is dangerously high)
     critical_inaction:

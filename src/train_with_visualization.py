@@ -102,7 +102,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.reward_budget_conservation_history = []
         self.reward_regular_count_bonus_history = []
         self.reward_safe_behavior_bonus_history = []
-        self.reward_informed_dosing_bonus_history = []
+        self.reward_informed_dose_history = []
         self.reward_count_population_history = []
         self.reward_critical_inaction_penalty_history = []
         self.reward_critical_noop_penalty_history = []
@@ -336,7 +336,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             self.reward_budget_conservation_history.append(reward_components.get('budget_conservation', 0.0))
             self.reward_regular_count_bonus_history.append(reward_components.get('regular_count_bonus', 0.0))
             self.reward_safe_behavior_bonus_history.append(reward_components.get('safe_behavior_bonus', 0.0))
-            self.reward_informed_dosing_bonus_history.append(reward_components.get('informed_dosing_bonus', 0.0))
+            self.reward_informed_dose_history.append(reward_components.get('informed_dose_reward', 0.0))
             self.reward_count_population_history.append(reward_components.get('count_population', 0.0))
             self.reward_critical_inaction_penalty_history.append(reward_components.get('critical_inaction_penalty', 0.0))
             self.reward_critical_noop_penalty_history.append(reward_components.get('critical_noop_penalty', 0.0))
@@ -399,9 +399,9 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             if any(x != 0 for x in self.reward_safe_behavior_bonus_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_safe_behavior_bonus_history, 
                                                label='Safe Behavior', linewidth=1.5, alpha=0.9)
-            if any(x != 0 for x in self.reward_informed_dosing_bonus_history):
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_informed_dosing_bonus_history, 
-                                               label='Informed Dosing', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_informed_dose_history):
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_informed_dose_history, 
+                                               label='Informed Dose Reward', linewidth=1.5, alpha=0.9)
             if any(x != 0 for x in self.reward_count_population_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_count_population_history, 
                                                label='Count Population', linewidth=1.5, alpha=0.9)
@@ -651,7 +651,7 @@ class TrainingVisualizer:
             'budget_conservation': [],
             'regular_count_bonus': [],
             'safe_behavior_bonus': [],
-            'informed_dosing_bonus': [],
+            'informed_dose_reward': [],
             'count_population': [],
             'critical_inaction_penalty': [],
             'critical_noop_penalty': [],
@@ -671,7 +671,7 @@ class TrainingVisualizer:
             'budget_conservation': 0.0,
             'regular_count_bonus': 0.0,
             'safe_behavior_bonus': 0.0,
-            'informed_dosing_bonus': 0.0,
+            'informed_dose_reward': 0.0,
             'count_population': 0.0,
             'critical_inaction_penalty': 0.0,
             'critical_noop_penalty': 0.0,
@@ -911,7 +911,7 @@ class TrainingVisualizer:
         self.current_episode_rewards['budget_conservation'] += info.get('reward_budget_conservation', 0.0)
         self.current_episode_rewards['regular_count_bonus'] += info.get('reward_regular_count_bonus', 0.0)
         self.current_episode_rewards['safe_behavior_bonus'] += info.get('reward_safe_behavior_bonus', 0.0)
-        self.current_episode_rewards['informed_dosing_bonus'] += info.get('reward_informed_dosing_bonus', 0.0)
+        self.current_episode_rewards['informed_dose_reward'] += info.get('reward_informed_dose', 0.0)
         self.current_episode_rewards['count_population'] += info.get('reward_count_population', 0.0)
         self.current_episode_rewards['critical_inaction_penalty'] += info.get('reward_critical_inaction_penalty', 0.0)
         self.current_episode_rewards['critical_noop_penalty'] += info.get('reward_critical_noop_penalty', 0.0)
@@ -978,7 +978,7 @@ class TrainingVisualizer:
                 'budget_conservation': self.current_episode_rewards['budget_conservation'],
                 'regular_count_bonus': self.current_episode_rewards['regular_count_bonus'],
                 'safe_behavior_bonus': self.current_episode_rewards['safe_behavior_bonus'],
-                'informed_dosing_bonus': self.current_episode_rewards['informed_dosing_bonus'],
+                'informed_dose_reward': self.current_episode_rewards['informed_dose_reward'],
                 'count_population': self.current_episode_rewards['count_population'],
                 'critical_inaction_penalty': self.current_episode_rewards['critical_inaction_penalty'],
                 'critical_noop_penalty': self.current_episode_rewards['critical_noop_penalty'],
@@ -1065,7 +1065,7 @@ class TrainingVisualizer:
             "rewards/budget_conservation": float(np.mean(self.rollout_reward_components['budget_conservation'])) if self.rollout_reward_components['budget_conservation'] else 0.0,
             "rewards/regular_count_bonus": float(np.mean(self.rollout_reward_components['regular_count_bonus'])) if self.rollout_reward_components['regular_count_bonus'] else 0.0,
             "rewards/safe_behavior_bonus": float(np.mean(self.rollout_reward_components['safe_behavior_bonus'])) if self.rollout_reward_components['safe_behavior_bonus'] else 0.0,
-            "rewards/informed_dosing_bonus": float(np.mean(self.rollout_reward_components['informed_dosing_bonus'])) if self.rollout_reward_components['informed_dosing_bonus'] else 0.0,
+            "rewards/informed_dose": float(np.mean(self.rollout_reward_components['informed_dose_reward'])) if self.rollout_reward_components['informed_dose_reward'] else 0.0,
             "rewards/count_population": float(np.mean(self.rollout_reward_components['count_population'])) if self.rollout_reward_components['count_population'] else 0.0,
             "rewards/critical_inaction_penalty": float(np.mean(self.rollout_reward_components['critical_inaction_penalty'])) if self.rollout_reward_components['critical_inaction_penalty'] else 0.0,
             "rewards/critical_noop_penalty": float(np.mean(self.rollout_reward_components['critical_noop_penalty'])) if self.rollout_reward_components['critical_noop_penalty'] else 0.0,

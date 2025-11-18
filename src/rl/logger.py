@@ -197,7 +197,7 @@ class TrainingLogger:
             rollout_metrics.get('rewards/budget_conservation', 0.0) +
             rollout_metrics.get('rewards/regular_count_bonus', 0.0) +
             rollout_metrics.get('rewards/safe_behavior_bonus', 0.0) +
-            rollout_metrics.get('rewards/informed_dosing_bonus', 0.0) +
+            rollout_metrics.get('rewards/informed_dose', 0.0) +
             rollout_metrics.get('rewards/count_population', 0.0) +
             rollout_metrics.get('rewards/critical_inaction_penalty', 0.0) +
             rollout_metrics.get('rewards/critical_noop_penalty', 0.0) +
@@ -219,7 +219,7 @@ class TrainingLogger:
             f"BudgCons={rollout_metrics.get('rewards/budget_conservation', 0.0):+6.2f} | "
             f"RegCount={rollout_metrics.get('rewards/regular_count_bonus', 0.0):+6.2f} | "
             f"SafeBehav={rollout_metrics.get('rewards/safe_behavior_bonus', 0.0):+6.2f} | "
-            f"InfDosing={rollout_metrics.get('rewards/informed_dosing_bonus', 0.0):+6.2f} | "
+            f"InfDose={rollout_metrics.get('rewards/informed_dose', 0.0):+6.2f} | "
             f"CountPop={rollout_metrics.get('rewards/count_population', 0.0):+6.2f} | "
             f"CritInact={rollout_metrics.get('rewards/critical_inaction_penalty', 0.0):+6.2f} | "
             f"CritNoop={rollout_metrics.get('rewards/critical_noop_penalty', 0.0):+6.2f} | "

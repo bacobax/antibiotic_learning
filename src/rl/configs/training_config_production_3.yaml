@@ -10,7 +10,7 @@ environment:
       population_norm: 500.0
       population_norm_reward: 150.0
       w_population_maintenance: 0.0
-      count_population_reward: 10.0
+      count_population_reward: 0.0
       count_population_reward_alpha: 1.0
       count_population_reward_beta: 0.5
       noop_band_factor: 0.1
@@ -26,9 +26,9 @@ environment:
       redundant_penalty: 0.001
 
     informed_dosing:
-      reward_window_steps: 5
-      reward_weight: 0.1
-      max_reward_per_dose: 25.0
+      reward_window_steps: 8
+      reward_weight: 1.0
+      max_reward_per_dose: 20.0
       time_decay: true
       decay_type: "linear"
       decay_rate: 0.1
@@ -37,13 +37,13 @@ environment:
     critical_inaction:
       high_population_threshold: 3
       no_action_penalty: 0
-      no_dose_penalty: 1
+      no_dose_penalty: 0
       freshness_window: 5
-      noop_penalty: 0.1
+      noop_penalty: 0.0
       noop_threshold: 30
 
     regular_monitoring:
-      count_reward: 5.0
+      count_reward: 0.0
       count_interval: 30
       count_min_interval: 5
       safe_nondosing_reward: 0.0
@@ -51,7 +51,7 @@ environment:
     budget:
       budget_init: 100.0
       budget_norm: 100.0
-      budget_penalty: 5.0
+      budget_penalty: 0.0
 
     survival_bonus:
       enabled: true
@@ -62,13 +62,13 @@ environment:
 
     prediction:
       enabled: true
-      weight: 1
+      weight: 0.4
 
     # Early termination on unrecoverable NOOP-only states
     early_termination:
       enabled: true                    # Enable early termination when only NOOP is available in unrecoverable state
-      penalty: 5.0                     # Penalty applied on early termination
-      min_penalty: 1.0                 # Penalty applied when termination occurs near the episode horizon
+      penalty: 25.0                     # Penalty applied on early termination
+      min_penalty: 10.0                 # Penalty applied when termination occurs near the episode horizon
       penalty_decay_power: 1.0         # Linear decay of the penalty as steps progress
       population_low_threshold: 0.2     # Terminate if population falls below target × this factor
       population_threshold: 1.5         # Population must exceed (target × this factor) to be unrecoverable
@@ -88,13 +88,13 @@ actions:
 
   sequencing:
     id: 2
-    cost: 5.0
+    cost: 2.5
     duration: 5
 
   dose:
     id: 3
     cost: 2.0
-    cost_per_unit: 3.0
+    cost_per_unit: 2.0
     duration: 0
 
 model:

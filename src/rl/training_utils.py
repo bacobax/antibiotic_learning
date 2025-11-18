@@ -114,7 +114,7 @@ def rollout(
     episode_reward_budget_conservation = []
     episode_reward_regular_count_bonus = []
     episode_reward_safe_behavior_bonus = []
-    episode_reward_informed_dosing_bonus = []
+    episode_reward_informed_dose = []
     episode_reward_count_population = []
     episode_reward_critical_inaction_penalty = []
     episode_reward_critical_noop_penalty = []
@@ -146,7 +146,7 @@ def rollout(
     current_reward_budget_conservation = 0.0
     current_reward_regular_count_bonus = 0.0
     current_reward_safe_behavior_bonus = 0.0
-    current_reward_informed_dosing_bonus = 0.0
+    current_reward_informed_dose = 0.0
     current_reward_count_population = 0.0
     current_reward_critical_inaction_penalty = 0.0
     current_reward_critical_noop_penalty = 0.0
@@ -221,7 +221,7 @@ def rollout(
         current_reward_budget_conservation += info.get('reward_budget_conservation', 0.0)
         current_reward_regular_count_bonus += info.get('reward_regular_count_bonus', 0.0)
         current_reward_safe_behavior_bonus += info.get('reward_safe_behavior_bonus', 0.0)
-        current_reward_informed_dosing_bonus += info.get('reward_informed_dosing_bonus', 0.0)
+        current_reward_informed_dose += info.get('reward_informed_dose', 0.0)
         current_reward_count_population += info.get('reward_count_population', 0.0)
         current_reward_critical_inaction_penalty += info.get('reward_critical_inaction_penalty', 0.0)
         current_reward_critical_noop_penalty += info.get('reward_critical_noop_penalty', 0.0)
@@ -279,7 +279,7 @@ def rollout(
             episode_reward_budget_conservation.append(current_reward_budget_conservation)
             episode_reward_regular_count_bonus.append(current_reward_regular_count_bonus)
             episode_reward_safe_behavior_bonus.append(current_reward_safe_behavior_bonus)
-            episode_reward_informed_dosing_bonus.append(current_reward_informed_dosing_bonus)
+            episode_reward_informed_dose.append(current_reward_informed_dose)
             episode_reward_count_population.append(current_reward_count_population)
             episode_reward_critical_inaction_penalty.append(current_reward_critical_inaction_penalty)
             episode_reward_critical_noop_penalty.append(current_reward_critical_noop_penalty)
@@ -311,7 +311,7 @@ def rollout(
             current_reward_budget_conservation = 0.0
             current_reward_regular_count_bonus = 0.0
             current_reward_safe_behavior_bonus = 0.0
-            current_reward_informed_dosing_bonus = 0.0
+            current_reward_informed_dose = 0.0
             current_reward_count_population = 0.0
             current_reward_critical_inaction_penalty = 0.0
             current_reward_critical_noop_penalty = 0.0
@@ -369,7 +369,7 @@ def rollout(
         "rewards/budget_conservation": float(np.mean(episode_reward_budget_conservation)) if episode_reward_budget_conservation else 0.0,
         "rewards/regular_count_bonus": float(np.mean(episode_reward_regular_count_bonus)) if episode_reward_regular_count_bonus else 0.0,
         "rewards/safe_behavior_bonus": float(np.mean(episode_reward_safe_behavior_bonus)) if episode_reward_safe_behavior_bonus else 0.0,
-        "rewards/informed_dosing_bonus": float(np.mean(episode_reward_informed_dosing_bonus)) if episode_reward_informed_dosing_bonus else 0.0,
+        "rewards/informed_dose": float(np.mean(episode_reward_informed_dose)) if episode_reward_informed_dose else 0.0,
         "rewards/count_population": float(np.mean(episode_reward_count_population)) if episode_reward_count_population else 0.0,
         "rewards/critical_inaction_penalty": float(np.mean(episode_reward_critical_inaction_penalty)) if episode_reward_critical_inaction_penalty else 0.0,
         "rewards/critical_noop_penalty": float(np.mean(episode_reward_critical_noop_penalty)) if episode_reward_critical_noop_penalty else 0.0,
@@ -689,22 +689,23 @@ def _create_environment(
         dose_cost=config.actions.dose_cost,
         dose_cost_per_unit=config.actions.dose_cost_per_unit,
         count_cost=config.actions.count_cost,
-        # Informed dosing params
-        informed_dosing_reward=rewards.informed_dosing.reward,
-        informed_dosing_above_target_reward=rewards.informed_dosing.above_target_reward,
-        informed_dosing_window=rewards.informed_dosing.window,
-        informed_sequencing_window=rewards.informed_dosing.sequencing_window,
-        blind_dosing_penalty=rewards.informed_dosing.blind_penalty,
-        dosing_low_population_penalty=rewards.informed_dosing.low_population_penalty,
+        # Informed dosing delayed reward params
+        informed_reward_window_steps=rewards.informed_dosing.reward_window_steps,
+        informed_reward_weight=rewards.informed_dosing.reward_weight,
+        informed_max_reward_per_dose=rewards.informed_dosing.max_reward_per_dose,
+        informed_time_decay=rewards.informed_dosing.time_decay,
+        informed_decay_type=rewards.informed_dosing.decay_type,
+        informed_decay_rate=rewards.informed_dosing.decay_rate,
+        informed_min_reward_fraction=rewards.informed_dosing.min_reward_fraction,
         # Regular monitoring params
         regular_count_reward=rewards.regular_monitoring.count_reward,
         regular_count_interval=rewards.regular_monitoring.count_interval,
         regular_count_min_interval=rewards.regular_monitoring.count_min_interval,
         safe_nondosing_reward=rewards.regular_monitoring.safe_nondosing_reward,
         count_population_reward=rewards.population.count_population_reward,
-    count_population_reward_alpha=rewards.population.count_population_reward_alpha,
-    count_population_reward_beta=rewards.population.count_population_reward_beta,
-    population_norm_reward=rewards.population.population_norm_reward,
+        count_population_reward_alpha=rewards.population.count_population_reward_alpha,
+        count_population_reward_beta=rewards.population.count_population_reward_beta,
+        population_norm_reward=rewards.population.population_norm_reward,
         # Critical inaction penalties
         critical_high_population_threshold=rewards.critical_inaction.high_population_threshold,
         critical_no_action_penalty=rewards.critical_inaction.no_action_penalty,
@@ -718,8 +719,8 @@ def _create_environment(
         # Early termination
         early_termination_enabled=rewards.early_termination.enabled,
         early_termination_penalty=rewards.early_termination.penalty,
-    early_termination_min_penalty=rewards.early_termination.min_penalty,
-    early_termination_penalty_decay_power=rewards.early_termination.penalty_decay_power,
+        early_termination_min_penalty=rewards.early_termination.min_penalty,
+        early_termination_penalty_decay_power=rewards.early_termination.penalty_decay_power,
         early_termination_population_threshold=rewards.early_termination.population_threshold,
         early_termination_population_low_threshold=rewards.early_termination.population_low_threshold,
         early_termination_zero_population_penalty=rewards.early_termination.extinction_penalty,
