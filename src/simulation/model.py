@@ -28,6 +28,7 @@ from simulation.simulation_config import (
     FOOD_PATCH_SIGMA_MAX,
     BIOFILM_PARAMS,
     QUORUM_SENSING_PARAMS,
+    FOOD_REPLENISHMENT,
 )
 from simulation.bacterium import Bacterium
 from simulation.tracking import IndividualTracker
@@ -491,8 +492,48 @@ class BacteriaModel(Model):
         # Ensure non-negative
         self.qs_signal_field = np.maximum(self.qs_signal_field, 0.0)
 
+    def replenish_food(self):
+        """Add periodic food impulses to prevent starvation
+        
+        Creates new Gaussian food patches at random locations to simulate
+        continuous nutrient availability in the environment.
+        """
+        if not FOOD_REPLENISHMENT["enabled"]:
+            return
+        
+        patch_count = FOOD_REPLENISHMENT["patch_count"]
+        
+        for _ in range(patch_count):
+            # Random location for new patch
+            cx = random.uniform(0, self.field_w - 1)
+            cy = random.uniform(0, self.field_h - 1)
+            
+            # Random size and amplitude
+            sigma = random.uniform(
+                FOOD_REPLENISHMENT["sigma_min"],
+                FOOD_REPLENISHMENT["sigma_max"]
+            )
+            amplitude = random.uniform(
+                FOOD_REPLENISHMENT["amplitude_min"],
+                FOOD_REPLENISHMENT["amplitude_max"]
+            )
+            
+            # Add the patch
+            self.add_gaussian_patch(self.food_field, cx, cy, sigma, amplitude)
+        
+        # Optional: Log replenishment event (only occasionally to avoid spam)
+        if self.step_count % 200 == 0:
+            total_food = float(np.sum(self.food_field))
+            print(f"[Food] Step {self.step_count}: Replenished {patch_count} patches, total food: {total_food:.2f}")
+
     def step(self):
         """Execute one simulation step"""
+        # Check if it's time to replenish food
+        if (FOOD_REPLENISHMENT["enabled"] and 
+            self.step_count > 0 and 
+            self.step_count % FOOD_REPLENISHMENT["period"] == 0):
+            self.replenish_food()
+        
         # Update fields - decay each antibiotic independently
         # self.food_field = gaussian_filter(self.food_field, sigma=FOOD_DIFFUSION_SIGMA)
 

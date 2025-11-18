@@ -295,3 +295,16 @@ QUORUM_SENSING_PARAMS = {
     # Detection and response
     "activation_threshold": 0.5,     # QS concentration threshold for activation
 }
+
+# -----------------------
+# Food Replenishment Parameters
+# -----------------------
+FOOD_REPLENISHMENT = {
+    "enabled": True,                    # Enable/disable food replenishment
+    "period": 50,                       # Steps between food additions (impulse period)
+    "patch_count": 3,                   # Number of new patches to add each period
+    "amplitude_min": 0.2,               # Minimum amplitude for new patches
+    "amplitude_max": 0.5,               # Maximum amplitude for new patches
+    "sigma_min": 3.0,                   # Minimum spread (sigma) for patches
+    "sigma_max": 8.0,                   # Maximum spread (sigma) for patches
+}
