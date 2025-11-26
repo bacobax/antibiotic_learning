@@ -51,6 +51,19 @@ class SimulationVisualizer:
         except Exception as e:
             print(f"Warning: Could not connect click handler: {e}")
 
+        # Layer visibility state (all layers visible by default)
+        self.layer_visibility = {
+            "agents": True,
+            "persistors": True,
+            "hgt": True,
+            "food": True,
+            "antibiotic": True,
+            "qs": True,
+            "eps": True,
+            "biofilm": True,
+            "highlight": True,
+        }
+
     def _setup_plots(self):
         """Setup matplotlib figure and subplots using non-interactive backend"""
         # Use Figure() directly instead of plt.figure()
@@ -382,6 +395,9 @@ class SimulationVisualizer:
             self.ax.set_xlim(0, self.model.width)
             self.ax.set_ylim(0, self.model.height)
 
+            # Apply visibility flags after updating artists
+            self._apply_visibility()
+
         except Exception as e:
             print(f"Error in update_main_plot: {e}")
     
@@ -391,6 +407,10 @@ class SimulationVisualizer:
         for line in self.biofilm_lines:
             line.remove()
         self.biofilm_lines = []
+
+        # Skip regeneration entirely if biofilm layer hidden
+        if not self.layer_visibility.get("biofilm", True):
+            return
         
         # Group bacteria by biofilm_id
         self.biofilm_groups = {}
@@ -528,6 +548,8 @@ class SimulationVisualizer:
                 )
             else:
                 self.im_food.set_data(self.model.food_field.T)
+            if self.im_food is not None:
+                self.im_food.set_visible(self.layer_visibility.get("food", True))
         except Exception as e:
             print(f"Error updating food field: {e}")
 
@@ -612,6 +634,8 @@ class SimulationVisualizer:
                         bg_gray[None, None, :], (self.model.height, self.model.width, 1)
                     )
                     self.im_ab.set_data(np.transpose(empty_rgb, (1, 0, 2)))
+            if self.im_ab is not None:
+                self.im_ab.set_visible(self.layer_visibility.get("antibiotic", True))
         except Exception as e:
             print(f"Error updating antibiotic field: {e}")
 
@@ -635,6 +659,8 @@ class SimulationVisualizer:
                     )
                 else:
                     self.im_qs.set_data(qs_scaled.T)
+                if self.im_qs is not None:
+                    self.im_qs.set_visible(self.layer_visibility.get("qs", True))
         except Exception as e:
             print(f"Error updating QS field: {e}")
         
@@ -657,6 +683,8 @@ class SimulationVisualizer:
                     )
                 else:
                     self.im_eps.set_data(eps_normalized.T)
+                if self.im_eps is not None:
+                    self.im_eps.set_visible(self.layer_visibility.get("eps", True))
         except Exception as e:
             print(f"Error updating EPS field: {e}")
 
@@ -726,8 +754,41 @@ class SimulationVisualizer:
                 except Exception:
                     pass
                 self.highlight_scat = None
+                # Apply highlight visibility flag
+                if self.highlight_scat is not None:
+                    self.highlight_scat.set_visible(self.layer_visibility.get("highlight", True))
         except Exception as e:
             print(f"Error updating highlight: {e}")
+
+    def set_layer_visibility(self, layer, visible):
+        """Public API: set visibility flag for a layer and apply immediately."""
+        if layer in self.layer_visibility:
+            self.layer_visibility[layer] = bool(visible)
+            self._apply_visibility()
+
+    def _apply_visibility(self):
+        """Apply visibility flags to existing artists without recreating them."""
+        try:
+            if self.scat is not None:
+                self.scat.set_visible(self.layer_visibility.get("agents", True))
+            if self.scat_persistors is not None:
+                self.scat_persistors.set_visible(self.layer_visibility.get("persistors", True))
+            if self.scat_hgt is not None:
+                self.scat_hgt.set_visible(self.layer_visibility.get("hgt", True))
+            if self.im_food is not None:
+                self.im_food.set_visible(self.layer_visibility.get("food", True))
+            if self.im_ab is not None:
+                self.im_ab.set_visible(self.layer_visibility.get("antibiotic", True))
+            if self.im_qs is not None:
+                self.im_qs.set_visible(self.layer_visibility.get("qs", True))
+            if self.im_eps is not None:
+                self.im_eps.set_visible(self.layer_visibility.get("eps", True))
+            for line in self.biofilm_lines:
+                line.set_visible(self.layer_visibility.get("biofilm", True))
+            if self.highlight_scat is not None:
+                self.highlight_scat.set_visible(self.layer_visibility.get("highlight", True))
+        except Exception as e:
+            print(f"Layer visibility error: {e}")
 
     def clear_highlight(self):
         """Clear highlighted bacterium"""

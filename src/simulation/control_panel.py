@@ -28,6 +28,7 @@ class ControlPanel:
         on_apply_antibiotic,
         on_speed_change,
         on_view_bacterium,
+        on_layer_visibility_change=None,
     ):
         """
         Initialize control panel.
@@ -47,6 +48,7 @@ class ControlPanel:
         self.on_apply_antibiotic = on_apply_antibiotic
         self.on_speed_change = on_speed_change
         self.on_view_bacterium = on_view_bacterium
+        self.on_layer_visibility_change = on_layer_visibility_change  # callback for layer toggles
 
         self.last_bacteria_list_hash = None
         self.ui_ref = None  # Reference to UI for performance stats
@@ -110,6 +112,8 @@ class ControlPanel:
         self._add_antibiotic_controls(left_layout)
         left_layout.addWidget(self._create_separator())
         self._add_performance_controls(left_layout)
+        left_layout.addWidget(self._create_separator())
+        self._add_layer_visibility_group(left_layout)
         left_layout.addWidget(self._create_separator())
         self._add_tracking_controls(left_layout)
         left_layout.addStretch(1)
@@ -267,6 +271,40 @@ class ControlPanel:
         view_btn = QtWidgets.QPushButton("View Selected Bacterium")
         view_btn.clicked.connect(self._view_selected_bacterium)
         layout.addWidget(view_btn)
+
+    def _add_layer_visibility_group(self, layout):
+        """Add layer visibility checkboxes for toggling visualization elements"""
+        group = QtWidgets.QGroupBox("Layers")
+        grid = QtWidgets.QGridLayout()
+        layers = [
+            ("agents", "Agents"),
+            ("persistors", "Persistors"),
+            ("hgt", "HGT"),
+            ("food", "Food"),
+            ("antibiotic", "Antibiotic"),
+            ("qs", "Quorum"),
+            ("eps", "EPS"),
+            ("biofilm", "Biofilm"),
+            ("highlight", "Highlight"),
+        ]
+        self.layer_checkboxes = {}
+        for i, (key, label) in enumerate(layers):
+            cb = QtWidgets.QCheckBox(label)
+            cb.setChecked(True)
+            cb.stateChanged.connect(lambda state, k=key: self._on_layer_cb(k, state))
+            grid.addWidget(cb, i // 3, i % 3)
+            self.layer_checkboxes[key] = cb
+        group.setLayout(grid)
+        layout.addWidget(group)
+
+    def _on_layer_cb(self, layer, state):
+        """Handle layer checkbox toggle."""
+        if self.on_layer_visibility_change is not None:
+            visible = state == QtCore.Qt.Checked if QtCore is not None else state == 2
+            try:
+                self.on_layer_visibility_change(layer, visible)
+            except Exception as exc:
+                print(f"Error toggling layer '{layer}': {exc}")
 
     # ------------------------------------------------------------------
     # Event handlers

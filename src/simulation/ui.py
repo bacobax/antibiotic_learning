@@ -87,7 +87,8 @@ class SimulatorUI:
             on_reset=self.reset_sim,
             on_apply_antibiotic=self.apply_antibiotic,
             on_speed_change=self.handle_speed_change,
-            on_view_bacterium=self.view_bacterium
+            on_view_bacterium=self.view_bacterium,
+            on_layer_visibility_change=self.on_layer_visibility_change,
         )
         
         # Position windows side by side
@@ -117,6 +118,16 @@ class SimulatorUI:
         """View selected bacterium from control panel"""
         self.visualizer.set_highlighted_bacterium(bacterium_id)
         self.individual_plotter.update_plots(bacterium_id)
+
+    def on_layer_visibility_change(self, layer, visible):
+        """Handle layer visibility toggle from control panel."""
+        try:
+            self.visualizer.set_layer_visibility(layer, visible)
+            # Trigger a redraw of main plot to reflect change immediately
+            self.visualizer.update_main_plot()
+            self.visualizer.draw()
+        except Exception as e:
+            print(f"Error applying layer visibility for {layer}: {e}")
 
     def toggle_pause(self):
         """Toggle simulation pause/start"""
