@@ -54,14 +54,10 @@ class SimulationVisualizer:
         # Layer visibility state (all layers visible by default)
         self.layer_visibility = {
             "agents": True,
-            "persistors": True,
-            "hgt": True,
             "food": True,
             "antibiotic": True,
             "qs": True,
-            "eps": True,
-            "biofilm": True,
-            "highlight": True,
+            "biofilm": True,  # controls both EPS field and biofilm perimeter
         }
 
     def _setup_plots(self):
@@ -771,10 +767,12 @@ class SimulationVisualizer:
         try:
             if self.scat is not None:
                 self.scat.set_visible(self.layer_visibility.get("agents", True))
+            # Persistors and HGT should follow the main agents toggle
+            agents_visible = self.layer_visibility.get("agents", True)
             if self.scat_persistors is not None:
-                self.scat_persistors.set_visible(self.layer_visibility.get("persistors", True))
+                self.scat_persistors.set_visible(agents_visible)
             if self.scat_hgt is not None:
-                self.scat_hgt.set_visible(self.layer_visibility.get("hgt", True))
+                self.scat_hgt.set_visible(agents_visible)
             if self.im_food is not None:
                 self.im_food.set_visible(self.layer_visibility.get("food", True))
             if self.im_ab is not None:
@@ -782,11 +780,9 @@ class SimulationVisualizer:
             if self.im_qs is not None:
                 self.im_qs.set_visible(self.layer_visibility.get("qs", True))
             if self.im_eps is not None:
-                self.im_eps.set_visible(self.layer_visibility.get("eps", True))
+                self.im_eps.set_visible(self.layer_visibility.get("biofilm", True))
             for line in self.biofilm_lines:
                 line.set_visible(self.layer_visibility.get("biofilm", True))
-            if self.highlight_scat is not None:
-                self.highlight_scat.set_visible(self.layer_visibility.get("highlight", True))
         except Exception as e:
             print(f"Layer visibility error: {e}")
 

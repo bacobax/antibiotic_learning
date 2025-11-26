@@ -278,14 +278,10 @@ class ControlPanel:
         grid = QtWidgets.QGridLayout()
         layers = [
             ("agents", "Agents"),
-            ("persistors", "Persistors"),
-            ("hgt", "HGT"),
             ("food", "Food"),
             ("antibiotic", "Antibiotic"),
             ("qs", "Quorum"),
-            ("eps", "EPS"),
             ("biofilm", "Biofilm"),
-            ("highlight", "Highlight"),
         ]
         self.layer_checkboxes = {}
         for i, (key, label) in enumerate(layers):
