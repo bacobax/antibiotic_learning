@@ -60,6 +60,30 @@ class SimulationVisualizer:
             "biofilm": True,  # controls both EPS field and biofilm perimeter
         }
 
+        # Field colormaps with transparent background (values below vmin are fully transparent)
+        self._field_vmin = 1e-6
+        try:
+            self.cmap_food = plt.cm.Greens.copy(); self.cmap_food.set_under((0, 0, 0, 0))
+            self.cmap_qs = plt.cm.Blues.copy(); self.cmap_qs.set_under((0, 0, 0, 0))
+            self.cmap_eps = plt.cm.Oranges.copy(); self.cmap_eps.set_under((0, 0, 0, 0))
+        except Exception:
+            # Fallback if copy not available in older mpl
+            self.cmap_food = plt.cm.Greens
+            self.cmap_qs = plt.cm.Blues
+            self.cmap_eps = plt.cm.Oranges
+
+        # Single composite overlay to avoid alpha stacking from multiple fields
+        self.im_fields = None
+        self._alpha_cutoff = 0.02      # pixels below this intensity are fully transparent
+        self._max_field_alpha = 0.65   # cap total alpha per pixel to avoid washout
+        # Per-field intensity scaling used to derive alpha
+        self._field_scales = {
+            "food": 1.0,
+            "qs": 4.0,        # QS values are usually small; amplify
+            "eps": 1.0,
+            "antibiotic": 1.0,
+        }
+
     def _setup_plots(self):
         """Setup matplotlib figure and subplots using non-interactive backend"""
         # Use Figure() directly instead of plt.figure()
@@ -471,7 +495,8 @@ class SimulationVisualizer:
                         marker="o",
                         edgecolor="k",
                         linewidths=0.5,
-                        alpha=0.7,
+                        alpha=1.0,
+                        zorder=3,
                     )
                 else:
                     if len(positions) > 0:
@@ -491,7 +516,8 @@ class SimulationVisualizer:
                         s=50,
                         marker="*",
                         edgecolor="k",
-                        alpha=0.7,
+                        alpha=1.0,
+                        zorder=4,
                     )
                 else:
                     if len(positions) > 0:
@@ -511,7 +537,7 @@ class SimulationVisualizer:
                         s=15,
                         edgecolor="purple",
                         linewidths=2.5,
-                        alpha=0.7,
+                        alpha=1.0,
                         zorder=5,
                     )
                 else:
@@ -525,164 +551,129 @@ class SimulationVisualizer:
             print(f"Error updating {plot_type} scatter plot: {e}")
 
     def _update_field_overlays(self):
-        """Update food and antibiotic field overlays"""
+        """Composite all enabled fields into a single RGBA image to avoid alpha stacking."""
         try:
-        #     # Debug food field values every 100 steps
-        #     if self.model.step_count % 100 == 0:
-        #         food_max = np.max(self.model.food_field)
-        #         food_min = np.min(self.model.food_field)
-        #         food_mean = np.mean(self.model.food_field)
-        #         print(f"[Food Field] Step {self.model.step_count}: min={food_min:.6f}, max={food_max:.6f}, mean={food_mean:.6f}")
-            
-            if self.im_food is None:
-                self.im_food = self.ax.imshow(
-                    self.model.food_field.T,
-                    extent=[0, self.model.width, 0, self.model.height],
-                    origin="lower",
-                    cmap="Greens",
-                    alpha=0.3,
-                )
-            else:
-                self.im_food.set_data(self.model.food_field.T)
-            if self.im_food is not None:
-                self.im_food.set_visible(self.layer_visibility.get("food", True))
-        except Exception as e:
-            print(f"Error updating food field: {e}")
+            h, w = self.model.food_field.shape
+            # Collect per-layer color and alpha contributions
+            contrib_colors = []  # list of (h, w, 3)
+            contrib_alphas = []  # list of (h, w)
 
-        # Antibiotic field overlay
-        try:
-            bg_gray = np.array([0.92, 0.92, 0.92], dtype=float)
+            # Food
+            if self.layer_visibility.get("food", True) and hasattr(self.model, "food_field"):
+                food = np.array(self.model.food_field, dtype=float)
+                intensity = np.clip(food * self._field_scales["food"], 0.0, 1.0)
+                alpha_food = np.where(intensity > self._alpha_cutoff, intensity, 0.0)
+                color_food = np.zeros((h, w, 3), dtype=float)
+                color_food[..., 1] = 0.6  # Green
+                contrib_colors.append(color_food)
+                contrib_alphas.append(alpha_food)
 
-            if (
-                hasattr(self.model, "antibiotic_fields")
-                and len(self.model.antibiotic_fields) > 0
-            ):
-                h, w = self.model.food_field.shape
-                fields = []
-                ab_types = []
+            # QS
+            if self.layer_visibility.get("qs", True) and hasattr(self.model, "qs_signal_field"):
+                qs = np.array(self.model.qs_signal_field, dtype=float)
+                intensity = np.clip(qs * self._field_scales["qs"], 0.0, 1.0)
+                alpha_qs = np.where(intensity > self._alpha_cutoff, intensity, 0.0)
+                color_qs = np.zeros((h, w, 3), dtype=float)
+                color_qs[..., 2] = 0.8  # Blue
+                contrib_colors.append(color_qs)
+                contrib_alphas.append(alpha_qs)
 
-                for ab_type, ab_field in self.model.antibiotic_fields.items():
-                    field = np.array(ab_field, dtype=float)
-                    if field.size == 0:
+            # EPS (Biofilm)
+            if self.layer_visibility.get("biofilm", True) and hasattr(self.model, "biofilm_manager") and hasattr(self.model.biofilm_manager, "eps_field"):
+                eps = np.array(self.model.biofilm_manager.eps_field, dtype=float)
+                intensity = np.clip(eps * self._field_scales["eps"], 0.0, 1.0)
+                alpha_eps = np.where(intensity > self._alpha_cutoff, intensity, 0.0)
+                color_eps = np.zeros((h, w, 3), dtype=float)
+                color_eps[..., 0] = 0.9  # Orange-ish: red & some green
+                color_eps[..., 1] = 0.5
+                contrib_colors.append(color_eps)
+                contrib_alphas.append(alpha_eps)
+
+            # Antibiotic (mix multiple types into one contribution)
+            if self.layer_visibility.get("antibiotic", True) and hasattr(self.model, "antibiotic_fields") and len(self.model.antibiotic_fields) > 0:
+                ab_fields = []
+                ab_rgbs = []
+                for ab_type, field in self.model.antibiotic_fields.items():
+                    arr = np.array(field, dtype=float)
+                    if arr.size == 0:
                         continue
-                    fields.append(field)
-                    ab_types.append(ab_type)
-
-                if len(fields) == 0:
-                    rgb_img = np.tile(bg_gray[None, None, :], (h, w, 1))
-                else:
-                    stacked = np.stack(fields, axis=0)
-                    total = np.sum(stacked, axis=0)
-                    total_clipped = np.clip(total, 0.0, 1.0)
+                    ab_fields.append(arr)
+                    color = ANTIBIOTIC_TYPES.get(ab_type, {}).get("color", "gray")
+                    try:
+                        ab_rgbs.append(np.array(mcolors.to_rgb(color), dtype=float))
+                    except Exception:
+                        ab_rgbs.append(np.array(mcolors.to_rgb("gray"), dtype=float))
+                if len(ab_fields) > 0:
+                    stacked = np.stack(ab_fields, axis=0)        # (n, h, w)
+                    total = np.sum(stacked, axis=0)              # (h, w)
+                    intensity = np.clip(total * self._field_scales["antibiotic"], 0.0, 1.0)
+                    alpha_ab = np.where(intensity > self._alpha_cutoff, intensity, 0.0)
 
                     denom = total.copy()
                     denom[denom == 0] = 1.0
-                    weights = stacked / denom[None, :, :]
+                    weights = stacked / denom[None, :, :]        # (n, h, w)
+                    # Weighted color mix per pixel
+                    color_ab = np.zeros((h, w, 3), dtype=float)
+                    for i, rgb in enumerate(ab_rgbs):
+                        color_ab += weights[i, :, :, None] * rgb[None, None, :]
+                    contrib_colors.append(np.clip(color_ab, 0.0, 1.0))
+                    contrib_alphas.append(alpha_ab)
 
-                    base_color = np.zeros((h, w, 3), dtype=float)
-                    for i, ab_type in enumerate(ab_types):
-                        color = ANTIBIOTIC_TYPES.get(ab_type, {}).get("color", "gray")
-                        try:
-                            rgb = np.array(mcolors.to_rgb(color), dtype=float)
-                        except Exception:
-                            rgb = np.array(mcolors.to_rgb("gray"), dtype=float)
-                        base_color += weights[i, :, :, None] * rgb[None, None, :]
-
-                    zero_mask = total == 0
-                    if zero_mask.any():
-                        base_color[zero_mask, :] = bg_gray
-
-                    intensity = total_clipped
-                    color_strength = 0.85
-                    rgb_img = (
-                        bg_gray[None, None, :] * (1.0 - intensity[:, :, None] * color_strength)
-                    ) + (base_color * (intensity[:, :, None] * color_strength))
-                    rgb_img = np.clip(rgb_img, 0.0, 1.0)
-
-                rgb_display = np.transpose(rgb_img, (1, 0, 2))
-
-                if self.im_ab is None:
-                    self.im_ab = self.ax.imshow(
-                        rgb_display,
-                        extent=[0, self.model.width, 0, self.model.height],
-                        origin="lower",
-                        alpha=0.6,
-                        interpolation="bilinear",
-                        zorder=2,
-                    )
-                else:
-                    self.im_ab.set_data(rgb_display)
-            else:
-                if self.im_ab is None:
-                    empty_rgb = np.tile(
-                        bg_gray[None, None, :], (self.model.height, self.model.width, 1)
-                    )
-                    self.im_ab = self.ax.imshow(
+            # If no fields enabled, clear composite
+            any_enabled = any(self.layer_visibility.get(k, False) for k in ("food", "qs", "biofilm", "antibiotic"))
+            if not any_enabled or len(contrib_alphas) == 0:
+                if self.im_fields is None:
+                    empty_rgb = np.zeros((h, w, 3), dtype=float)
+                    self.im_fields = self.ax.imshow(
                         np.transpose(empty_rgb, (1, 0, 2)),
                         extent=[0, self.model.width, 0, self.model.height],
                         origin="lower",
-                        alpha=0.6,
+                        alpha=np.zeros((w, h)),
                         interpolation="bilinear",
-                        zorder=2,
+                        zorder=0.7,
                     )
                 else:
-                    empty_rgb = np.tile(
-                        bg_gray[None, None, :], (self.model.height, self.model.width, 1)
-                    )
-                    self.im_ab.set_data(np.transpose(empty_rgb, (1, 0, 2)))
-            if self.im_ab is not None:
-                self.im_ab.set_visible(self.layer_visibility.get("antibiotic", True))
-        except Exception as e:
-            print(f"Error updating antibiotic field: {e}")
+                    empty_rgb = np.zeros((h, w, 3), dtype=float)
+                    self.im_fields.set_data(np.transpose(empty_rgb, (1, 0, 2)))
+                    self.im_fields.set_alpha(np.zeros((w, h)))
+                # Ensure visibility follows any field toggle
+                self.im_fields.set_visible(False)
+                return
 
-        # Quorum sensing field overlay - with enhanced visualization for low values
-        try:
-            if hasattr(self.model, "qs_signal_field"):
-                # Scale QS field for better visualization
-                # Since QS values are typically 0-0.2, we need to amplify them
-                # to match the food field scale (0.2-0.8)
-                qs_scaled = np.clip(self.model.qs_signal_field * 4.0, 0.0, 1.0)  # Amplify by 4x
-                
-                if self.im_qs is None:
-                    self.im_qs = self.ax.imshow(
-                        qs_scaled.T,
-                        extent=[0, self.model.width, 0, self.model.height],
-                        origin="lower",
-                        cmap="Blues",
-                        alpha=0.3,  # Increased alpha for visibility
-                        vmin=0.0,   # Explicitly set range
-                        vmax=1.0,   # after scaling
-                    )
-                else:
-                    self.im_qs.set_data(qs_scaled.T)
-                if self.im_qs is not None:
-                    self.im_qs.set_visible(self.layer_visibility.get("qs", True))
+            # Compose contributions into a single RGB + alpha
+            alpha_stack = np.stack(contrib_alphas, axis=0)      # (n, h, w)
+            color_stack = np.stack(contrib_colors, axis=0)      # (n, h, w, 3)
+
+            # Total alpha capped to avoid washout
+            alpha_total = np.sum(alpha_stack, axis=0)
+            alpha_total = np.clip(alpha_total, 0.0, self._max_field_alpha)
+
+            # Color is weighted by each layer's alpha
+            weights = np.sum(alpha_stack, axis=0)
+            weights_safe = np.where(weights == 0.0, 1.0, weights)
+            weighted_colors = np.sum(color_stack * alpha_stack[:, :, :, None], axis=0) / weights_safe[:, :, None]
+            rgb_img = np.clip(weighted_colors, 0.0, 1.0)
+
+            # Transpose for display orientation
+            rgb_display = np.transpose(rgb_img, (1, 0, 2))
+            alpha_display = np.transpose(alpha_total, (1, 0))
+
+            if self.im_fields is None:
+                self.im_fields = self.ax.imshow(
+                    rgb_display,
+                    extent=[0, self.model.width, 0, self.model.height],
+                    origin="lower",
+                    alpha=alpha_display,
+                    interpolation="bilinear",
+                    zorder=0.7,  # below agents but above base
+                )
+            else:
+                self.im_fields.set_data(rgb_display)
+                self.im_fields.set_alpha(alpha_display)
+            # Visible if any field is enabled
+            self.im_fields.set_visible(True)
         except Exception as e:
-            print(f"Error updating QS field: {e}")
-        
-        # Update EPS biofilm field (orange visualization)
-        try:
-            if hasattr(self.model, "biofilm_manager") and hasattr(self.model.biofilm_manager, "eps_field"):
-                eps_field = self.model.biofilm_manager.eps_field
-                # Normalize EPS field for visualization (values typically 0-1)
-                eps_normalized = np.clip(eps_field, 0.0, 1.0)
-                
-                if self.im_eps is None:
-                    self.im_eps = self.ax.imshow(
-                        eps_normalized.T,
-                        extent=[0, self.model.width, 0, self.model.height],
-                        origin="lower",
-                        cmap="Oranges",  # Orange color palette
-                        alpha=0.4,  # Semi-transparent overlay
-                        vmin=0.0,
-                        vmax=1.0,
-                    )
-                else:
-                    self.im_eps.set_data(eps_normalized.T)
-                if self.im_eps is not None:
-                    self.im_eps.set_visible(self.layer_visibility.get("eps", True))
-        except Exception as e:
-            print(f"Error updating EPS field: {e}")
+            print(f"Error composing field overlays: {e}")
 
     def update_graphs(self):
         """Update only the history plots"""
@@ -773,14 +764,14 @@ class SimulationVisualizer:
                 self.scat_persistors.set_visible(agents_visible)
             if self.scat_hgt is not None:
                 self.scat_hgt.set_visible(agents_visible)
-            if self.im_food is not None:
-                self.im_food.set_visible(self.layer_visibility.get("food", True))
-            if self.im_ab is not None:
-                self.im_ab.set_visible(self.layer_visibility.get("antibiotic", True))
-            if self.im_qs is not None:
-                self.im_qs.set_visible(self.layer_visibility.get("qs", True))
-            if self.im_eps is not None:
-                self.im_eps.set_visible(self.layer_visibility.get("biofilm", True))
+            # Composite field image visibility depends on any field being enabled
+            if self.im_fields is not None:
+                any_enabled = any(
+                    self.layer_visibility.get(k, False)
+                    for k in ("food", "qs", "biofilm", "antibiotic")
+                )
+                self.im_fields.set_visible(any_enabled)
+            # Biofilm perimeter lines
             for line in self.biofilm_lines:
                 line.set_visible(self.layer_visibility.get("biofilm", True))
         except Exception as e:
