@@ -20,6 +20,7 @@ All configurations are loaded from a single YAML file including:
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 from dataclasses import dataclass
+from inspect import signature
 
 try:
     import yaml
@@ -93,14 +94,16 @@ class BudgetConfig:
 
 @dataclass
 class InformedDosingConfig:
-    """Configuration for informed dosing rewards and penalties."""
-    reward_window_steps: int  # Max steps after COUNT where doses remain eligible
-    reward_weight: float  # Multiplier applied to population drop × dose magnitude
-    max_reward_per_dose: float  # Hard cap per individual dose reward
-    time_decay: bool  # Whether to apply time-based decay
-    decay_type: str  # "linear" or "exponential"
-    decay_rate: float  # Rate parameter for the chosen decay function
-    min_reward_fraction: float  # Floor for decay factor
+    """Configuration for informed dosing rewards and penalties.
+    Defaults provided to allow ignoring this section when not used by the simplified reward system.
+    """
+    reward_window_steps: int = 0  # Max steps after COUNT where doses remain eligible
+    reward_weight: float = 0.0  # Multiplier applied to population drop × dose magnitude
+    max_reward_per_dose: float = 0.0  # Hard cap per individual dose reward
+    time_decay: bool = False  # Whether to apply time-based decay
+    decay_type: str = "linear"  # "linear" or "exponential"
+    decay_rate: float = 0.0  # Rate parameter for the chosen decay function
+    min_reward_fraction: float = 0.0  # Floor for decay factor
 
 
 @dataclass
@@ -599,18 +602,27 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     env_dict = config_dict["environment"]
     rewards_dict = env_dict["rewards"]
     
-    # Create nested reward config dataclasses
-    population_reward_cfg = PopulationRewardConfig(**rewards_dict["population"])
-    dose_reward_cfg = DoseRewardConfig(**rewards_dict["dose"])
-    budget_cfg = BudgetConfig(**rewards_dict["budget"])
-    survival_bonus_cfg = SurvivalBonusConfig(**rewards_dict["survival_bonus"])
-    budget_conservation_cfg = BudgetConservationConfig(**rewards_dict["budget_conservation"])
-    informed_dosing_cfg = InformedDosingConfig(**rewards_dict["informed_dosing"])
-    regular_monitoring_cfg = RegularMonitoringConfig(**rewards_dict["regular_monitoring"])
-    critical_inaction_cfg = CriticalInactionConfig(**rewards_dict["critical_inaction"])
-    sequencing_cfg = SequencingRewardConfig(**rewards_dict["sequencing"])
-    prediction_cfg = PredictionRewardConfig(**rewards_dict["prediction"])
-    early_termination_cfg = EarlyTerminationConfig(**rewards_dict["early_termination"])
+    # Helper: filter dict keys to match dataclass constructor
+    def _filter_keys_for(cls, dct: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            params = signature(cls).parameters
+            allowed = set(params.keys())
+            return {k: v for k, v in dct.items() if k in allowed}
+        except Exception:
+            return dct
+
+    # Create nested reward config dataclasses (filter unknown keys for backward-compat)
+    population_reward_cfg = PopulationRewardConfig(**_filter_keys_for(PopulationRewardConfig, rewards_dict["population"]))
+    dose_reward_cfg = DoseRewardConfig(**_filter_keys_for(DoseRewardConfig, rewards_dict["dose"]))
+    budget_cfg = BudgetConfig(**_filter_keys_for(BudgetConfig, rewards_dict["budget"]))
+    survival_bonus_cfg = SurvivalBonusConfig(**_filter_keys_for(SurvivalBonusConfig, rewards_dict["survival_bonus"]))
+    budget_conservation_cfg = BudgetConservationConfig(**_filter_keys_for(BudgetConservationConfig, rewards_dict["budget_conservation"]))
+    informed_dosing_cfg = InformedDosingConfig(**_filter_keys_for(InformedDosingConfig, rewards_dict["informed_dosing"]))
+    regular_monitoring_cfg = RegularMonitoringConfig(**_filter_keys_for(RegularMonitoringConfig, rewards_dict["regular_monitoring"]))
+    critical_inaction_cfg = CriticalInactionConfig(**_filter_keys_for(CriticalInactionConfig, rewards_dict["critical_inaction"]))
+    sequencing_cfg = SequencingRewardConfig(**_filter_keys_for(SequencingRewardConfig, rewards_dict["sequencing"]))
+    prediction_cfg = PredictionRewardConfig(**_filter_keys_for(PredictionRewardConfig, rewards_dict["prediction"]))
+    early_termination_cfg = EarlyTerminationConfig(**_filter_keys_for(EarlyTerminationConfig, rewards_dict["early_termination"]))
     
     reward_cfg = RewardConfig(
         population=population_reward_cfg,

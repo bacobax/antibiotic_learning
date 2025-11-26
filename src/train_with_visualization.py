@@ -92,20 +92,11 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.current_episode_budget_steps = []
         self.current_episode_budget_values = []
         
-        # Reward component tracking
-        self.reward_immediate_history = []  # Stored but typically not plotted (composite)
-        self.reward_action_cost_penalty_history = []  # Pure cost penalty from w_cost
-        self.reward_maintenance_history = []
-        self.reward_budget_penalty_history = []
-        self.reward_delayed_history = []
+        # Reward component tracking (new simplified structure)
+        self.reward_pre_history = []
+        self.reward_post_penalties_history = []
+        self.reward_kernel_maintenance_history = []
         self.reward_survival_bonus_history = []
-        self.reward_budget_conservation_history = []
-        self.reward_regular_count_bonus_history = []
-        self.reward_safe_behavior_bonus_history = []
-        self.reward_informed_dose_history = []
-        self.reward_count_population_history = []
-        self.reward_critical_inaction_penalty_history = []
-        self.reward_critical_noop_penalty_history = []
         self.reward_prediction_history = []
         self.reward_early_termination_penalty_history = []
         self.early_termination_count = 0  # Track how many episodes ended early
@@ -327,19 +318,10 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
 
         # Track reward components if provided
         if reward_components:
-            self.reward_immediate_history.append(reward_components.get('immediate', 0.0))
-            self.reward_action_cost_penalty_history.append(reward_components.get('action_cost_penalty', 0.0))
-            self.reward_maintenance_history.append(reward_components.get('maintenance', 0.0))
-            self.reward_budget_penalty_history.append(reward_components.get('budget_penalty', 0.0))
-            self.reward_delayed_history.append(reward_components.get('delayed', 0.0))
+            self.reward_pre_history.append(reward_components.get('pre', 0.0))
+            self.reward_post_penalties_history.append(reward_components.get('post_penalties', 0.0))
+            self.reward_kernel_maintenance_history.append(reward_components.get('kernel_maintenance', 0.0))
             self.reward_survival_bonus_history.append(reward_components.get('survival_bonus', 0.0))
-            self.reward_budget_conservation_history.append(reward_components.get('budget_conservation', 0.0))
-            self.reward_regular_count_bonus_history.append(reward_components.get('regular_count_bonus', 0.0))
-            self.reward_safe_behavior_bonus_history.append(reward_components.get('safe_behavior_bonus', 0.0))
-            self.reward_informed_dose_history.append(reward_components.get('informed_dose_reward', 0.0))
-            self.reward_count_population_history.append(reward_components.get('count_population', 0.0))
-            self.reward_critical_inaction_penalty_history.append(reward_components.get('critical_inaction_penalty', 0.0))
-            self.reward_critical_noop_penalty_history.append(reward_components.get('critical_noop_penalty', 0.0))
             self.reward_prediction_history.append(reward_components.get('prediction', 0.0))
             self.reward_early_termination_penalty_history.append(reward_components.get('early_termination_penalty', 0.0))
             
@@ -375,42 +357,18 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             # Plot each reward component separately (no double-counting)
             # Only plot components that are non-zero in at least one episode
             
-            if any(x != 0 for x in self.reward_action_cost_penalty_history):
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_action_cost_penalty_history, 
-                                               label='Action Cost Penalty', linewidth=1.5, alpha=0.9)
-            if any(x != 0 for x in self.reward_maintenance_history):
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_maintenance_history, 
-                                               label='Maintenance', linewidth=1.5, alpha=0.9)
-            if any(x != 0 for x in self.reward_budget_penalty_history):
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_budget_penalty_history, 
-                                               label='Budget Penalty', linewidth=1.5, alpha=0.9)
-            if any(x != 0 for x in self.reward_delayed_history):
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_delayed_history, 
-                                               label='Delayed', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_pre_history):
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_pre_history, 
+                                               label='Pre (Action Reward)', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_post_penalties_history):
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_post_penalties_history, 
+                                               label='Post Penalties', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_kernel_maintenance_history):
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_kernel_maintenance_history, 
+                                               label='Kernel Maintenance', linewidth=1.5, alpha=0.9)
             if any(x != 0 for x in self.reward_survival_bonus_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_survival_bonus_history, 
                                                label='Survival Bonus', linewidth=1.5, alpha=0.9)
-            if any(x != 0 for x in self.reward_budget_conservation_history):
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_budget_conservation_history, 
-                                               label='Budget Conservation', linewidth=1.5, alpha=0.9)
-            if any(x != 0 for x in self.reward_regular_count_bonus_history):
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_regular_count_bonus_history, 
-                                               label='Regular Count', linewidth=1.5, alpha=0.9)
-            if any(x != 0 for x in self.reward_safe_behavior_bonus_history):
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_safe_behavior_bonus_history, 
-                                               label='Safe Behavior', linewidth=1.5, alpha=0.9)
-            if any(x != 0 for x in self.reward_informed_dose_history):
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_informed_dose_history, 
-                                               label='Informed Dose Reward', linewidth=1.5, alpha=0.9)
-            if any(x != 0 for x in self.reward_count_population_history):
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_count_population_history, 
-                                               label='Count Population', linewidth=1.5, alpha=0.9)
-            if any(x != 0 for x in self.reward_critical_inaction_penalty_history):
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_critical_inaction_penalty_history, 
-                                               label='Critical Inaction Penalty', linewidth=1.5, alpha=0.9)
-            if any(x != 0 for x in self.reward_critical_noop_penalty_history):
-                self.reward_components_ax.plot(self.episode_numbers, self.reward_critical_noop_penalty_history,
-                                               label='Critical NOOP Penalty', linewidth=1.5, alpha=0.9)
             if any(x != 0 for x in self.reward_prediction_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_prediction_history,
                                                label='Prediction', linewidth=1.5, alpha=0.9)
@@ -460,7 +418,8 @@ DOSE:     {action_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_total', {}).g
         current_rewards = stats.get('current_episode_rewards', {})
         early_term_penalty = current_rewards.get('early_termination_penalty', 0.0)
         prediction_reward = current_rewards.get('prediction', 0.0)
-        action_cost = current_rewards.get('action_cost_penalty', 0.0)
+        pre_reward = current_rewards.get('pre', 0.0)
+        post_penalties = current_rewards.get('post_penalties', 0.0)
         
         text = f"""Step: {stats.get('step', 0)}
 Episode Return: {stats.get('episode_return', 0):.2f}
@@ -470,9 +429,12 @@ Budget: {stats.get('budget', 0):.2f}
 Predicted Pop: {stats.get('prediction', 0):.1f}
 
 Current Episode Rewards:
-  Prediction: {prediction_reward:.3f}
-  Action Cost: {action_cost:.3f}
-  Early Term: {early_term_penalty:.3f}
+    Pre: {pre_reward:.3f}
+    Post Penalties: {post_penalties:.3f}
+    Kernel Maint.: {current_rewards.get('kernel_maintenance', 0.0):.3f}
+    Survival Bonus: {current_rewards.get('survival_bonus', 0.0):.3f}
+    Prediction: {prediction_reward:.3f}
+    Early Term: {early_term_penalty:.3f}
 """
         self.episode_display.setText(text)
         
@@ -639,42 +601,23 @@ class TrainingVisualizer:
             ACTION_DOSE: 0
         }
         
-        # Reward component tracking for rollout
+        # Reward component tracking for rollout (new simplified structure)
         self.rollout_reward_components = {
-            'immediate': [],
-            'action_cost_penalty': [],
-            'maintenance': [],
-            'budget_penalty': [],
-            'unaffordable_action_penalty': [],
-            'delayed': [],
+            'pre': [],
+            'post_penalties': [],
+            'kernel_maintenance': [],
             'survival_bonus': [],
-            'budget_conservation': [],
-            'regular_count_bonus': [],
-            'safe_behavior_bonus': [],
-            'informed_dose_reward': [],
-            'count_population': [],
-            'critical_inaction_penalty': [],
-            'critical_noop_penalty': [],
             'prediction': [],
+            'early_termination_penalty': [],
             'pred_error': [],  # Diagnostic only
         }
         
-        # Current episode reward component accumulators
+        # Current episode reward component accumulators (new simplified structure)
         self.current_episode_rewards = {
-            'immediate': 0.0,
-            'action_cost_penalty': 0.0,
-            'maintenance': 0.0,
-            'budget_penalty': 0.0,
-            'unaffordable_action_penalty': 0.0,
-            'delayed': 0.0,
+            'pre': 0.0,
+            'post_penalties': 0.0,
+            'kernel_maintenance': 0.0,
             'survival_bonus': 0.0,
-            'budget_conservation': 0.0,
-            'regular_count_bonus': 0.0,
-            'safe_behavior_bonus': 0.0,
-            'informed_dose_reward': 0.0,
-            'count_population': 0.0,
-            'critical_inaction_penalty': 0.0,
-            'critical_noop_penalty': 0.0,
             'prediction': 0.0,
             'early_termination_penalty': 0.0,
             'pred_error': 0.0,  # Diagnostic only
@@ -900,21 +843,11 @@ class TrainingVisualizer:
             self.current_episode_rewards['pred_error'] += pred_error
             # Note: prediction reward is now computed by environment and included in total reward
         
-        # Accumulate reward components for current episode
-        self.current_episode_rewards['immediate'] += info.get('reward_immediate', 0.0)
-        self.current_episode_rewards['action_cost_penalty'] += info.get('reward_action_cost_penalty', 0.0)
-        self.current_episode_rewards['maintenance'] += info.get('reward_maintenance', 0.0)
-        self.current_episode_rewards['budget_penalty'] += info.get('reward_budget_penalty', 0.0)
-        self.current_episode_rewards['unaffordable_action_penalty'] += info.get('reward_unaffordable_action_penalty', 0.0)
-        self.current_episode_rewards['delayed'] += info.get('reward_delayed', 0.0)
+        # Accumulate reward components for current episode (new simplified structure)
+        self.current_episode_rewards['pre'] += info.get('reward_pre', 0.0)
+        self.current_episode_rewards['post_penalties'] += info.get('reward_post_penalties', 0.0)
+        self.current_episode_rewards['kernel_maintenance'] += info.get('reward_kernel_maintenance', 0.0)
         self.current_episode_rewards['survival_bonus'] += info.get('reward_survival_bonus', 0.0)
-        self.current_episode_rewards['budget_conservation'] += info.get('reward_budget_conservation', 0.0)
-        self.current_episode_rewards['regular_count_bonus'] += info.get('reward_regular_count_bonus', 0.0)
-        self.current_episode_rewards['safe_behavior_bonus'] += info.get('reward_safe_behavior_bonus', 0.0)
-        self.current_episode_rewards['informed_dose_reward'] += info.get('reward_informed_dose', 0.0)
-        self.current_episode_rewards['count_population'] += info.get('reward_count_population', 0.0)
-        self.current_episode_rewards['critical_inaction_penalty'] += info.get('reward_critical_inaction_penalty', 0.0)
-        self.current_episode_rewards['critical_noop_penalty'] += info.get('reward_critical_noop_penalty', 0.0)
         self.current_episode_rewards['prediction'] += info.get('reward_prediction', 0.0)
         self.current_episode_rewards['early_termination_penalty'] += info.get('reward_early_termination_penalty', 0.0)
         
@@ -966,22 +899,12 @@ class TrainingVisualizer:
             self.rollout_episode_returns.append(info['episode_return'])
             self.rollout_episode_lengths.append(info.get('t', self.current_step))
             
-            # Extract reward components from accumulated values
+            # Extract reward components (new simplified structure)
             reward_components = {
-                'immediate': self.current_episode_rewards['immediate'],
-                'action_cost_penalty': self.current_episode_rewards['action_cost_penalty'],
-                'maintenance': self.current_episode_rewards['maintenance'],
-                'budget_penalty': self.current_episode_rewards['budget_penalty'],
-                'unaffordable_action_penalty': self.current_episode_rewards['unaffordable_action_penalty'],
-                'delayed': self.current_episode_rewards['delayed'],
+                'pre': self.current_episode_rewards['pre'],
+                'post_penalties': self.current_episode_rewards['post_penalties'],
+                'kernel_maintenance': self.current_episode_rewards['kernel_maintenance'],
                 'survival_bonus': self.current_episode_rewards['survival_bonus'],
-                'budget_conservation': self.current_episode_rewards['budget_conservation'],
-                'regular_count_bonus': self.current_episode_rewards['regular_count_bonus'],
-                'safe_behavior_bonus': self.current_episode_rewards['safe_behavior_bonus'],
-                'informed_dose_reward': self.current_episode_rewards['informed_dose_reward'],
-                'count_population': self.current_episode_rewards['count_population'],
-                'critical_inaction_penalty': self.current_episode_rewards['critical_inaction_penalty'],
-                'critical_noop_penalty': self.current_episode_rewards['critical_noop_penalty'],
                 'prediction': self.current_episode_rewards['prediction'],
                 'early_termination_penalty': self.current_episode_rewards['early_termination_penalty'],
                 'early_termination_triggered': info.get('early_termination_triggered', False),
@@ -1056,19 +979,11 @@ class TrainingVisualizer:
             "mean_budget_spent": float(np.mean(self.rollout_budget_spent)) if self.rollout_budget_spent else 0.0,
             "mean_budget_remaining": float(np.mean(self.rollout_budget_remaining)) if self.rollout_budget_remaining else 0.0,
             "mean_budget_per_step": float(np.mean(self.rollout_budget_per_step)) if self.rollout_budget_per_step else 0.0,
-            # Add reward component metrics (matching rollout() function)
-            "rewards/immediate": float(np.mean(self.rollout_reward_components['immediate'])) if self.rollout_reward_components['immediate'] else 0.0,
-            "rewards/maintenance": float(np.mean(self.rollout_reward_components['maintenance'])) if self.rollout_reward_components['maintenance'] else 0.0,
-            "rewards/budget_penalty": float(np.mean(self.rollout_reward_components['budget_penalty'])) if self.rollout_reward_components['budget_penalty'] else 0.0,
-            "rewards/delayed": float(np.mean(self.rollout_reward_components['delayed'])) if self.rollout_reward_components['delayed'] else 0.0,
+            # Reward component metrics (new simplified structure)
+            "rewards/pre": float(np.mean(self.rollout_reward_components['pre'])) if self.rollout_reward_components['pre'] else 0.0,
+            "rewards/post_penalties": float(np.mean(self.rollout_reward_components['post_penalties'])) if self.rollout_reward_components['post_penalties'] else 0.0,
+            "rewards/kernel_maintenance": float(np.mean(self.rollout_reward_components['kernel_maintenance'])) if self.rollout_reward_components['kernel_maintenance'] else 0.0,
             "rewards/survival_bonus": float(np.mean(self.rollout_reward_components['survival_bonus'])) if self.rollout_reward_components['survival_bonus'] else 0.0,
-            "rewards/budget_conservation": float(np.mean(self.rollout_reward_components['budget_conservation'])) if self.rollout_reward_components['budget_conservation'] else 0.0,
-            "rewards/regular_count_bonus": float(np.mean(self.rollout_reward_components['regular_count_bonus'])) if self.rollout_reward_components['regular_count_bonus'] else 0.0,
-            "rewards/safe_behavior_bonus": float(np.mean(self.rollout_reward_components['safe_behavior_bonus'])) if self.rollout_reward_components['safe_behavior_bonus'] else 0.0,
-            "rewards/informed_dose": float(np.mean(self.rollout_reward_components['informed_dose_reward'])) if self.rollout_reward_components['informed_dose_reward'] else 0.0,
-            "rewards/count_population": float(np.mean(self.rollout_reward_components['count_population'])) if self.rollout_reward_components['count_population'] else 0.0,
-            "rewards/critical_inaction_penalty": float(np.mean(self.rollout_reward_components['critical_inaction_penalty'])) if self.rollout_reward_components['critical_inaction_penalty'] else 0.0,
-            "rewards/critical_noop_penalty": float(np.mean(self.rollout_reward_components['critical_noop_penalty'])) if self.rollout_reward_components['critical_noop_penalty'] else 0.0,
             "rewards/prediction": float(np.mean(self.rollout_reward_components['prediction'])) if self.rollout_reward_components['prediction'] else 0.0,
             "rewards/total": float(np.mean(self.rollout_episode_returns)) if self.rollout_episode_returns else 0.0,
             # Prediction metrics

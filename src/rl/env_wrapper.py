@@ -3,12 +3,15 @@ import numpy as np
 import torch
 from simulation.simulation_config import ANTIBIOTIC_TYPES, antibiotic_resistances, TOX_TIMES_DOSE_MAX, N_TRAITS, N_BACTERIA_TYPES
 from rl.reward import (
-    PopulationReward,
-    GenomeReward,
-    CostReward,
-    PopulationMaintenanceReward,
     SurvivalBonusReward,
-    BudgetConservationReward,
+    KernelPopulationMaintenanceReward,
+    InformedDosingReward,
+    SequencingReward,
+    CountReward,
+    StrategicNoopReward,
+    CriticalNoDosePenalty,
+    CriticalNoCountPenalty,
+    ExtinctionPenalty,
 )
 
 # Discrete actions
@@ -20,62 +23,54 @@ ACTION_DOSE = 3
 class PetriEnvWrapper:
     MAX_AGE = 100.0
     """
-    Thin wrapper around a Mesa bacteria simulation for RL:
-      - Partial observability: agent only "knows" what it measures.
-      - Action durations: sequencing has latency; count is instant.
-      - Delayed rewards: dose efficacy is evaluated when a measurement lands.
+    Simplified reward-based wrapper for Mesa bacteria simulation.
     
-        Observation vector (float32, mask aware):
-            [ last_count_norm,
-                has_last_count,
-                last_count_age_norm,
-                avg_genome_flat (12 values),
-                has_last_seq,
-                last_seq_age_norm,
-                measure_age_norm,
-                dose_history_K (has, norm, age),
-                dose_history_I (has, norm, age),
-                dose_history_A (has, norm, age),
-                t_norm
-            ]
-        Length = 28. Missing values are zeroed with companion mask bits.
+    Follows a clean pre-step/post-step reward structure:
+    - Pre-step rewards: evaluate action quality before execution
+    - Post-step penalties: evaluate critical states after environment step
     
-    REWARD COMPONENTS BREAKDOWN:
-    ============================
+    Observation vector (float32, mask aware):
+        [ last_count_norm,
+            has_last_count,
+            last_count_age_norm,
+            avg_genome_flat (12 values),
+            has_last_seq,
+            last_seq_age_norm,
+            measure_age_norm,
+            dose_history_K (has, norm, age),
+            dose_history_I (has, norm, age),
+            dose_history_A (has, norm, age),
+            t_norm
+        ]
+    Length = 28. Missing values are zeroed with companion mask bits.
     
-    Total reward = immediate + maintenance + budget_penalty + delayed + survival_bonus + budget_conservation
+    REWARD STRUCTURE:
+    =================
     
-    1. IMMEDIATE REWARD (returned from _execute_action):
-       Composed of:
-       a) Action cost penalty: -cost * w_cost (for COUNT, SEQUENCING, DOSE actions)
-       b) NOOP shaping bonus/penalty: rewards staying in deadband around target population
-       c) Regular count bonus: rewards counting at regular intervals (every ~15 steps)
-       d) Safe behavior bonus: rewards NOT dosing when population is below target
-         e) Dose bookkeeping: DOSE actions only incur the action cost here. Their
-             efficacy is evaluated later once a COUNT observation arrives.
+    Total reward = pre_reward + post_penalties + kernel_maintenance + survival_bonus + prediction_reward + early_termination_penalty
     
-    2. MAINTENANCE REWARD:
-       Per-step reward/penalty based on distance from target population.
-       Computed every step using PopulationMaintenanceReward module.
-       Encourages keeping bacteria count near target_population.
+    PRE-STEP REWARDS:
+    - DOSE: informed vs blind dosing, above vs below target
+    - SEQ: informative vs redundant sequencing
+    - COUNT: timing-based counting rewards
+    - NOOP: strategic waiting rewards
     
-    3. BUDGET PENALTY:
-       Large negative penalty when budget reaches 0.
-       Prevents running out of resources.
+    POST-STEP PENALTIES:
+    - Critical no-dose: penalty for not dosing when population is critical
+    - Critical no-count: penalty for stale count data
+    - Extinction: penalty for population collapse
     
-     4. DELAYED REWARD:
-         Evaluates DOSE actions taken since the previous COUNT once a new COUNT lands.
-         Rewards scale with population drop, total dose, and an optional time decay.
+    KERNEL MAINTENANCE:
+    - Gaussian or Laplace kernel-based population maintenance reward
     
-    5. SURVIVAL BONUS:
-       Per-step bonus for staying alive (configurable: constant/linear/exponential).
-       Encourages longer episodes and survival.
+    SURVIVAL BONUS:
+    - Per-step reward for staying alive (constant/linear/exponential)
     
-    6. BUDGET CONSERVATION:
-       Optional reward for efficient budget usage (typically disabled).
-       Encourages saving resources when possible.
+    PREDICTION REWARD:
+    - Accuracy reward for population prediction (COUNT-only)
     
-    All components are tracked separately in the info dict for analysis and TensorBoard logging.
+    EARLY TERMINATION:
+    - Handles unrecoverable states and extinction
     """
 
     def __init__(
@@ -84,63 +79,82 @@ class PetriEnvWrapper:
         k_doses: int,
         scale_dose: Optional[Callable[[np.ndarray], np.ndarray]] = None,
         max_steps: int = 1000,
-        # costs & durations
-        sequencing_cost: float = 1.0,
-        sequencing_duration: int = 5,   # steps to finish
-        redundant_sequencing_penalty: float = 0.001,  # penalty magnitude for redundant sequencing
-        dose_cost: float = 2.0,         # fixed cost per dose action
-        dose_cost_per_unit: float = 0.2,  # variable cost per unit of antibiotic
-        dose_missing_feedback_penalty: float = 0.5,  # penalty magnitude when dose efficacy can't be scored
-        count_cost: float = 0.0,        # cost for COUNT action
-    # informed dose reward params (configured via YAML)
-    informed_reward_window_steps: int = 5,        # Max steps after last COUNT when DOSE remains eligible
-    informed_reward_weight: float = 1.0,          # Global multiplier for dose reward
-    informed_max_reward_per_dose: float = 10.0,   # Hard cap per individual dose
-    informed_time_decay: bool = True,             # Enable time decay for delayed reward
-    informed_decay_type: str = "linear",          # "linear" or "exponential"
-    informed_decay_rate: float = 0.2,             # Linear fraction lost per step or exponential multiplier
-    informed_min_reward_fraction: float = 0.0,    # Minimum fraction retained after decay
-        # regular monitoring rewards
-        regular_count_reward: float = 0.0,      # reward for counting regularly
-        regular_count_interval: int = 15,       # target interval for regular counting
-        regular_count_min_interval: int = 3,    # minimum interval to avoid spam-counting
-        safe_nondosing_reward: float = 0.0,     # reward for NOT dosing when pop is low
-        count_population_reward: float = 0.0,   # reward based on distance from target after COUNT
-        count_population_reward_alpha: float = 1.0,  # exponential shaping steepness
-        count_population_reward_beta: float = 0.5,   # exponential shaping shift term
-        population_norm_reward: float = 500.0,  # reward shaping normalization radius for population distance
-        # critical inaction penalties
-        critical_high_population_threshold: float = 3.0,  # multiplier of target for critical level
-        critical_no_action_penalty: float = 0.0,  # penalty for not seq/dosing when count shows critical pop
-        critical_no_dose_penalty: float = 0.0,    # penalty for not dosing when count+seq fresh and critical
-        critical_freshness_window: int = 5,       # steps to consider data "fresh"
-        critical_noop_penalty: float = 0.0,       # penalty for letting counts go stale
-        critical_noop_threshold: int = 15,        # steps before stale-count penalty activates
-        # prediction accuracy reward
-        prediction_reward_weight: float = 0.0,    # weight for prediction accuracy reward (COUNT-only)
-        # early termination (NOOP-only unrecoverable state)
-        early_termination_enabled: bool = False,  # enable early termination when only NOOP available
-        early_termination_penalty: float = 10.0,  # maximum penalty when early termination triggers early
-        early_termination_min_penalty: Optional[float] = None,  # penalty applied near the end of an episode
-        early_termination_penalty_decay_power: float = 1.0,  # exponent controlling decay rate over time
-        early_termination_population_threshold: float = 5.0,  # multiplier of target for unrecoverable (upper)
-        early_termination_population_low_threshold: float = 0.2,  # multiplier of target for unrecoverable (lower)
-        early_termination_zero_population_penalty: float = 0.0,  # penalty when population collapses to zero
-        early_termination_require_budget_depleted: bool = True,  # require budget==0 for early term
-        # shaping & norms
-        target_population: int = 500,   # P*
-        w_pop: float = 1.0,             # weight for population term in dose reward
-        w_genome: float = 0.5,          # weight for resistance term in dose reward
-        w_cost: float = 0.05,           # weight for monetary penalty in dose reward
-        w_population_maintenance: float = 0.01,  # per-step penalty for being far from target
+        
+        # ===== Timing and freshness thresholds =====
+        t_count_freshness: int = 5,            # Steps for count to remain "fresh"
+        t_seq_freshness: int = 8,              # Steps for sequencing to remain "fresh"  
+        max_count_window: int = 30,            # Max steps without counting before penalty
+        critical_ratio: float = 3.0,           # Population ratio for critical state
+        
+        # Timing windows for informative actions
+        t_min_elapsed_time_count: int = 5,     # Min time between counts
+        t_max_elapsed_time_count: int = 30,    # Max time for informative count
+        t_min_elapsed_time_seq: int = 8,       # Min time between sequencing
+        t_max_elapsed_time_seq: int = 50,      # Max time for informative sequencing
+        
+        # ===== Action costs and durations =====
+        sequencing_cost: float = 2.5,
+        sequencing_duration: int = 5,
+        dose_cost: float = 2.0,
+        dose_cost_per_unit: float = 2.0,
+        count_cost: float = 0.5,
+        
+        # ===== Pre-step reward scalars =====
+        # Informed dosing
+        penalty_informed_dosing_under: float = 5.0,
+        reward_informed_dosing_above: float = 2.0,
+        reward_informed_dosing_above_without_seq: float = 1.0,
+        penalty_blind_dose: float = 3.0,
+        
+        # Sequencing
+        seq_already_pending_penalty: float = 2.0,
+        informative_seq_reward: float = 1.0,
+        
+        # Counting
+        cost_penalty: float = 0.5,
+        informative_count_reward: float = 1.0,
+        
+        # Strategic NOOP
+        strategic_noop_reward: float = 0.5,
+        
+        # ===== Post-step penalty scalars =====
+        penalty_critical_no_dose: float = 5.0,
+        penalty_critical_no_count: float = 2.0,
+        big_penalty: float = 50.0,              # Extinction penalty
+        
+        # ===== Population maintenance (kernel-based) =====
+        kernel_maintenance_enabled: bool = True,
+        kernel_type: str = "gaussian",          # "gaussian" or "laplace"
+        kernel_bandwidth: float = 50.0,
+        kernel_weight: float = 1.0,
+        
+        # ===== Survival bonus =====
+        survival_bonus_enabled: bool = True,
+        survival_bonus_base: float = 0.1,
+        survival_bonus_scaling_type: str = "linear",
+        survival_bonus_scaling_factor: float = 0.001,
+        survival_bonus_max: float = 2.0,
+        
+        # ===== Prediction reward =====
+        prediction_reward_enabled: bool = True,
+        prediction_reward_weight: float = 0.4,
+        
+        # ===== Early termination =====
+        early_termination_enabled: bool = True,
+        early_termination_penalty: float = 25.0,
+        early_termination_min_penalty: Optional[float] = 10.0,
+        early_termination_penalty_decay_power: float = 1.0,
+        early_termination_population_threshold: float = 1.5,
+        early_termination_population_low_threshold: float = 0.2,
+        early_termination_extinction_penalty: float = 12.0,
+        early_termination_require_budget_depleted: bool = False,
+        
+        # ===== Environment parameters =====
+        target_population: int = 100,
+        population_norm: float = 500.0,
         budget_init: float = 100.0,
-        budget_norm: float = 100.0,     # divisor for budget normalization
-        population_norm: float = 1000.0, # to map counts to ~[0,1]
-        budget_penalty: float = 10.0,   # big penalty when budget reaches 0
-        unaffordable_action_penalty: float = 0.0,  # penalty for attempting unaffordable action
-        # NOOP action reward shaping
-        noop_band_factor: float = 0.02,      # deadband around target as fraction of population_norm
-        noop_reward_magnitude: float = 0.01, # small shaping magnitude for NOOP action
+        budget_norm: float = 100.0,
+        
         device: str = "cpu",
         dtype: torch.dtype = torch.float32,
     ):
@@ -149,115 +163,165 @@ class PetriEnvWrapper:
         self.scale_dose = scale_dose if scale_dose is not None else (lambda x: x)
         self.max_steps = max_steps
         self.episode_length = max_steps
-
-        # economics & timing
-        self.sequencing_cost = sequencing_cost
-        self.sequencing_duration = sequencing_duration
-        self.redundant_sequencing_penalty = redundant_sequencing_penalty
-        self.dose_cost = dose_cost
-        self.dose_cost_per_unit = dose_cost_per_unit
-        self.dose_missing_feedback_penalty = dose_missing_feedback_penalty
-        self.count_cost = count_cost
-        self.budget_penalty = budget_penalty
-        self.unaffordable_action_penalty = unaffordable_action_penalty
         
-        # informed dose delayed reward parameters
-        self.informed_reward_window_steps = max(0, int(informed_reward_window_steps))
-        self.informed_reward_weight = float(informed_reward_weight)
-        self.informed_max_reward_per_dose = float(max(0.0, informed_max_reward_per_dose))
-        self.informed_time_decay_enabled = bool(informed_time_decay)
-        self.informed_decay_type = informed_decay_type.lower()
-        if self.informed_decay_type not in {"linear", "exponential"}:
-            raise ValueError("informed_decay_type must be 'linear' or 'exponential'")
-        self.informed_decay_rate = float(max(0.0, informed_decay_rate))
-        self.informed_min_reward_fraction = float(np.clip(informed_min_reward_fraction, 0.0, 1.0))
-        # Reuse window for safe behavior shaping (avoid extra config)
-        self.safe_behavior_window_steps = self.informed_reward_window_steps
+        # ===== Timing and freshness thresholds =====
+        self.t_count_freshness = int(t_count_freshness)
+        self.t_seq_freshness = int(t_seq_freshness)
+        self.max_count_window = int(max_count_window)
+        self.critical_ratio = float(critical_ratio)
         
-        # regular monitoring parameters
-        self.regular_count_reward = regular_count_reward
-        self.regular_count_interval = regular_count_interval
-        self.regular_count_min_interval = regular_count_min_interval
-        self.safe_nondosing_reward = safe_nondosing_reward
-        self.count_population_reward = count_population_reward
-        self.count_population_reward_alpha = max(1e-6, float(count_population_reward_alpha))
-        self.count_population_reward_beta = float(np.clip(count_population_reward_beta, 0.0, 1.0))
-        # population_norm_reward is separate from population_norm.
-        # population_norm is ONLY for NN observation normalization.
-        # population_norm_reward defines the reward shaping radius.
-        # This prevents extremely large population deviations from producing flat or weak penalties.
-        self.population_norm_reward = max(1.0, float(population_norm_reward))
+        self.t_min_elapsed_time_count = int(t_min_elapsed_time_count)
+        self.t_max_elapsed_time_count = int(t_max_elapsed_time_count)
+        self.t_min_elapsed_time_seq = int(t_min_elapsed_time_seq)
+        self.t_max_elapsed_time_seq = int(t_max_elapsed_time_seq)
         
-        # critical inaction penalties
-        self.critical_high_population_threshold = critical_high_population_threshold
-        self.critical_no_action_penalty = critical_no_action_penalty
-        self.critical_no_dose_penalty = critical_no_dose_penalty
-        self.critical_freshness_window = critical_freshness_window
-        self.critical_noop_penalty = critical_noop_penalty
-        self.critical_noop_threshold = int(max(0, critical_noop_threshold))
+        # ===== Action costs and durations =====
+        self.sequencing_cost = float(sequencing_cost)
+        self.sequencing_duration = int(sequencing_duration)
+        self.dose_cost = float(dose_cost)
+        self.dose_cost_per_unit = float(dose_cost_per_unit)
+        self.count_cost = float(count_cost)
         
-        # early termination parameters
-        self.early_termination_enabled = early_termination_enabled
-        self.early_termination_penalty = max(0.0, float(early_termination_penalty))
-        min_penalty = early_termination_min_penalty
-        if min_penalty is None:
-            min_penalty = self.early_termination_penalty
-        self.early_termination_penalty_min = max(0.0, float(min_penalty))
+        # ===== Environment parameters =====
+        self.target_population = float(target_population)
+        self.population_norm = float(population_norm)
+        self.budget_init = float(budget_init)
+        self.budget_norm = float(budget_norm)
+        self.device = device
+        self.dtype = dtype
+        
+        # ===== Prediction reward =====
+        self.prediction_reward_enabled = bool(prediction_reward_enabled)
+        self.prediction_reward_weight = float(prediction_reward_weight)
+        
+        # ===== Early termination parameters =====
+        self.early_termination_enabled = bool(early_termination_enabled)
+        self.early_termination_penalty = float(max(0.0, early_termination_penalty))
+        min_penalty = early_termination_min_penalty if early_termination_min_penalty is not None else early_termination_penalty
+        self.early_termination_penalty_min = float(max(0.0, min_penalty))
         if self.early_termination_penalty_min > self.early_termination_penalty:
             self.early_termination_penalty_min = self.early_termination_penalty
-        self.early_termination_penalty_decay_power = max(1e-6, float(early_termination_penalty_decay_power))
+        self.early_termination_penalty_decay_power = float(max(1e-6, early_termination_penalty_decay_power))
         self._early_termination_penalty_span = (
             self.early_termination_penalty - self.early_termination_penalty_min
         )
-        self.early_termination_population_threshold = early_termination_population_threshold
-        self.early_termination_population_low_threshold = max(0.0, early_termination_population_low_threshold)
-        self.early_termination_zero_population_penalty = max(0.0, early_termination_zero_population_penalty)
-        self.early_termination_require_budget_depleted = early_termination_require_budget_depleted
+        self.early_termination_population_threshold = float(early_termination_population_threshold)
+        self.early_termination_population_low_threshold = float(max(0.0, early_termination_population_low_threshold))
+        self.early_termination_extinction_penalty = float(max(0.0, early_termination_extinction_penalty))
+        self.early_termination_require_budget_depleted = bool(early_termination_require_budget_depleted)
         
-        # prediction accuracy reward
-        self.prediction_reward_weight = prediction_reward_weight
-
-        # reward shaping
-        self.target_population = target_population
-        self.w_pop = w_pop
-        self.w_genome = w_genome
-        self.w_cost = w_cost
-        self.w_population_maintenance = w_population_maintenance
-
-        # normalization/display
-        self.budget_init = budget_init
-        self.budget_norm = budget_norm
-        self.population_norm = population_norm
+        # ===== Reward modules =====
+        # Pre-step rewards
+        self.informed_dosing_reward = InformedDosingReward(
+            penalty_dosing_under_target=penalty_informed_dosing_under,
+            reward_dosing_above_with_seq=reward_informed_dosing_above,
+            reward_dosing_above_no_seq=reward_informed_dosing_above_without_seq,
+            penalty_blind_dose=penalty_blind_dose,
+        )
         
-        # device & dtype for reward modules
-        self.device = device
-        self.dtype = dtype
-
-        # runtime state
+        self.sequencing_reward = SequencingReward(
+            seq_already_pending_penalty=seq_already_pending_penalty,
+            informative_seq_reward=informative_seq_reward,
+        )
+        
+        self.count_reward = CountReward(
+            cost_penalty=cost_penalty,
+            informative_count_reward=informative_count_reward,
+        )
+        
+        self.strategic_noop_reward = StrategicNoopReward(
+            strategic_noop_reward=strategic_noop_reward,
+        )
+        
+        # Post-step penalties
+        self.critical_no_dose_penalty = CriticalNoDosePenalty(
+            penalty_critical_no_dose=penalty_critical_no_dose,
+        )
+        
+        self.critical_no_count_penalty = CriticalNoCountPenalty(
+            penalty_critical_no_count=penalty_critical_no_count,
+        )
+        
+        self.extinction_penalty = ExtinctionPenalty(
+            big_penalty=big_penalty,
+        )
+        
+        # Kernel-based population maintenance
+        self.kernel_maintenance_enabled = bool(kernel_maintenance_enabled)
+        if self.kernel_maintenance_enabled:
+            self.kernel_maintenance_reward = KernelPopulationMaintenanceReward(
+                target_population=target_population,
+                kernel_type=kernel_type,
+                bandwidth=kernel_bandwidth,
+                weight=kernel_weight,
+            )
+        else:
+            self.kernel_maintenance_reward = None
+        
+        # Survival bonus
+        self.survival_bonus_reward = None
+        if survival_bonus_enabled:
+            self.survival_bonus_reward = SurvivalBonusReward(
+                base_bonus=survival_bonus_base,
+                scaling_type=survival_bonus_scaling_type,
+                scaling_factor=survival_bonus_scaling_factor,
+                max_bonus=survival_bonus_max,
+            )
+        
+        # ===== Runtime state =====
         self.model: Any = None
         self.t = 0
         self.MAX_AGE = float(self.__class__.MAX_AGE)
         self.episode_return = 0.0
         self.budget = budget_init
-        self.last_action_completed = 0.0
-        self.last_critical_noop_penalty = 0.0
-
         # Budget tracking per episode
-        self.episode_start_budget = budget_init
         self.episode_budget_spent = 0.0
+        self.episode_start_budget = float(budget_init)
+        self.last_step_budget = float(budget_init)
+        
+        # ===== Timer state (key to the new reward system) =====
+        # These track time since last action (0.0 = never performed or just performed)
+        self.t_since_last_count = 0.0
+        self.t_since_last_dose = 0.0
+        self.t_since_last_seq = 0.0
+        
+        # Tracking flags: has this action ever been performed?
+        self.has_ever_counted = False
+        self.has_ever_dosed = False
+        self.has_ever_sequenced = False
+        
+        # Sequencing state
+        self.seq_pending = False
+        self.seq_eta = 0
+        self.recent_sequencing = False
 
-        # observation cache (what the agent "knows")
+        # Legacy dose event tracking (kept inert; initialized to avoid attribute errors)
+        self.recent_dose_events = []
+        self.pending_dose_events = []
+        self.last_regular_count_bonus = 0.0
+        self.last_informed_dose_reward = 0.0
+        self.last_count_population_reward = 0.0
+        self.last_action_cost_penalty = 0.0
+        # Informed dosing legacy params (not used in simplified rewards)
+        self.informed_reward_window_steps = 0
+        self.informed_reward_weight = 0.0
+        self.informed_time_decay_enabled = False
+        self.informed_decay_type = "linear"
+        self.informed_decay_rate = 0.0
+        self.informed_min_reward_fraction = 0.0
+        
+        # ===== Observation cache (what the agent "knows") =====
         self.last_count_obs: Optional[int] = None
         self.prev_count_obs: Optional[int] = None
         self.last_seq_obs: Optional[Dict[str, Any]] = None
         self.ts_last_seq: Optional[int] = None
         self.ts_last_count: Optional[int] = None
         self.prev_count_step: Optional[int] = None
-
-        # measurement/state caches
+        
+        # Measurement/state caches
         self.avg_genome = np.zeros((N_BACTERIA_TYPES, N_TRAITS), dtype=np.float32)
-
-        # dosing history (K, I, A)
+        
+        # Dosing history (K, I, A) - still needed for observation
         self.last_dose_K = 0.0
         self.last_dose_I = 0.0
         self.last_dose_A = 0.0
@@ -266,40 +330,15 @@ class PetriEnvWrapper:
         self.ts_last_dose_A: Optional[int] = None
         self._dose_update_buffer: Optional[np.ndarray] = None
         self.max_dose_values = self._infer_max_dose_values()
-
-        # sequencing pipeline
-        self.seq_pending = False
-        self.seq_eta = 0  # steps until result is ready
-
-        # recent dose ledger (scored when a COUNT lands)
-        self.recent_dose_events: List[Dict[str, Any]] = []
-        self.last_informed_dose_reward = 0.0
-
-        # NOOP action reward shaping
-        noop_band = noop_band_factor * population_norm
-        self.noop_band = noop_band
-        self.noop_mag = noop_reward_magnitude
         
-        # ========== Reward Modules ==========
-        # Initialize reward computation modules
-        # Removed DoseRewardCompound - using simple cost penalty instead
-        # Natural population changes captured by maintenance reward provide delayed feedback
-        
-        self.pop_maintenance_reward = PopulationMaintenanceReward(
-            target_population=target_population,
-            population_norm=population_norm,
-            asymmetry_factor=3.0,
-            weight=w_population_maintenance,
-        )
-        
-        # Survival bonus reward module (encourage longer episodes)
-        self.survival_bonus_reward = None  # Will be set if enabled
-        
-        # Budget conservation reward module (encourage efficient spending)
-        self.budget_conservation_reward = None  # Will be set if enabled
-        
-        # Track last step's budget for computing spending rate
-        self.last_step_budget = budget_init
+        # ===== Reward tracking (for logging) =====
+        self.last_pre_reward = 0.0
+        self.last_post_penalties = 0.0
+        self.last_kernel_maintenance_reward = 0.0
+        self.last_survival_bonus = 0.0
+        self.last_prediction_reward = 0.0
+        self.last_early_termination_penalty = 0.0
+        self.early_termination_triggered = False
 
     # -------------------------
     # Public API
@@ -310,23 +349,35 @@ class PetriEnvWrapper:
         self.t = 0
         self.episode_return = 0.0
         self.budget = self.budget_init
-        
-        # Reset budget tracking for new episode
-        self.episode_start_budget = self.budget_init
         self.episode_budget_spent = 0.0
-        self.last_step_budget = self.budget_init
+        self.episode_start_budget = float(self.budget_init)
+        self.last_step_budget = float(self.budget)
+        
+        # Reset timer state
+        self.t_since_last_count = 0.0
+        self.t_since_last_dose = 0.0
+        self.t_since_last_seq = 0.0
+        
+        # Reset tracking flags
+        self.has_ever_counted = False
+        self.has_ever_dosed = False
+        self.has_ever_sequenced = False
+        
+        # Reset sequencing state
+        self.seq_pending = False
+        self.seq_eta = 0
+        self.recent_sequencing = False
         
         # Reset reward component tracking
-        self.last_regular_count_bonus = 0.0
-        self.last_safe_behavior_bonus = 0.0
-        self.last_informed_dose_reward = 0.0
-        self.last_count_population_reward = 0.0
-        self.last_critical_noop_penalty = 0.0
-        self.last_action_cost_penalty = 0.0  # Pure cost penalty from w_cost
+        self.last_pre_reward = 0.0
+        self.last_post_penalties = 0.0
+        self.last_kernel_maintenance_reward = 0.0
+        self.last_survival_bonus = 0.0
+        self.last_prediction_reward = 0.0
         self.last_early_termination_penalty = 0.0
         self.early_termination_triggered = False
 
-        # clear caches
+        # Clear observation caches
         self.last_count_obs = None
         self.prev_count_obs = None
         self.last_seq_obs = None
@@ -335,7 +386,7 @@ class PetriEnvWrapper:
         self.prev_count_step = None
         self.avg_genome.fill(0.0)
 
-        # reset dosing history
+        # Reset dosing history
         self.last_dose_K = 0.0
         self.last_dose_I = 0.0
         self.last_dose_A = 0.0
@@ -344,131 +395,237 @@ class PetriEnvWrapper:
         self.ts_last_dose_A = None
         self._dose_update_buffer = None
         self.max_dose_values = self._infer_max_dose_values()
-        self.last_action_completed = 0.0
-
-        # clear pipelines
-        self.seq_pending = False
-        self.seq_eta = 0
-        self.recent_dose_events.clear()
-        self.last_informed_dose_reward = 0.0
 
         return self._build_observation()
 
-    def step(self, a_discrete: int, a_cont: np.ndarray, pred_population: Optional[float] = None) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+    # -------------------------
+    # Freshness helpers (following pseudo-code)
+    # -------------------------
+
+    def _count_fresh(self) -> bool:
         """
-        Execute one step in the environment.
+        COUNT_FRESH = (has counted before) AND (t_since_last_count < t_count_freshness)
+                      AND (t_since_last_dose > t_since_last_count)
+        If never counted (last_count_obs is None), return False.
+        """
+        if self.last_count_obs is None or not self.has_ever_counted:
+            return False
+        return (self.t_since_last_count < self.t_count_freshness and
+                self.t_since_last_dose > self.t_since_last_count)
+    
+    def _seq_fresh(self) -> bool:
+        """
+        SEQ_FRESH = (has sequenced before) AND (t_since_last_seq < t_seq_freshness)
+        If never sequenced, return False.
+        """
+        if self.last_seq_obs is None or not self.has_ever_sequenced:
+            return False
+        return self.t_since_last_seq < self.t_seq_freshness
+
+    # -------------------------
+    # Reward computation (following pseudo-code)
+    # -------------------------
+
+    def _compute_pre_reward(self, action: int) -> float:
+        """
+        Compute pre-step reward based on action quality.
         
         Args:
-            a_discrete: Discrete action (NOOP=0, COUNT=1, SEQUENCING=2, DOSE=3)
-            a_cont: Continuous action (dose amounts for k antibiotics)
-            pred_population: Optional prediction of normalized population (for prediction reward)
-        
+            action: Discrete action (NOOP=0, COUNT=1, SEQ=2, DOSE=3)
+            
         Returns:
-            obs: Next observation
-            reward: Total reward for this step
-            done: Whether episode is complete
-            info: Additional information dict
+            Pre-step reward as float
+        """
+        count_fresh = self._count_fresh()
+        
+        if action == ACTION_DOSE:
+            return self.informed_dosing_reward(
+                count_fresh=count_fresh,
+                last_count_pop=float(self.last_count_obs) if self.last_count_obs is not None else None,
+                target_pop=self.target_population,
+                recent_sequencing=self.recent_sequencing,
+            )
+        
+        elif action == ACTION_SEQUENCING:
+            return self.sequencing_reward(
+                seq_pending=self.seq_pending,
+                t_since_last_seq=self.t_since_last_seq,
+                t_min_elapsed_time_seq=float(self.t_min_elapsed_time_seq),
+                t_max_elapsed_time_seq=float(self.t_max_elapsed_time_seq),
+            )
+        
+        elif action == ACTION_COUNT_BACTERIA:
+            return self.count_reward(
+                t_since_last_count=self.t_since_last_count,
+                t_min_elapsed_time_count=float(self.t_min_elapsed_time_count),
+                t_max_elapsed_time_count=float(self.t_max_elapsed_time_count),
+            )
+        
+        elif action == ACTION_NOOP:
+            return self.strategic_noop_reward(
+                count_fresh=count_fresh,
+                last_count_pop=float(self.last_count_obs) if self.last_count_obs is not None else None,
+                target_pop=self.target_population,
+            )
+        
+        return 0.0
+    
+    def _compute_post_penalties(self, action: int, true_population: int) -> float:
+        """
+        Compute post-step penalties after environment step.
+        
+        Args:
+            action: Discrete action taken
+            true_population: Current true population
+            
+        Returns:
+            Post-step penalties as float (typically negative)
+        """
+        penalties = 0.0
+        count_fresh = self._count_fresh()
+        
+        # Critical no-dose penalty
+        penalties += self.critical_no_dose_penalty(
+            count_fresh=count_fresh,
+            last_count_pop=float(self.last_count_obs) if self.last_count_obs is not None else None,
+            target_pop=self.target_population,
+            critical_ratio=self.critical_ratio,
+            action_was_dose=(action == ACTION_DOSE),
+        )
+        
+        # Critical no-count penalty
+        penalties += self.critical_no_count_penalty(
+            t_since_last_count=self.t_since_last_count,
+            max_count_window=float(self.max_count_window),
+        )
+        
+        # Extinction penalty
+        penalties += self.extinction_penalty(population=true_population)
+        
+        return penalties
+    
+    def _update_timers_after_env_step(self, action: int, dt: float = 1.0) -> None:
+        """
+        Update internal timer state AFTER env_step() has been called.
+        Following the pseudo-code structure.
+        
+        Args:
+            action: Discrete action taken
+            dt: Time increment (default 1.0)
+        """
+        # COUNT
+        if action == ACTION_COUNT_BACTERIA:
+            # Count is instant (duration 0), so result lands immediately
+            # The count observation is cached in step() after env_step()
+            self.t_since_last_count = 0.0
+            self.has_ever_counted = True
+        else:
+            self.t_since_last_count += dt
+        
+        # DOSE
+        if action == ACTION_DOSE:
+            self.t_since_last_dose = 0.0
+            self.has_ever_dosed = True
+        else:
+            self.t_since_last_dose += dt
+        
+        # SEQ
+        if action == ACTION_SEQUENCING:
+            self.t_since_last_seq = 0.0
+            self.has_ever_sequenced = True
+        else:
+            self.t_since_last_seq += dt
+        
+        # Decay recent_sequencing flag based on window
+        if self.has_ever_sequenced and self.t_since_last_seq > self.t_seq_freshness:
+            self.recent_sequencing = False
+
+    def _apply_internal_agent_updates(self, action: int) -> None:
+        """
+        Internal agent state updates BEFORE env_step().
+        Following pseudo-code structure.
+        
+        Args:
+            action: Discrete action about to be executed
+        """
+        # SEQ: mark as pending
+        if action == ACTION_SEQUENCING:
+            if not self.seq_pending:
+                self.seq_pending = True
+                self.recent_sequencing = True
+                # Timer reset happens after env_step() in _update_timers_after_env_step
+
+    def step(self, a_discrete: int, a_cont: np.ndarray, pred_population: Optional[float] = None) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+        """
+        Execute one step following the pseudo-code structure:
+        1) Compute pre-reward
+        2) Apply internal agent updates
+        3) Advance environment (env_step)
+        4) Update timers after env_step
+        5) Compute post-penalties
+        6) Return observation + total reward
+        
+        Args:
+            a_discrete: Discrete action (NOOP=0, COUNT=1, SEQ=2, DOSE=3)
+            a_cont: Continuous action (dose amounts)
+            pred_population: Optional population prediction (for prediction reward)
+            
+        Returns:
+            obs, reward, done, info
         """
         assert 0 <= a_discrete <= 3, f"a_discrete out of range: {a_discrete}"
-        assert isinstance(a_cont, np.ndarray) and a_cont.shape == (self.k_doses,), \
-            f"a_cont must be np.ndarray shape ({self.k_doses},)"
-
-        # Reset reward component tracking (will be set if applicable)
-        self.last_safe_behavior_bonus = 0.0
-        self.last_informed_dose_reward = 0.0
-        self.last_critical_noop_penalty = 0.0
-        self.last_action_cost_penalty = 0.0
+        assert isinstance(a_cont, np.ndarray) and a_cont.shape == (self.k_doses,)
+        
+        # Reset reward tracking
+        self.last_pre_reward = 0.0
+        self.last_post_penalties = 0.0
+        self.last_kernel_maintenance_reward = 0.0
+        self.last_survival_bonus = 0.0
+        self.last_prediction_reward = 0.0
         self.last_early_termination_penalty = 0.0
         self.early_termination_triggered = False
         
-        # NOTE: With hybrid action masking (Option C), the agent CANNOT select
-        # unaffordable actions. The mask ensures invalid actions have probability 0.
-        # Therefore, we don't need to check affordability or convert actions to NOOP.
-        # We can directly execute the action that was selected.
-        executed_noop = (a_discrete == ACTION_NOOP)
-
-        # 1) Execute action: computes immediate reward (only instant penalties/shaping)
-        # This now includes regular_count_reward for COUNT actions and dose tracking bookkeeping for COUNT-triggered rewards
-        immediate_reward = self._execute_action(a_discrete, a_cont)
-        self.last_action_completed = 0.0 if executed_noop else 1.0
-
-        # 1b) Safe non-dosing reward: reward for NOT dosing when population is below target
-        safe_behavior_bonus = 0.0
-        if a_discrete != ACTION_DOSE:
-            # Check if we have recent count data
-            steps_since_count = self.t - self.ts_last_count if self.ts_last_count is not None else float('inf')
-            has_recent_count = steps_since_count <= self.safe_behavior_window_steps
-            
-            # If count is recent and population is below target, reward for NOT dosing
-            if has_recent_count and self.last_count_obs is not None:
-                if self.last_count_obs < self.target_population:
-                    safe_behavior_bonus = self.safe_nondosing_reward
-                    # Debug output (only first few episodes)
-                    # if self.t < 100:
-                    #     print(f"[SAFE BEHAVIOR BONUS] t={self.t}, action={a_discrete}, pop={self.last_count_obs}, target={self.target_population}, bonus={safe_behavior_bonus}")
+        # ==============================================
+        # STEP 1: PRE-STEP REWARD
+        # ==============================================
+        pre_reward = self._compute_pre_reward(a_discrete)
+        self.last_pre_reward = pre_reward
         
-        # Store for tracking
-        self.last_safe_behavior_bonus = safe_behavior_bonus
-        immediate_reward += safe_behavior_bonus
+        # ==============================================
+        # STEP 2: INTERNAL AGENT UPDATES (before env step)
+        # ==============================================
+        self._apply_internal_agent_updates(a_discrete)
         
-        # 1c) Critical inaction penalties: penalize inaction when population is dangerously high
-        critical_inaction_penalty = 0.0
+        # ==============================================
+        # STEP 3: EXECUTE ACTION & ADVANCE ENVIRONMENT
+        # ==============================================
+        # Deduct action costs from budget
+        action_cost = 0.0
+        if a_discrete == ACTION_COUNT_BACTERIA:
+            action_cost = self.count_cost
+        elif a_discrete == ACTION_SEQUENCING:
+            action_cost = self.sequencing_cost
+        elif a_discrete == ACTION_DOSE:
+            scaled_doses = self.scale_dose(a_cont)
+            action_cost = self.dose_cost + np.sum(scaled_doses) * self.dose_cost_per_unit
+            # Apply antibiotics to environment
+            self._apply_antibiotics(scaled_doses)
+            # Update dose history for observation
+            self._update_dose_history(scaled_doses)
         
-        # Check if we have fresh count data showing critical population
-        steps_since_count = self.t - self.ts_last_count if self.ts_last_count is not None else float('inf')
-        has_fresh_count = steps_since_count <= self.critical_freshness_window
-        critical_threshold = self.target_population * self.critical_high_population_threshold
+        self.budget -= action_cost
         
-        if has_fresh_count and self.last_count_obs is not None:
-            population_is_critical = self.last_count_obs >= critical_threshold
-            
-            if population_is_critical:
-                # Penalty 1: Not taking SEQUENCING or DOSE when count shows critical population
-                if a_discrete not in [ACTION_SEQUENCING, ACTION_DOSE]:
-                    critical_inaction_penalty -= self.critical_no_action_penalty
-                    # # Debug output
-                    # if self.t < 100:
-                    #     print(f"[CRITICAL INACTION] t={self.t}, pop={self.last_count_obs}, threshold={critical_threshold}, action={a_discrete}, penalty={critical_inaction_penalty}")
-                
-                # Penalty 2: Not dosing when BOTH count and sequencing are fresh and population is critical
-                steps_since_seq = self.t - self.ts_last_seq if self.ts_last_seq is not None else float('inf')
-                has_fresh_seq = steps_since_seq <= self.critical_freshness_window
-                
-                if has_fresh_seq and a_discrete != ACTION_DOSE:
-                    # Both count and sequencing are fresh, population is critical, but agent isn't dosing
-                    critical_inaction_penalty -= self.critical_no_dose_penalty
-                    # # Debug output
-                    # if self.t < 100:
-                    #     print(f"[CRITICAL NO DOSE] t={self.t}, pop={self.last_count_obs}, threshold={critical_threshold}, count_age={steps_since_count}, seq_age={steps_since_seq}, action={a_discrete}, penalty={critical_inaction_penalty}")
-        
-        immediate_reward += critical_inaction_penalty
-
-        # 1d) Critical NOOP penalty: encourage timely counts
-        critical_noop_penalty_value = 0.0
-        if self.critical_noop_penalty > 0.0 and a_discrete != ACTION_COUNT_BACTERIA:
-            count_missing = self.ts_last_count is None
-            count_stale = False
-            if not count_missing:
-                if self.critical_noop_threshold > 0:
-                    count_stale = (self.t - self.ts_last_count) > self.critical_noop_threshold
-                else:
-                    # Threshold of 0 means any delay after the counting step incurs penalty
-                    count_stale = (self.t - self.ts_last_count) > 0
-            if count_missing or count_stale:
-                critical_noop_penalty_value = -self.critical_noop_penalty
-        self.last_critical_noop_penalty = critical_noop_penalty_value
-        immediate_reward += critical_noop_penalty_value
-
-        # 2) Advance simulation one base step
+        # Advance the biological simulation by one step
         self.model.step()
         self.t += 1
-
-        if self._dose_update_buffer is not None:
-            self._update_dose_history(self._dose_update_buffer)
-            self._dose_update_buffer = None
-
-        # 3) Progress sequencing countdown; when it finishes, publish result
-        sequencing_result_landed = False
+        
+        # ==============================================
+        # STEP 4: POST-ENV UPDATES & OBSERVATION CACHING
+        # ==============================================
+        # Update timers based on action taken
+        self._update_timers_after_env_step(a_discrete, dt=1.0)
+        
+        # Handle sequencing countdown (if pending)
         if self.seq_pending:
             self.seq_eta -= 1
             if self.seq_eta <= 0:
@@ -477,174 +634,140 @@ class PetriEnvWrapper:
                 self._cache_sequencing_obs(seq_result)
                 self.seq_pending = False
                 self.seq_eta = 0
-                sequencing_result_landed = True
-
-        # COUNT has duration 0 → if the agent performed COUNT this step, cache count obs immediately
+        
+        # Handle COUNT action (instant, duration=0)
         count_result_landed = False
         population_counted_norm = 0.0
         if a_discrete == ACTION_COUNT_BACTERIA:
-            # Count action was executed (we already checked affordability upfront)
-            count_now = self._read_true_population()
-            self._cache_count_obs(count_now)
+            true_pop = self._read_true_population()
+            self._cache_count_obs(true_pop)
             count_result_landed = True
-            # Store the population revealed by COUNT for prediction supervision
-            population_counted_norm = float(count_now) / self.population_norm
-
-        # 4) Build obs from what the agent knows (cached), never from the hidden true state directly
-        obs = self._build_observation()
-
-        # 5) Termination conditions
+            population_counted_norm = float(true_pop) / max(1.0, self.population_norm)
+        
+        # Read true population for reward computation
         true_population = self._read_true_population()
-        base_done = (self.t >= self.max_steps) or (self.budget <= 0.0)
-        done = base_done
         
-        # 5b) Early termination handling, including extinction
-        early_termination_penalty = 0.0
-        early_termination_triggered = False
-
-        # Immediate termination on population collapse (extinction)
-        if true_population <= 0:
-            done = True
-            early_termination_triggered = True
-            early_termination_penalty -= self.early_termination_zero_population_penalty
+        # Build observation from cached agent knowledge
+        obs = self._build_observation()
         
-        # Check for unrecoverable states where only NOOP is available
-        if self.early_termination_enabled and not base_done:
-            
-            # Get action mask for next step (using dummy continuous action)
-            # We need to check what actions would be available for the next decision
-            dummy_a_cont = np.zeros(self.k_doses, dtype=np.float32)
-            next_action_mask = self.get_action_mask(dummy_a_cont)
-            
-            # Check if only NOOP is available (all other discrete actions are masked)
-            only_noop_available = (np.sum(next_action_mask[1:]) == 0)
-            
-            # Check if state is unrecoverable (population outside safe operating band)
-            unrecoverable_high_threshold = self.target_population * self.early_termination_population_threshold
-            unrecoverable_low_threshold = self.target_population * self.early_termination_population_low_threshold
-            if unrecoverable_low_threshold < 0.0:
-                unrecoverable_low_threshold = 0.0
-            population_unrecoverable = (
-                true_population >= unrecoverable_high_threshold
-                or true_population <= unrecoverable_low_threshold
-            )
-            
-            # Check budget condition if required
-            budget_condition_met = True
-            if self.early_termination_require_budget_depleted:
-                budget_condition_met = (self.budget <= 0.0)
-                
-            # if (self.t < 2 or self.t % 100 == 0 or only_noop_available or population_unrecoverable):
-            #     print("[EARLY TERMINATION] Checking conditions at step", self.t )
-            #     print(f"  - Only NOOP available: {only_noop_available}")
-            #     print(
-            #         f"  - Population unrecoverable: {population_unrecoverable} "
-            #         f"(pop={true_population} outside [{unrecoverable_low_threshold}, {unrecoverable_high_threshold}])"
-            #     )
-            #     print(f"  - Budget depleted: {budget_condition_met} (budget={self.budget:.2f})")
-            
-            # Trigger early termination if all conditions are met
-            if only_noop_available and population_unrecoverable and budget_condition_met:
-                done = True
-                early_termination_triggered = True
-                scaled_penalty = self._compute_step_scaled_early_termination_penalty()
-                early_termination_penalty -= scaled_penalty
-
-        if early_termination_triggered:
-            self.early_termination_triggered = True
-            self.last_early_termination_penalty = early_termination_penalty
-        else:
-            self.early_termination_triggered = False
-            self.last_early_termination_penalty = 0.0
-
-        # 6) Release any pending dose rewards when a measurement lands
-        delayed_reward = 0.0
-        if count_result_landed:
-            delayed_reward += self._score_recent_doses()
-
-        # 7) Compute total reward: immediate penalties + delayed efficacy + maintenance
-        # Use PopulationMaintenanceReward module for consistent asymmetric penalty
-        # DISABLED: Only apply maintenance reward when w_population_maintenance > 0
-        maintenance_penalty = 0.0
-        if self.w_population_maintenance > 0.0:
-            maintenance_penalty = self.pop_maintenance_reward(true_population)
+        # ==============================================
+        # STEP 5: POST-STEP PENALTIES
+        # ==============================================
+        post_penalties = self._compute_post_penalties(a_discrete, true_population)
+        self.last_post_penalties = post_penalties
         
-        # 7b) Add survival bonus reward if enabled
+        # ==============================================
+        # STEP 6: ADDITIONAL REWARDS
+        # ==============================================
+        
+        # Kernel-based population maintenance reward
+        kernel_maintenance_reward = 0.0
+        if self.kernel_maintenance_enabled and self.kernel_maintenance_reward is not None:
+            kernel_maintenance_reward = self.kernel_maintenance_reward(true_population)
+            self.last_kernel_maintenance_reward = kernel_maintenance_reward
+        
+        # Survival bonus
         survival_bonus = 0.0
         if self.survival_bonus_reward is not None:
             survival_bonus = self.survival_bonus_reward(self.t)
+            self.last_survival_bonus = survival_bonus
         
-        # 7c) Add budget conservation reward if enabled
-        budget_conservation_bonus = 0.0
-        if self.budget_conservation_reward is not None:
-            budget_spent_this_step = self.last_step_budget - self.budget
-            budget_conservation_bonus = self.budget_conservation_reward(
-                budget_spent_this_step=budget_spent_this_step,
-                current_budget=self.budget,
-                initial_budget=self.episode_start_budget,
-                timestep=self.t,
-            )
-            self.last_step_budget = self.budget
-        
-        # 7d) Add budget penalty if budget reaches 0 (configurable via budget_penalty weight)
-        budget_penalty = 0.0
-        if self.budget <= 0.0 and self.budget_penalty > 0.0:
-            budget_penalty = -self.budget_penalty
-        
-        # NOTE: unaffordable_action_penalty removed - with hybrid action masking,
-        # the agent CANNOT select unaffordable actions (mask ensures prob=0)
-        
-        # 7f) Add prediction accuracy reward (COUNT-only)
+        # Prediction accuracy reward (COUNT-only)
         prediction_reward = 0.0
-        if count_result_landed and pred_population is not None and self.prediction_reward_weight > 0.0:
-            # if (self.t < 100):
-            #     print(f"[PREDICTION REWARD] t={self.t}, predicted={pred_population:.4f}, actual={population_counted_norm:.4f}")
-            pred_error = abs(pred_population - population_counted_norm)  # in [0, 1]
-            prediction_reward = (1.0 - pred_error) * self.prediction_reward_weight
-
-        reward = (
-            immediate_reward + 
-            maintenance_penalty + 
-            budget_penalty +
-            delayed_reward +
+        if count_result_landed and pred_population is not None and self.prediction_reward_enabled:
+            # Compute accuracy reward based on prediction error
+            predicted_norm = float(pred_population)
+            actual_norm = population_counted_norm
+            error = abs(predicted_norm - actual_norm)
+            # Reward is higher for lower error (exponential decay)
+            import math
+            prediction_reward = self.prediction_reward_weight * math.exp(-5.0 * error)
+            self.last_prediction_reward = prediction_reward
+        
+        # ==============================================
+        # STEP 7: EARLY TERMINATION CHECK
+        # ==============================================
+        base_done = (self.t >= self.max_steps) or (self.budget <= 0.0)
+        done = base_done
+        early_termination_penalty = 0.0
+        
+        # Immediate termination on extinction
+        if true_population <= 0:
+            done = True
+            early_termination_penalty = -self.early_termination_extinction_penalty
+            self.early_termination_triggered = True
+        
+        # Check for unrecoverable states (only NOOP available)
+        if self.early_termination_enabled and not base_done and true_population > 0:
+            # Unrecoverable if:
+            # 1) Population is very high OR very low
+            # 2) Budget depleted (if required)
+            population_high = true_population > (self.target_population * self.early_termination_population_threshold)
+            population_low = true_population < (self.target_population * self.early_termination_population_low_threshold)
+            budget_depleted = self.budget <= 0.0
+            
+            is_unrecoverable = (population_high or population_low)
+            if self.early_termination_require_budget_depleted:
+                is_unrecoverable = is_unrecoverable and budget_depleted
+            
+            if is_unrecoverable:
+                # Trigger early termination
+                done = True
+                early_termination_penalty = -self._compute_step_scaled_early_termination_penalty()
+                self.early_termination_triggered = True
+        
+        self.last_early_termination_penalty = early_termination_penalty
+        
+        # ==============================================
+        # STEP 8: TOTAL REWARD
+        # ==============================================
+        total_reward = (
+            pre_reward +
+            post_penalties +
+            kernel_maintenance_reward +
             survival_bonus +
-            budget_conservation_bonus +
             prediction_reward +
             early_termination_penalty
         )
-        self.episode_return += reward
-
+        
+        self.episode_return += total_reward
+        
+        # ==============================================
+        # STEP 9: INFO DICT
+        # ==============================================
         info = {
+            # Episode tracking
             "t": self.t,
-            "true_population": true_population,  # diagnostic only (agent doesn't see it)
             "episode_return": self.episode_return,
             "budget": self.budget,
-            "seq_pending": self.seq_pending,
-            "seq_eta": self.seq_eta,
-            # Detailed reward breakdown
-            "reward_immediate": immediate_reward,
-            "reward_action_cost_penalty": self.last_action_cost_penalty,
-            "reward_maintenance": maintenance_penalty,
-            "reward_budget_penalty": budget_penalty,
-            "reward_delayed": delayed_reward,
+            "true_population": true_population,
+            
+            # Timer state (for debugging)
+            "t_since_last_count": self.t_since_last_count,
+            "t_since_last_dose": self.t_since_last_dose,
+            "t_since_last_seq": self.t_since_last_seq,
+            "count_fresh": self._count_fresh(),
+            "seq_fresh": self._seq_fresh(),
+            "recent_sequencing": self.recent_sequencing,
+            
+            # Reward breakdown
+            "reward_pre": pre_reward,
+            "reward_post_penalties": post_penalties,
+            "reward_kernel_maintenance": kernel_maintenance_reward,
             "reward_survival_bonus": survival_bonus,
-            "reward_budget_conservation": budget_conservation_bonus,
-            "reward_regular_count_bonus": self.last_regular_count_bonus,
-            "reward_safe_behavior_bonus": self.last_safe_behavior_bonus,
-            "reward_informed_dose": self.last_informed_dose_reward,
-            "reward_count_population": self.last_count_population_reward,
-            "reward_critical_inaction_penalty": critical_inaction_penalty,
-            "reward_critical_noop_penalty": self.last_critical_noop_penalty,
             "reward_prediction": prediction_reward,
-            "reward_early_termination_penalty": self.last_early_termination_penalty,
-            "reward_total": reward,
-            # Early termination indicator
+            "reward_early_termination_penalty": early_termination_penalty,
+            "reward_total": total_reward,
+            
+            # Early termination
             "early_termination_triggered": self.early_termination_triggered,
-            # Prediction supervision signal (only meaningful when COUNT was performed)
+            
+            # Prediction supervision signal
             "population_next_norm": population_counted_norm,
             "count_was_performed": count_result_landed,
         }
-        return obs, float(reward), bool(done), info
+        
+        return obs, float(total_reward), bool(done), info
 
     # -------------------------
     # Early termination helpers
@@ -1029,7 +1152,6 @@ class PetriEnvWrapper:
             last_seq_age_norm,
             measure_age_norm,
             *dose_features,
-            self.last_action_completed,
             t_norm,
         ]
         return np.asarray(obs_parts, dtype=np.float32)
@@ -1062,39 +1184,10 @@ class PetriEnvWrapper:
         )
         print(f"✓ Survival bonus reward enabled: base={base_bonus}, type={scaling_type}")
     
-    def enable_budget_conservation(
-        self,
-        weight: float = 0.01,
-        spending_penalty_factor: float = 1.0,
-        reserve_bonus_threshold: float = 0.5,
-        reserve_bonus_magnitude: float = 0.005,
-    ) -> None:
-        """
-        Enable budget conservation reward to encourage efficient spending.
-        
-        Args:
-            weight: Overall weight for budget conservation
-            spending_penalty_factor: Penalty multiplier for spending rate
-            reserve_bonus_threshold: Budget fraction for reserve bonus (0.5 = 50%)
-            reserve_bonus_magnitude: Bonus magnitude when above threshold
-        """
-        self.budget_conservation_reward = BudgetConservationReward(
-            weight=weight,
-            spending_penalty_factor=spending_penalty_factor,
-            reserve_bonus_threshold=reserve_bonus_threshold,
-            reserve_bonus_magnitude=reserve_bonus_magnitude,
-        )
-        print(f"✓ Budget conservation reward enabled: weight={weight}, threshold={reserve_bonus_threshold}")
-    
     def disable_survival_bonus(self) -> None:
         """Disable survival bonus reward."""
         self.survival_bonus_reward = None
         print("✓ Survival bonus reward disabled")
-    
-    def disable_budget_conservation(self) -> None:
-        """Disable budget conservation reward."""
-        self.budget_conservation_reward = None
-        print("✓ Budget conservation reward disabled")
 
     def get_obs_dim(self) -> int:
         # Build once without stepping sim

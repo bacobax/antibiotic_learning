@@ -104,20 +104,11 @@ def rollout(
     episode_budgets_remaining = []
     episode_budgets_per_step = []
     
-    # Track individual reward components per episode
-    episode_reward_immediate = []
-    episode_reward_maintenance = []
-    episode_reward_budget_penalty = []
-    episode_reward_unaffordable_action_penalty = []
-    episode_reward_delayed = []
+    # Track individual reward components per episode (new simplified structure)
+    episode_reward_pre = []
+    episode_reward_post_penalties = []
+    episode_reward_kernel_maintenance = []
     episode_reward_survival_bonus = []
-    episode_reward_budget_conservation = []
-    episode_reward_regular_count_bonus = []
-    episode_reward_safe_behavior_bonus = []
-    episode_reward_informed_dose = []
-    episode_reward_count_population = []
-    episode_reward_critical_inaction_penalty = []
-    episode_reward_critical_noop_penalty = []
     episode_reward_prediction = []
     episode_reward_early_termination_penalty = []
     
@@ -136,20 +127,11 @@ def rollout(
 
     total_actions = 0  # Track total actions
     
-    # Accumulators for current episode reward components
-    current_reward_immediate = 0.0
-    current_reward_maintenance = 0.0
-    current_reward_budget_penalty = 0.0
-    current_reward_unaffordable_action_penalty = 0.0
-    current_reward_delayed = 0.0
+    # Accumulators for current episode reward components (new simplified structure)
+    current_reward_pre = 0.0
+    current_reward_post_penalties = 0.0
+    current_reward_kernel_maintenance = 0.0
     current_reward_survival_bonus = 0.0
-    current_reward_budget_conservation = 0.0
-    current_reward_regular_count_bonus = 0.0
-    current_reward_safe_behavior_bonus = 0.0
-    current_reward_informed_dose = 0.0
-    current_reward_count_population = 0.0
-    current_reward_critical_inaction_penalty = 0.0
-    current_reward_critical_noop_penalty = 0.0
     current_reward_prediction = 0.0
     current_reward_early_termination_penalty = 0.0
     
@@ -211,20 +193,11 @@ def rollout(
             current_pred_error += pred_error
             # Note: prediction reward is now computed by environment and included in total reward
         
-        # Accumulate reward components for current episode
-        current_reward_immediate += info.get('reward_immediate', 0.0)
-        current_reward_maintenance += info.get('reward_maintenance', 0.0)
-        current_reward_budget_penalty += info.get('reward_budget_penalty', 0.0)
-        current_reward_unaffordable_action_penalty += info.get('reward_unaffordable_action_penalty', 0.0)
-        current_reward_delayed += info.get('reward_delayed', 0.0)
+        # Accumulate reward components for current episode (new keys)
+        current_reward_pre += info.get('reward_pre', 0.0)
+        current_reward_post_penalties += info.get('reward_post_penalties', 0.0)
+        current_reward_kernel_maintenance += info.get('reward_kernel_maintenance', 0.0)
         current_reward_survival_bonus += info.get('reward_survival_bonus', 0.0)
-        current_reward_budget_conservation += info.get('reward_budget_conservation', 0.0)
-        current_reward_regular_count_bonus += info.get('reward_regular_count_bonus', 0.0)
-        current_reward_safe_behavior_bonus += info.get('reward_safe_behavior_bonus', 0.0)
-        current_reward_informed_dose += info.get('reward_informed_dose', 0.0)
-        current_reward_count_population += info.get('reward_count_population', 0.0)
-        current_reward_critical_inaction_penalty += info.get('reward_critical_inaction_penalty', 0.0)
-        current_reward_critical_noop_penalty += info.get('reward_critical_noop_penalty', 0.0)
         current_reward_prediction += info.get('reward_prediction', 0.0)
         current_reward_early_termination_penalty += info.get('reward_early_termination_penalty', 0.0)
         
@@ -269,20 +242,11 @@ def rollout(
             episode_rewards.append(current_episode_reward)
             episode_lengths.append(current_episode_length)
             
-            # Store reward components for completed episode
-            episode_reward_immediate.append(current_reward_immediate)
-            episode_reward_maintenance.append(current_reward_maintenance)
-            episode_reward_budget_penalty.append(current_reward_budget_penalty)
-            episode_reward_unaffordable_action_penalty.append(current_reward_unaffordable_action_penalty)
-            episode_reward_delayed.append(current_reward_delayed)
+            # Store reward components for completed episode (new structure)
+            episode_reward_pre.append(current_reward_pre)
+            episode_reward_post_penalties.append(current_reward_post_penalties)
+            episode_reward_kernel_maintenance.append(current_reward_kernel_maintenance)
             episode_reward_survival_bonus.append(current_reward_survival_bonus)
-            episode_reward_budget_conservation.append(current_reward_budget_conservation)
-            episode_reward_regular_count_bonus.append(current_reward_regular_count_bonus)
-            episode_reward_safe_behavior_bonus.append(current_reward_safe_behavior_bonus)
-            episode_reward_informed_dose.append(current_reward_informed_dose)
-            episode_reward_count_population.append(current_reward_count_population)
-            episode_reward_critical_inaction_penalty.append(current_reward_critical_inaction_penalty)
-            episode_reward_critical_noop_penalty.append(current_reward_critical_noop_penalty)
             episode_reward_prediction.append(current_reward_prediction)
             episode_reward_early_termination_penalty.append(current_reward_early_termination_penalty)
             
@@ -359,20 +323,11 @@ def rollout(
         "mean_budget_spent": float(np.mean(episode_budgets_spent)) if episode_budgets_spent else 0.0,
         "mean_budget_remaining": float(np.mean(episode_budgets_remaining)) if episode_budgets_remaining else 0.0,
         "mean_budget_per_step": float(np.mean(episode_budgets_per_step)) if episode_budgets_per_step else 0.0,
-        # Reward component metrics with category prefixes for TensorBoard
-        "rewards/immediate": float(np.mean(episode_reward_immediate)) if episode_reward_immediate else 0.0,
-        "rewards/maintenance": float(np.mean(episode_reward_maintenance)) if episode_reward_maintenance else 0.0,
-        "rewards/budget_penalty": float(np.mean(episode_reward_budget_penalty)) if episode_reward_budget_penalty else 0.0,
-        "rewards/unaffordable_action_penalty": float(np.mean(episode_reward_unaffordable_action_penalty)) if episode_reward_unaffordable_action_penalty else 0.0,
-        "rewards/delayed": float(np.mean(episode_reward_delayed)) if episode_reward_delayed else 0.0,
+        # Reward component metrics with category prefixes for TensorBoard (new simplified)
+        "rewards/pre": float(np.mean(episode_reward_pre)) if episode_reward_pre else 0.0,
+        "rewards/post_penalties": float(np.mean(episode_reward_post_penalties)) if episode_reward_post_penalties else 0.0,
+        "rewards/kernel_maintenance": float(np.mean(episode_reward_kernel_maintenance)) if episode_reward_kernel_maintenance else 0.0,
         "rewards/survival_bonus": float(np.mean(episode_reward_survival_bonus)) if episode_reward_survival_bonus else 0.0,
-        "rewards/budget_conservation": float(np.mean(episode_reward_budget_conservation)) if episode_reward_budget_conservation else 0.0,
-        "rewards/regular_count_bonus": float(np.mean(episode_reward_regular_count_bonus)) if episode_reward_regular_count_bonus else 0.0,
-        "rewards/safe_behavior_bonus": float(np.mean(episode_reward_safe_behavior_bonus)) if episode_reward_safe_behavior_bonus else 0.0,
-        "rewards/informed_dose": float(np.mean(episode_reward_informed_dose)) if episode_reward_informed_dose else 0.0,
-        "rewards/count_population": float(np.mean(episode_reward_count_population)) if episode_reward_count_population else 0.0,
-        "rewards/critical_inaction_penalty": float(np.mean(episode_reward_critical_inaction_penalty)) if episode_reward_critical_inaction_penalty else 0.0,
-        "rewards/critical_noop_penalty": float(np.mean(episode_reward_critical_noop_penalty)) if episode_reward_critical_noop_penalty else 0.0,
         "rewards/prediction": float(np.mean(episode_reward_prediction)) if episode_reward_prediction else 0.0,
         "rewards/early_termination_penalty": float(np.mean(episode_reward_early_termination_penalty)) if episode_reward_early_termination_penalty else 0.0,
         "rewards/total": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
@@ -648,7 +603,7 @@ def _create_environment(
     logger: TrainingLogger,
 ) -> PetriEnvWrapper:
     """
-    Create and initialize the environment.
+    Create and initialize the environment with the new simplified reward structure.
     
     Args:
         config: Complete configuration
@@ -657,106 +612,202 @@ def _create_environment(
     Returns:
         Initialized PetriEnvWrapper
     """
-    logger.log_info("Creating environment...")
+    logger.log_info("Creating environment with simplified reward structure...")
     
     # Extract reward configs for cleaner access
     rewards = config.environment.rewards
+    
+    # Map old config structure to new parameter names
+    # If using new config format (with 'timing' and new reward structure), use those
+    # Otherwise, provide sensible defaults
+    
+    # Check if we have new timing config
+    timing = getattr(rewards, 'timing', None)
+    if timing is not None:
+        # New config format
+        t_count_freshness = timing.t_count_freshness
+        t_seq_freshness = timing.t_seq_freshness
+        max_count_window = timing.max_count_window
+        critical_ratio = timing.critical_ratio
+        t_min_elapsed_time_count = timing.count_window.min_elapsed
+        t_max_elapsed_time_count = timing.count_window.max_elapsed
+        t_min_elapsed_time_seq = timing.seq_window.min_elapsed
+        t_max_elapsed_time_seq = timing.seq_window.max_elapsed
+    else:
+        # Old config format - use defaults
+        t_count_freshness = 5
+        t_seq_freshness = 8
+        max_count_window = 30
+        critical_ratio = getattr(rewards.critical_inaction, 'high_population_threshold', 3.0)
+        t_min_elapsed_time_count = getattr(rewards.regular_monitoring, 'count_min_interval', 5)
+        t_max_elapsed_time_count = getattr(rewards.regular_monitoring, 'count_interval', 30)
+        t_min_elapsed_time_seq = 8
+        t_max_elapsed_time_seq = 50
+    
+    # Extract reward scalars (new format)
+    informed_dosing = getattr(rewards, 'informed_dosing', None)
+    if hasattr(informed_dosing, 'penalty_dosing_under_target'):
+        # New config format
+        penalty_informed_dosing_under = informed_dosing.penalty_dosing_under_target
+        reward_informed_dosing_above = informed_dosing.reward_dosing_above_with_seq
+        reward_informed_dosing_above_without_seq = informed_dosing.reward_dosing_above_no_seq
+        penalty_blind_dose = informed_dosing.penalty_blind_dose
+    else:
+        # Old format or defaults
+        penalty_informed_dosing_under = 5.0
+        reward_informed_dosing_above = 2.0
+        reward_informed_dosing_above_without_seq = 1.0
+        penalty_blind_dose = 3.0
+    
+    sequencing_rewards = getattr(rewards, 'sequencing', None)
+    if sequencing_rewards and hasattr(sequencing_rewards, 'seq_already_pending_penalty'):
+        seq_already_pending_penalty = sequencing_rewards.seq_already_pending_penalty
+        informative_seq_reward = sequencing_rewards.informative_seq_reward
+    else:
+        seq_already_pending_penalty = getattr(sequencing_rewards, 'redundant_penalty', 2.0) if sequencing_rewards else 2.0
+        informative_seq_reward = 1.0
+    
+    counting_rewards = getattr(rewards, 'counting', None)
+    if counting_rewards:
+        cost_penalty = counting_rewards.cost_penalty
+        informative_count_reward = counting_rewards.informative_count_reward
+    else:
+        cost_penalty = 0.5
+        informative_count_reward = 1.0
+    
+    noop_rewards = getattr(rewards, 'noop', None)
+    if noop_rewards:
+        strategic_noop_reward = noop_rewards.strategic_noop_reward
+    else:
+        strategic_noop_reward = 0.5
+    
+    critical_penalties = getattr(rewards, 'critical_penalties', None)
+    if critical_penalties:
+        penalty_critical_no_dose = critical_penalties.penalty_critical_no_dose
+        penalty_critical_no_count = critical_penalties.penalty_critical_no_count
+    else:
+        penalty_critical_no_dose = getattr(rewards.critical_inaction, 'no_dose_penalty', 5.0) if hasattr(rewards, 'critical_inaction') else 5.0
+        penalty_critical_no_count = 2.0
+    # Use extinction_penalty from early_termination config for extinction handling everywhere
+    big_penalty = rewards.early_termination.extinction_penalty
+    
+    # Population maintenance (kernel-based)
+    pop_maintenance = getattr(rewards, 'population_maintenance', None)
+    if pop_maintenance:
+        kernel_maintenance_enabled = pop_maintenance.enabled
+        target_population = pop_maintenance.target_population
+        kernel_type = pop_maintenance.kernel_type
+        kernel_bandwidth = pop_maintenance.bandwidth
+        kernel_weight = pop_maintenance.weight
+    else:
+        kernel_maintenance_enabled = True
+        target_population = rewards.population.target_population
+        kernel_type = "gaussian"
+        kernel_bandwidth = 50.0
+        kernel_weight = 1.0
+    
+    # Survival bonus
+    survival_bonus_cfg = rewards.survival_bonus
+    
+    # Prediction reward
+    prediction_cfg = rewards.prediction
+    
+    # Early termination
+    early_term_cfg = rewards.early_termination
+    
+    # Budget config
+    budget_cfg = rewards.budget
     
     env = PetriEnvWrapper(
         mesa_model_factory=BacteriaModel,
         k_doses=config.environment.k_doses,
         scale_dose=lambda x: x / 2 / config.environment.k_doses,
         max_steps=config.environment.max_steps,
-        # Population reward params
-        target_population=rewards.population.target_population,
-        population_norm=rewards.population.population_norm,
-        w_population_maintenance=rewards.population.w_population_maintenance,
-        noop_band_factor=rewards.population.noop_band_factor,
-        noop_reward_magnitude=rewards.population.noop_reward_magnitude,
-        # Dose reward params
-        w_pop=rewards.dose.w_pop,
-        w_genome=rewards.dose.w_genome,
-        w_cost=rewards.dose.w_cost,
-        # Budget params
-        budget_init=rewards.budget.budget_init,
-        budget_norm=rewards.budget.budget_norm,
-        budget_penalty=rewards.budget.budget_penalty,
-        unaffordable_action_penalty=rewards.budget.unaffordable_action_penalty,
-        # Action costs
+        
+        # Timing and freshness thresholds
+        t_count_freshness=t_count_freshness,
+        t_seq_freshness=t_seq_freshness,
+        max_count_window=max_count_window,
+        critical_ratio=critical_ratio,
+        t_min_elapsed_time_count=t_min_elapsed_time_count,
+        t_max_elapsed_time_count=t_max_elapsed_time_count,
+        t_min_elapsed_time_seq=t_min_elapsed_time_seq,
+        t_max_elapsed_time_seq=t_max_elapsed_time_seq,
+        
+        # Action costs and durations
         sequencing_cost=config.actions.sequencing_cost,
         sequencing_duration=config.actions.sequencing_duration,
-        redundant_sequencing_penalty=rewards.sequencing.redundant_penalty,
         dose_cost=config.actions.dose_cost,
         dose_cost_per_unit=config.actions.dose_cost_per_unit,
         count_cost=config.actions.count_cost,
-        # Informed dosing delayed reward params
-        informed_reward_window_steps=rewards.informed_dosing.reward_window_steps,
-        informed_reward_weight=rewards.informed_dosing.reward_weight,
-        informed_max_reward_per_dose=rewards.informed_dosing.max_reward_per_dose,
-        informed_time_decay=rewards.informed_dosing.time_decay,
-        informed_decay_type=rewards.informed_dosing.decay_type,
-        informed_decay_rate=rewards.informed_dosing.decay_rate,
-        informed_min_reward_fraction=rewards.informed_dosing.min_reward_fraction,
-        # Regular monitoring params
-        regular_count_reward=rewards.regular_monitoring.count_reward,
-        regular_count_interval=rewards.regular_monitoring.count_interval,
-        regular_count_min_interval=rewards.regular_monitoring.count_min_interval,
-        safe_nondosing_reward=rewards.regular_monitoring.safe_nondosing_reward,
-        count_population_reward=rewards.population.count_population_reward,
-        count_population_reward_alpha=rewards.population.count_population_reward_alpha,
-        count_population_reward_beta=rewards.population.count_population_reward_beta,
-        population_norm_reward=rewards.population.population_norm_reward,
-        # Critical inaction penalties
-        critical_high_population_threshold=rewards.critical_inaction.high_population_threshold,
-        critical_no_action_penalty=rewards.critical_inaction.no_action_penalty,
-        critical_no_dose_penalty=rewards.critical_inaction.no_dose_penalty,
-        critical_freshness_window=rewards.critical_inaction.freshness_window,
-        critical_noop_penalty=rewards.critical_inaction.noop_penalty,
-        critical_noop_threshold=rewards.critical_inaction.noop_threshold,
-        dose_missing_feedback_penalty=rewards.dose.missing_feedback_penalty,
+        
+        # Pre-step reward scalars (informed dosing)
+        penalty_informed_dosing_under=penalty_informed_dosing_under,
+        reward_informed_dosing_above=reward_informed_dosing_above,
+        reward_informed_dosing_above_without_seq=reward_informed_dosing_above_without_seq,
+        penalty_blind_dose=penalty_blind_dose,
+        
+        # Pre-step rewards (sequencing)
+        seq_already_pending_penalty=seq_already_pending_penalty,
+        informative_seq_reward=informative_seq_reward,
+        
+        # Pre-step rewards (counting)
+        cost_penalty=cost_penalty,
+        informative_count_reward=informative_count_reward,
+        
+        # Pre-step rewards (strategic NOOP)
+        strategic_noop_reward=strategic_noop_reward,
+        
+        # Post-step penalties
+        penalty_critical_no_dose=penalty_critical_no_dose,
+        penalty_critical_no_count=penalty_critical_no_count,
+        big_penalty=big_penalty,
+        
+        # Population maintenance (kernel-based)
+        kernel_maintenance_enabled=kernel_maintenance_enabled,
+        kernel_type=kernel_type,
+        kernel_bandwidth=kernel_bandwidth,
+        kernel_weight=kernel_weight,
+        
+        # Survival bonus
+        survival_bonus_enabled=survival_bonus_cfg.enabled,
+        survival_bonus_base=survival_bonus_cfg.base_bonus,
+        survival_bonus_scaling_type=survival_bonus_cfg.scaling_type,
+        survival_bonus_scaling_factor=survival_bonus_cfg.scaling_factor,
+        survival_bonus_max=survival_bonus_cfg.max_bonus,
+        
         # Prediction reward
-        prediction_reward_weight=rewards.prediction.weight if rewards.prediction.enabled else 0.0,
+        prediction_reward_enabled=prediction_cfg.enabled,
+        prediction_reward_weight=prediction_cfg.weight,
+        
         # Early termination
-        early_termination_enabled=rewards.early_termination.enabled,
-        early_termination_penalty=rewards.early_termination.penalty,
-        early_termination_min_penalty=rewards.early_termination.min_penalty,
-        early_termination_penalty_decay_power=rewards.early_termination.penalty_decay_power,
-        early_termination_population_threshold=rewards.early_termination.population_threshold,
-        early_termination_population_low_threshold=rewards.early_termination.population_low_threshold,
-        early_termination_zero_population_penalty=rewards.early_termination.extinction_penalty,
-        early_termination_require_budget_depleted=rewards.early_termination.require_budget_depleted,
+        early_termination_enabled=early_term_cfg.enabled,
+        early_termination_penalty=early_term_cfg.penalty,
+        early_termination_min_penalty=early_term_cfg.min_penalty,
+        early_termination_penalty_decay_power=early_term_cfg.penalty_decay_power,
+        early_termination_population_threshold=early_term_cfg.population_threshold,
+        early_termination_population_low_threshold=early_term_cfg.population_low_threshold,
+        early_termination_extinction_penalty=early_term_cfg.extinction_penalty,
+        early_termination_require_budget_depleted=early_term_cfg.require_budget_depleted,
+        
+        # Environment parameters
+        target_population=target_population,
+        population_norm=rewards.population.population_norm,
+        budget_init=budget_cfg.budget_init,
+        budget_norm=budget_cfg.budget_norm,
+        
         # Device config
         device=config.environment.device,
         dtype=config.torch_dtype,
     )
     
-    # Enable survival bonus reward if configured
-    if rewards.survival_bonus.enabled:
-        env.enable_survival_bonus(
-            base_bonus=rewards.survival_bonus.base_bonus,
-            scaling_type=rewards.survival_bonus.scaling_type,
-            scaling_factor=rewards.survival_bonus.scaling_factor,
-            max_bonus=rewards.survival_bonus.max_bonus,
-        )
-        logger.log_info(f"✓ Survival bonus enabled: base={rewards.survival_bonus.base_bonus}, "
-                       f"type={rewards.survival_bonus.scaling_type}")
+    logger.log_info("✓ Environment created with simplified reward structure")
+    logger.log_info(f"  - Timing: t_count_freshness={t_count_freshness}, t_seq_freshness={t_seq_freshness}")
+    logger.log_info(f"  - Kernel maintenance: {kernel_type} (bandwidth={kernel_bandwidth}, weight={kernel_weight})")
+    logger.log_info(f"  - Survival bonus: enabled={survival_bonus_cfg.enabled}")
+    logger.log_info(f"  - Early termination: enabled={early_term_cfg.enabled}")
+    logger.log_info(f"  - Prediction reward: enabled={prediction_cfg.enabled}")
     
-    # Enable budget conservation reward if configured
-    if rewards.budget_conservation.enabled:
-        env.enable_budget_conservation(
-            weight=rewards.budget_conservation.weight,
-            spending_penalty_factor=rewards.budget_conservation.spending_penalty_factor,
-            reserve_bonus_threshold=rewards.budget_conservation.reserve_bonus_threshold,
-            reserve_bonus_magnitude=rewards.budget_conservation.reserve_bonus_magnitude,
-        )
-        logger.log_info(f"✓ Budget conservation enabled: weight={rewards.budget_conservation.weight}, "
-                       f"threshold={rewards.budget_conservation.reserve_bonus_threshold}")
-    
-    # Log prediction reward configuration
-    if rewards.prediction.enabled:
-        logger.log_info(f"✓ Prediction reward enabled: weight={rewards.prediction.weight}")
-    
-    logger.log_debug("✓ Environment created successfully")
     return env
 
 

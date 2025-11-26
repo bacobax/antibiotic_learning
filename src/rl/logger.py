@@ -186,43 +186,22 @@ class TrainingLogger:
             f"NOOP={rollout_metrics.get('noop_action_percentage', 0.0):5.1f}%"
         )
         
-        # Reward component breakdown (show individual components and total)
+        # Reward component breakdown (new simplified components)
         total_reward = (
-            rollout_metrics.get('rewards/immediate', 0.0) +
-            rollout_metrics.get('rewards/maintenance', 0.0) +
-            rollout_metrics.get('rewards/budget_penalty', 0.0) +
-            rollout_metrics.get('rewards/unaffordable_action_penalty', 0.0) +
-            rollout_metrics.get('rewards/delayed', 0.0) +
+            rollout_metrics.get('rewards/pre', 0.0) +
+            rollout_metrics.get('rewards/post_penalties', 0.0) +
+            rollout_metrics.get('rewards/kernel_maintenance', 0.0) +
             rollout_metrics.get('rewards/survival_bonus', 0.0) +
-            rollout_metrics.get('rewards/budget_conservation', 0.0) +
-            rollout_metrics.get('rewards/regular_count_bonus', 0.0) +
-            rollout_metrics.get('rewards/safe_behavior_bonus', 0.0) +
-            rollout_metrics.get('rewards/informed_dose', 0.0) +
-            rollout_metrics.get('rewards/count_population', 0.0) +
-            rollout_metrics.get('rewards/critical_inaction_penalty', 0.0) +
-            rollout_metrics.get('rewards/critical_noop_penalty', 0.0) +
             rollout_metrics.get('rewards/prediction', 0.0) +
             rollout_metrics.get('rewards/early_termination_penalty', 0.0)
         )
         
         self.logger.info(
             f"  Rewards: "
-            f"Immed={rollout_metrics.get('rewards/immediate', 0.0):+6.2f} | "
-            f"Maint={rollout_metrics.get('rewards/maintenance', 0.0):+6.2f} | "
-            f"BudgPen={rollout_metrics.get('rewards/budget_penalty', 0.0):+6.2f} | "
-            f"UnaffAct={rollout_metrics.get('rewards/unaffordable_action_penalty', 0.0):+6.2f} | "
-            f"Delayed={rollout_metrics.get('rewards/delayed', 0.0):+6.2f} | "
-            f"Survival={rollout_metrics.get('rewards/survival_bonus', 0.0):+6.2f}"
-        )
-        self.logger.info(
-            f"           "
-            f"BudgCons={rollout_metrics.get('rewards/budget_conservation', 0.0):+6.2f} | "
-            f"RegCount={rollout_metrics.get('rewards/regular_count_bonus', 0.0):+6.2f} | "
-            f"SafeBehav={rollout_metrics.get('rewards/safe_behavior_bonus', 0.0):+6.2f} | "
-            f"InfDose={rollout_metrics.get('rewards/informed_dose', 0.0):+6.2f} | "
-            f"CountPop={rollout_metrics.get('rewards/count_population', 0.0):+6.2f} | "
-            f"CritInact={rollout_metrics.get('rewards/critical_inaction_penalty', 0.0):+6.2f} | "
-            f"CritNoop={rollout_metrics.get('rewards/critical_noop_penalty', 0.0):+6.2f} | "
+            f"Pre={rollout_metrics.get('rewards/pre', 0.0):+6.2f} | "
+            f"PostPen={rollout_metrics.get('rewards/post_penalties', 0.0):+6.2f} | "
+            f"Kernel={rollout_metrics.get('rewards/kernel_maintenance', 0.0):+6.2f} | "
+            f"Survival={rollout_metrics.get('rewards/survival_bonus', 0.0):+6.2f} | "
             f"Predict={rollout_metrics.get('rewards/prediction', 0.0):+6.2f} | "
             f"EarlyTerm={rollout_metrics.get('rewards/early_termination_penalty', 0.0):+6.2f}"
         )
