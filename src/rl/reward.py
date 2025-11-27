@@ -370,24 +370,33 @@ class KernelPopulationMaintenanceReward(nn.Module):
         self,
         target_population: float,
         kernel_type: str = "gaussian",
-        bandwidth: float = 100.0,
-        weight: float = 1.0,
+        peak_reward: float = 1.0,
+        max_penalty: float = 0.0,
+        zero_distance: float = 100.0,
     ):
         """
         Args:
             target_population: Target population P*
             kernel_type: "gaussian" or "laplace"
-            bandwidth: Kernel bandwidth parameter (controls smoothness)
-            weight: Overall reward weight multiplier
+            peak_reward: Peak reward R at distance 0
+            max_penalty: Maximum penalty M (minimum value is -M)
+            zero_distance: Distance from target where kernel equals 0
         """
         super(KernelPopulationMaintenanceReward, self).__init__()
         self.target_population = float(target_population)
         self.kernel_type = kernel_type.lower()
-        self.bandwidth = float(max(1.0, bandwidth))
-        self.weight = float(weight)
+        self.peak_reward = float(peak_reward)
+        self.max_penalty = float(max_penalty)
+        self.zero_distance = float(zero_distance)
         
         if self.kernel_type not in ["gaussian", "laplace"]:
             raise ValueError(f"Unknown kernel type: {kernel_type}. Must be 'gaussian' or 'laplace'.")
+        if self.zero_distance <= 0.0:
+            raise ValueError("zero_distance must be > 0")
+        if self.max_penalty < 0.0:
+            raise ValueError("max_penalty (M) must be >= 0")
+        if (self.peak_reward + self.max_penalty) <= self.max_penalty:
+            raise ValueError("peak_reward (R) must be > 0")
     
     def forward(self, population: Union[int, float]) -> float:
         """
@@ -397,22 +406,32 @@ class KernelPopulationMaintenanceReward(nn.Module):
             population: Current population count
             
         Returns:
-            Population maintenance reward as Python float (0 to weight)
+            Population maintenance reward as Python float in [-M, R]
         """
         import math
         
         pop = float(population)
         distance = abs(pop - self.target_population)
         
+        R = self.peak_reward
+        M = self.max_penalty
         if self.kernel_type == "gaussian":
-            # Gaussian kernel: exp(-0.5 * (d/h)^2)
-            kernel_val = math.exp(-0.5 * (distance / self.bandwidth) ** 2)
+            # sigma computed so that kernel equals 0 at ±zero_distance
+            # sigma = zero_distance / sqrt(2 * ln((R+M)/M))
+            denom = (R + M) / max(M, 1e-12)
+            denom = max(denom, 1.0 + 1e-12)  # ensure > 1 for log
+            sigma = self.zero_distance / math.sqrt(2.0 * math.log(denom))
+            kernel_val = math.exp(-((distance) ** 2) / (2.0 * sigma ** 2))
         else:  # laplace
-            # Laplace kernel: exp(-|d|/h)
-            kernel_val = math.exp(-distance / self.bandwidth)
+            # For Laplace: R(pop) = (R+M) * exp(-|d|/b) - M
+            # Solve 0 at d = zero_distance => (R+M) * exp(-zd/b) - M = 0
+            # exp(-zd/b) = M/(R+M) => b = zd / ln((R+M)/M)
+            denom = (R + M) / max(M, 1e-12)
+            denom = max(denom, 1.0 + 1e-12)
+            b = self.zero_distance / math.log(denom)
+            kernel_val = math.exp(-distance / b)
         
-        # Kernel value is in [0, 1], scale by weight
-        reward = self.weight * kernel_val
+        reward = (R + M) * kernel_val - M
         
         return float(reward)
 

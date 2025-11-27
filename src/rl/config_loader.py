@@ -72,6 +72,11 @@ class PopulationRewardConfig:
     count_population_reward_beta: float  # Exponential shaping shift term
     noop_band_factor: float  # Deadband around target for NOOP reward
     noop_reward_magnitude: float  # NOOP shaping magnitude
+    # Kernel-based maintenance parameters
+    kernel_type: str = "gaussian"  # "gaussian" or "laplace"
+    kernel_peak_reward: float = 1.0  # R
+    kernel_max_penalty: float = 0.0  # M
+    kernel_zero_distance: float = 100.0
 
 
 @dataclass
@@ -266,6 +271,10 @@ def _get_default_config() -> Dict[str, Any]:
                     "count_population_reward_beta": 0.5,
                     "noop_band_factor": 0.02,
                     "noop_reward_magnitude": 0.01,
+                    "kernel_type": "gaussian",
+                    "kernel_peak_reward": 1.0,
+                    "kernel_max_penalty": 0.0,
+                    "kernel_zero_distance": 100.0,
                 },
                 "dose": {
                     "w_pop": 1.0,
@@ -584,6 +593,114 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     
     # Merge with defaults to fill missing values
     config_dict = _merge_with_defaults(config_dict)
+
+    # Strict validation for the simple rewards config: require all hparams defined
+    def _strict_require(keys: list[str], root: Dict[str, Any], context: str) -> None:
+        for k in keys:
+            if k not in root:
+                raise ValueError(f"Missing required hparam '{k}' in {context}")
+
+    if config_path is not None:
+        try:
+            cfg_name = Path(config_path).name
+        except Exception:
+            cfg_name = str(config_path)
+        if cfg_name == "training_config_simple_rewards.yaml":
+            env = config_dict.get("environment", {})
+            rewards = env.get("rewards", {})
+            actions = config_dict.get("actions", {})
+            model = config_dict.get("model", {})
+            ppo = config_dict.get("ppo", {})
+            training = config_dict.get("training", {})
+
+            # Timing (always under environment.timing in simple rewards config)
+            timing = env.get("timing", {})
+            _strict_require(["t_count_freshness", "t_seq_freshness", "max_count_window", "critical_ratio"], timing, "environment.timing")
+            count_window = timing.get("count_window", {})
+            _strict_require(["min_elapsed", "max_elapsed"], count_window, "environment.timing.count_window")
+            seq_window = timing.get("seq_window", {})
+            _strict_require(["min_elapsed", "max_elapsed"], seq_window, "environment.timing.seq_window")
+
+            # Rewards subsections used by env
+            informed = rewards.get("informed_dosing", {})
+            _strict_require([
+                "penalty_dosing_under_target",
+                "reward_dosing_above_with_seq",
+                "reward_dosing_above_no_seq",
+                "penalty_blind_dose",
+            ], informed, "environment.rewards.informed_dosing")
+
+            sequencing = rewards.get("sequencing", {})
+            _strict_require(["seq_already_pending_penalty", "informative_seq_reward"], sequencing, "environment.rewards.sequencing")
+
+            counting = rewards.get("counting", {})
+            _strict_require(["informative_count_reward"], counting, "environment.rewards.counting")
+
+            noop = rewards.get("noop", {})
+            _strict_require(["strategic_noop_reward"], noop, "environment.rewards.noop")
+
+            critical = rewards.get("critical_penalties", {})
+            _strict_require(["penalty_critical_no_dose", "penalty_critical_no_count"], critical, "environment.rewards.critical_penalties")
+
+            # Kernel-based population maintenance
+            pop_maint = rewards.get("population_maintenance", {})
+            _strict_require([
+                "enabled",
+                "target_population",
+                "kernel_type",
+                "kernel_peak_reward",
+                "kernel_max_penalty",
+                "kernel_zero_distance",
+            ], pop_maint, "environment.rewards.population_maintenance")
+
+            # Survival bonus
+            surv = rewards.get("survival_bonus", {})
+            _strict_require(["enabled", "base_bonus", "scaling_type", "scaling_factor", "max_bonus"], surv, "environment.rewards.survival_bonus")
+
+            # Prediction
+            pred = rewards.get("prediction", {})
+            _strict_require(["enabled", "weight"], pred, "environment.rewards.prediction")
+
+            # Early termination
+            early = rewards.get("early_termination", {})
+            _strict_require([
+                "enabled",
+                "penalty",
+                "min_penalty",
+                "penalty_decay_power",
+                "population_low_threshold",
+                "population_threshold",
+                "extinction_penalty",
+                "require_budget_depleted",
+            ], early, "environment.rewards.early_termination")
+
+            # Budget
+            budget = env.get("budget", {})
+            _strict_require(["budget_init", "budget_norm"], budget, "environment.budget")
+
+            # Population
+            population = env.get("population", {})
+            _strict_require(["target_population", "population_norm"], population, "environment.population")
+
+            # Actions
+            for act_name in ("noop", "count_bacteria", "sequencing", "dose"):
+                act = actions.get(act_name, {})
+                _strict_require(["id", "cost", "duration"], act, f"actions.{act_name}")
+                if act_name == "dose":
+                    if "cost_per_unit" not in act:
+                        raise ValueError("Missing required hparam 'cost_per_unit' in actions.dose")
+
+            # Model
+            _strict_require(["hidden_dim", "rnn_layers", "n_discrete", "dose_action_index", "k_doses"], model, "model")
+
+            # PPO
+            _strict_require([
+                "gamma","gae_lambda","clip_eps","vf_coef","ent_coef","max_grad_norm",
+                "rollout_steps","epochs","seq_len","batch_seq_len","lr"
+            ], ppo, "ppo")
+
+            # Training
+            _strict_require(["total_updates","seed","checkpoint_interval","log_interval","save_dir","experiment_name","save_checkpoints_per_run"], training, "training")
     
     # Validate configuration
     try:

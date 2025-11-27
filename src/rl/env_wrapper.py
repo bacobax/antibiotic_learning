@@ -125,8 +125,9 @@ class PetriEnvWrapper:
         # ===== Population maintenance (kernel-based) =====
         kernel_maintenance_enabled: bool = True,
         kernel_type: str = "gaussian",          # "gaussian" or "laplace"
-        kernel_bandwidth: float = 50.0,
-        kernel_weight: float = 1.0,
+        kernel_peak_reward: float = 1.0,
+        kernel_max_penalty: float = 0.0,
+        kernel_zero_distance: float = 50.0,
         
         # ===== Survival bonus =====
         survival_bonus_enabled: bool = True,
@@ -252,8 +253,9 @@ class PetriEnvWrapper:
             self.kernel_maintenance_reward = KernelPopulationMaintenanceReward(
                 target_population=target_population,
                 kernel_type=kernel_type,
-                bandwidth=kernel_bandwidth,
-                weight=kernel_weight,
+                peak_reward=kernel_peak_reward,
+                max_penalty=kernel_max_penalty,
+                zero_distance=kernel_zero_distance,
             )
         else:
             self.kernel_maintenance_reward = None

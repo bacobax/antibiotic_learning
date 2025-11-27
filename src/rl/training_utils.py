@@ -381,6 +381,7 @@ def _handle_checkpoint(
     total_updates: int,
     save_dir: Path,
     logger: TrainingLogger,
+    checkpoint_interval: int,
 ) -> None:
     """
     Save periodic and final checkpoints.
@@ -392,7 +393,7 @@ def _handle_checkpoint(
         save_dir: Directory to save to
         logger: Training logger
     """
-    if (update_idx + 1) % 50 == 0:
+    if (update_idx + 1) % max(1, checkpoint_interval) == 0:
         checkpoint_path = save_dir / f"checkpoint_{update_idx+1}.pt"
         agent.save_model(checkpoint_path, extra_info={"update": update_idx + 1})
         logger.log_debug(f"Saved checkpoint: {checkpoint_path}")
@@ -432,7 +433,7 @@ def _finalize_training(
     logger.close()
 
 
-def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: int, logger: TrainingLogger):
+def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: int, logger: TrainingLogger, checkpoint_interval: int = 50):
     """
     Main training loop with comprehensive logging and TensorBoard integration.
     
@@ -496,7 +497,7 @@ def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: i
             break
         
         # Checkpointing
-        _handle_checkpoint(agent, update_idx, total_updates, save_dir, logger)
+        _handle_checkpoint(agent, update_idx, total_updates, save_dir, logger, checkpoint_interval)
     
     # ========================================================================
     # FINALIZE
@@ -697,14 +698,16 @@ def _create_environment(
         kernel_maintenance_enabled = pop_maintenance.enabled
         target_population = pop_maintenance.target_population
         kernel_type = pop_maintenance.kernel_type
-        kernel_bandwidth = pop_maintenance.bandwidth
-        kernel_weight = pop_maintenance.weight
+        kernel_peak_reward = getattr(pop_maintenance, 'peak_reward', 1.0)
+        kernel_max_penalty = getattr(pop_maintenance, 'max_penalty', 0.0)
+        kernel_zero_distance = getattr(pop_maintenance, 'zero_distance', 50.0)
     else:
         kernel_maintenance_enabled = True
         target_population = rewards.population.target_population
-        kernel_type = "gaussian"
-        kernel_bandwidth = 50.0
-        kernel_weight = 1.0
+        kernel_type = getattr(rewards.population, 'kernel_type', 'gaussian')
+        kernel_peak_reward = getattr(rewards.population, 'kernel_peak_reward', 1.0)
+        kernel_max_penalty = getattr(rewards.population, 'kernel_max_penalty', 0.0)
+        kernel_zero_distance = getattr(rewards.population, 'kernel_zero_distance', 100.0)
     
     # Survival bonus
     survival_bonus_cfg = rewards.survival_bonus
@@ -766,8 +769,9 @@ def _create_environment(
         # Population maintenance (kernel-based)
         kernel_maintenance_enabled=kernel_maintenance_enabled,
         kernel_type=kernel_type,
-        kernel_bandwidth=kernel_bandwidth,
-        kernel_weight=kernel_weight,
+        kernel_peak_reward=kernel_peak_reward,
+        kernel_max_penalty=kernel_max_penalty,
+        kernel_zero_distance=kernel_zero_distance,
         
         # Survival bonus
         survival_bonus_enabled=survival_bonus_cfg.enabled,
@@ -803,7 +807,7 @@ def _create_environment(
     
     logger.log_info("✓ Environment created with simplified reward structure")
     logger.log_info(f"  - Timing: t_count_freshness={t_count_freshness}, t_seq_freshness={t_seq_freshness}")
-    logger.log_info(f"  - Kernel maintenance: {kernel_type} (bandwidth={kernel_bandwidth}, weight={kernel_weight})")
+    logger.log_info(f"  - Kernel maintenance: {kernel_type} (R={kernel_peak_reward}, M={kernel_max_penalty}, zero_distance={kernel_zero_distance})")
     logger.log_info(f"  - Survival bonus: enabled={survival_bonus_cfg.enabled}")
     logger.log_info(f"  - Early termination: enabled={early_term_cfg.enabled}")
     logger.log_info(f"  - Prediction reward: enabled={prediction_cfg.enabled}")

@@ -39,7 +39,7 @@ environment:
     
     # Pre-step rewards (counting)
     counting:
-      informative_count_reward: 1.0           # Reward for informative counting
+      informative_count_reward: 2.0           # Reward for informative counting
     
     # Pre-step rewards (strategic NOOP)
     noop:
@@ -49,15 +49,16 @@ environment:
     critical_penalties:
       penalty_critical_no_dose: 5.0           # Penalty for not dosing when critical
       penalty_critical_no_count: 2.0          # Penalty for stale count data
-      big_penalty: 50.0                       # Penalty for extinction (population <= 0)
+    
     
     # Population maintenance (kernel-based)
     population_maintenance:
       enabled: true
       target_population: 100
       kernel_type: "gaussian"                 # "gaussian" or "laplace"
-      bandwidth: 50.0                         # Kernel bandwidth (smoothness)
-      weight: 1.0                             # Overall multiplier
+      kernel_peak_reward: 5.0                 # R: peak reward at target
+      kernel_max_penalty: 1.0                 # M: maximum penalty (min value -M)
+      kernel_zero_distance: 50.0              # distance where kernel equals 0
     
     # Survival bonus (per-step reward for staying alive)
     survival_bonus:
@@ -70,7 +71,7 @@ environment:
     # Prediction accuracy reward (COUNT-only)
     prediction:
       enabled: true
-      weight: 0.4
+      weight: 0.2
     
     # Early termination on unrecoverable states
     early_termination:
@@ -132,16 +133,16 @@ ppo:
   ent_coef: 0.015
   max_grad_norm: 0.5
   rollout_steps: 2048
-  epochs: 6
+  epochs: 15
   seq_len: 128
   batch_seq_len: 128
   lr: 0.0001
 
 # Training configuration
 training:
-  total_updates: 2500
+  total_updates: 100
   seed: 42
-  checkpoint_interval: 30
+  checkpoint_interval: 25
   log_interval: 2
   save_dir: "./checkpoints"
   experiment_name: "ppo_simple_rewards"

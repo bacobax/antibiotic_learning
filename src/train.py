@@ -109,7 +109,14 @@ View TensorBoard:
     logger.log_info("Starting Headless Training (No Visualization)")
     logger.log_info("="*70)
     
-    train(ppo_config, env, checkpoint_dir, config.training.total_updates, logger)
+    train(
+        ppo_config,
+        env,
+        checkpoint_dir,
+        config.training.total_updates,
+        logger,
+        checkpoint_interval=config.training.checkpoint_interval,
+    )
     
     logger.log_info("="*70)
     logger.log_info("✓ Training complete!")
