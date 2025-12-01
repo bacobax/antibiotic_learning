@@ -18,7 +18,7 @@ All configurations are loaded from a single YAML file including:
 """
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Tuple
 from dataclasses import dataclass
 from inspect import signature
 
@@ -73,10 +73,16 @@ class PopulationRewardConfig:
     count_population_reward_beta: float  # Exponential shaping shift term
     noop_band_factor: float  # Deadband around target for NOOP reward
     noop_reward_magnitude: float  # NOOP shaping magnitude
-    # Kernel-based maintenance parameters
-    kernel_type: str = "gaussian"  # "gaussian" or "laplace"
-    kernel_peak_reward: float = 1.0  # R
-    kernel_max_penalty: float = 0.0  # M
+
+
+@dataclass
+class PopulationMaintenanceConfig:
+    """Configuration for simplified kernel-based maintenance reward."""
+    enabled: bool = True
+    target_population: float = 100.0
+    kernel_type: str = "gaussian"
+    kernel_peak_reward: float = 1.0
+    kernel_max_penalty: float = 0.0
     kernel_zero_distance: float = 100.0
 
 
@@ -110,6 +116,18 @@ class InformedDosingConfig:
     decay_type: str = "linear"  # "linear" or "exponential"
     decay_rate: float = 0.0  # Rate parameter for the chosen decay function
     min_reward_fraction: float = 0.0  # Floor for decay factor
+    penalty_dosing_under_target: float = 5.0  # Base penalty when dosing below target
+    penalty_dosing_under_target_dose_scale: float = 0.0  # Weight for dose magnitude term
+    penalty_dosing_under_target_dose_exponent: float = 1.0  # Exponent applied to dose magnitude
+    penalty_dosing_under_target_deficit_scale: float = 0.0  # Weight for normalized population deficit
+    penalty_dosing_under_target_deficit_cap: float = 1.0  # Clamp for normalized deficit contribution
+    penalty_dosing_under_target_max: Optional[float] = None  # Optional ceiling for total penalty
+    reward_dosing_above_with_seq: float = 0.0  # Reward multiplier when dosing above target with fresh seq
+    reward_dosing_above_no_seq: float = 0.0  # Reward multiplier when dosing above target without seq
+    penalty_blind_dose: float = 3.0  # Base penalty when dosing without a fresh count
+    penalty_blind_dose_amount_scale: float = 0.0  # Weight for blind penalty dose magnitude scaling
+    penalty_blind_dose_amount_exponent: float = 1.0  # Exponent applied to blind dose magnitude term
+    penalty_blind_dose_max: Optional[float] = None  # Optional ceiling for blind penalty
 
 
 @dataclass
@@ -172,6 +190,7 @@ class RewardConfig:
     sequencing: SequencingRewardConfig
     prediction: PredictionRewardConfig
     early_termination: EarlyTerminationConfig
+    population_maintenance: Optional[PopulationMaintenanceConfig] = None
 
 
 @dataclass
@@ -182,6 +201,7 @@ class EnvironmentConfig:
     device: str
     dtype: str
     rewards: RewardConfig
+    initial_bacteria_per_type_range: Optional[Tuple[int, int]] = None
 
 
 @dataclass
@@ -262,6 +282,7 @@ def _get_default_config() -> Dict[str, Any]:
             "k_doses": 3,
             "device": "cpu",
             "dtype": "float32",
+            "initial_bacteria_per_type_range": None,
             "rewards": {
                 "population": {
                     "target_population": 500,
@@ -273,6 +294,10 @@ def _get_default_config() -> Dict[str, Any]:
                     "count_population_reward_beta": 0.5,
                     "noop_band_factor": 0.02,
                     "noop_reward_magnitude": 0.01,
+                },
+                "population_maintenance": {
+                    "enabled": True,
+                    "target_population": 500,
                     "kernel_type": "gaussian",
                     "kernel_peak_reward": 1.0,
                     "kernel_max_penalty": 0.0,
@@ -312,6 +337,18 @@ def _get_default_config() -> Dict[str, Any]:
                     "decay_type": "linear",
                     "decay_rate": 0.2,
                     "min_reward_fraction": 0.0,
+                    "penalty_dosing_under_target": 5.0,
+                    "penalty_dosing_under_target_dose_scale": 0.0,
+                    "penalty_dosing_under_target_dose_exponent": 1.0,
+                    "penalty_dosing_under_target_deficit_scale": 0.0,
+                    "penalty_dosing_under_target_deficit_cap": 1.0,
+                    "penalty_dosing_under_target_max": None,
+                    "reward_dosing_above_with_seq": 0.0,
+                    "reward_dosing_above_no_seq": 0.0,
+                    "penalty_blind_dose": 3.0,
+                    "penalty_blind_dose_amount_scale": 0.0,
+                    "penalty_blind_dose_amount_exponent": 1.0,
+                    "penalty_blind_dose_max": None,
                 },
                 "regular_monitoring": {
                     "count_reward": 0.0,
@@ -414,6 +451,7 @@ def _validate_config(config: Dict[str, Any]) -> None:
     training = config.get("training", {})
     rewards = env.get("rewards", {})
     population_cfg = rewards.get("population", {})
+    population_maintenance_cfg = rewards.get("population_maintenance", None)
     
     # Environment validation
     if env.get("k_doses", 1) <= 0:
@@ -422,6 +460,29 @@ def _validate_config(config: Dict[str, Any]) -> None:
         raise ValueError(f"Invalid device: {env.get('device')}")
     if env.get("dtype", "float32").lower() not in ["float32", "float64", "float16"]:
         raise ValueError(f"Invalid dtype: {env.get('dtype')}")
+
+    spawn_range = env.get("initial_bacteria_per_type_range", None)
+    if spawn_range is not None:
+        if isinstance(spawn_range, dict):
+            spawn_min = spawn_range.get("min")
+            spawn_max = spawn_range.get("max")
+            spawn_values = (spawn_min, spawn_max)
+        else:
+            spawn_values = spawn_range
+        if not isinstance(spawn_values, (list, tuple)) or len(spawn_values) != 2:
+            raise ValueError("initial_bacteria_per_type_range must be a 2-element list/tuple or dict with 'min'/'max'")
+        spawn_min, spawn_max = spawn_values
+        if spawn_min is None or spawn_max is None:
+            raise ValueError("initial_bacteria_per_type_range must contain both min and max values")
+        try:
+            spawn_min = int(spawn_min)
+            spawn_max = int(spawn_max)
+        except (TypeError, ValueError):
+            raise ValueError("initial_bacteria_per_type_range values must be integers")
+        if spawn_min <= 0 or spawn_max <= 0:
+            raise ValueError("initial_bacteria_per_type_range values must be positive")
+        if spawn_min > spawn_max:
+            raise ValueError("initial_bacteria_per_type_range min must be <= max")
 
     early_term_cfg = rewards.get("early_termination", {})
     base_penalty = early_term_cfg.get("penalty", 0.0)
@@ -462,6 +523,31 @@ def _validate_config(config: Dict[str, Any]) -> None:
     decay_type = str(informed_cfg.get("decay_type", "linear")).lower()
     if decay_type not in {"linear", "exponential"}:
         raise ValueError("informed_dosing.decay_type must be 'linear' or 'exponential'")
+    under_base = informed_cfg.get("penalty_dosing_under_target", 0.0)
+    if under_base < 0.0:
+        raise ValueError("informed_dosing.penalty_dosing_under_target must be >= 0")
+    if informed_cfg.get("penalty_dosing_under_target_dose_scale", 0.0) < 0.0:
+        raise ValueError("informed_dosing.penalty_dosing_under_target_dose_scale must be >= 0")
+    if informed_cfg.get("penalty_dosing_under_target_dose_exponent", 1.0) <= 0.0:
+        raise ValueError("informed_dosing.penalty_dosing_under_target_dose_exponent must be > 0")
+    if informed_cfg.get("penalty_dosing_under_target_deficit_scale", 0.0) < 0.0:
+        raise ValueError("informed_dosing.penalty_dosing_under_target_deficit_scale must be >= 0")
+    deficit_cap = informed_cfg.get("penalty_dosing_under_target_deficit_cap", 1.0)
+    if deficit_cap < 0.0:
+        raise ValueError("informed_dosing.penalty_dosing_under_target_deficit_cap must be >= 0")
+    under_max = informed_cfg.get("penalty_dosing_under_target_max", None)
+    if under_max is not None and under_max < under_base:
+        raise ValueError("informed_dosing.penalty_dosing_under_target_max must be >= base penalty")
+    blind_base = informed_cfg.get("penalty_blind_dose", 0.0)
+    if blind_base < 0.0:
+        raise ValueError("informed_dosing.penalty_blind_dose must be >= 0")
+    if informed_cfg.get("penalty_blind_dose_amount_scale", 0.0) < 0.0:
+        raise ValueError("informed_dosing.penalty_blind_dose_amount_scale must be >= 0")
+    if informed_cfg.get("penalty_blind_dose_amount_exponent", 1.0) <= 0.0:
+        raise ValueError("informed_dosing.penalty_blind_dose_amount_exponent must be > 0")
+    blind_max = informed_cfg.get("penalty_blind_dose_max", None)
+    if blind_max is not None and blind_max < blind_base:
+        raise ValueError("informed_dosing.penalty_blind_dose_max must be >= base penalty")
     alpha = population_cfg.get("count_population_reward_alpha", 1.0)
     beta = population_cfg.get("count_population_reward_beta", 0.5)
     norm_reward = population_cfg.get("population_norm_reward", population_cfg.get("target_population", 1.0))
@@ -471,6 +557,15 @@ def _validate_config(config: Dict[str, Any]) -> None:
         raise ValueError("population.count_population_reward_alpha must be > 0")
     if not (0.0 <= beta <= 1.0):
         raise ValueError("population.count_population_reward_beta must be in [0, 1]")
+    if population_maintenance_cfg is not None:
+        if population_maintenance_cfg.get("target_population", 0) <= 0:
+            raise ValueError("population_maintenance.target_population must be > 0")
+        if population_maintenance_cfg.get("kernel_peak_reward", 0.0) < 0.0:
+            raise ValueError("population_maintenance.kernel_peak_reward must be >= 0")
+        if population_maintenance_cfg.get("kernel_max_penalty", 0.0) < 0.0:
+            raise ValueError("population_maintenance.kernel_max_penalty must be >= 0")
+        if population_maintenance_cfg.get("kernel_zero_distance", 0.0) <= 0.0:
+            raise ValueError("population_maintenance.kernel_zero_distance must be > 0")
     
     # Actions validation
     seq = actions.get("sequencing", {})
@@ -629,9 +724,17 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
             informed = rewards.get("informed_dosing", {})
             _strict_require([
                 "penalty_dosing_under_target",
+                "penalty_dosing_under_target_dose_scale",
+                "penalty_dosing_under_target_dose_exponent",
+                "penalty_dosing_under_target_deficit_scale",
+                "penalty_dosing_under_target_deficit_cap",
+                "penalty_dosing_under_target_max",
                 "reward_dosing_above_with_seq",
                 "reward_dosing_above_no_seq",
                 "penalty_blind_dose",
+                "penalty_blind_dose_amount_scale",
+                "penalty_blind_dose_amount_exponent",
+                "penalty_blind_dose_max",
             ], informed, "environment.rewards.informed_dosing")
 
             sequencing = rewards.get("sequencing", {})
@@ -736,6 +839,11 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
 
     # Create nested reward config dataclasses (filter unknown keys for backward-compat)
     population_reward_cfg = PopulationRewardConfig(**_filter_keys_for(PopulationRewardConfig, rewards_dict["population"]))
+    population_maintenance_cfg = None
+    if "population_maintenance" in rewards_dict and rewards_dict["population_maintenance"] is not None:
+        population_maintenance_cfg = PopulationMaintenanceConfig(
+            **_filter_keys_for(PopulationMaintenanceConfig, rewards_dict["population_maintenance"])
+        )
     dose_reward_cfg = DoseRewardConfig(**_filter_keys_for(DoseRewardConfig, rewards_dict["dose"]))
     budget_cfg = BudgetConfig(**_filter_keys_for(BudgetConfig, rewards_dict["budget"]))
     survival_bonus_cfg = SurvivalBonusConfig(**_filter_keys_for(SurvivalBonusConfig, rewards_dict["survival_bonus"]))
@@ -749,6 +857,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     
     reward_cfg = RewardConfig(
         population=population_reward_cfg,
+        population_maintenance=population_maintenance_cfg,
         dose=dose_reward_cfg,
         budget=budget_cfg,
         survival_bonus=survival_bonus_cfg,
@@ -761,6 +870,16 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         early_termination=early_termination_cfg,
     )
     
+    spawn_range_cfg = env_dict.get("initial_bacteria_per_type_range")
+    parsed_spawn_range: Optional[Tuple[int, int]] = None
+    if spawn_range_cfg is not None:
+        if isinstance(spawn_range_cfg, dict):
+            spawn_min = spawn_range_cfg.get("min")
+            spawn_max = spawn_range_cfg.get("max")
+        else:
+            spawn_min, spawn_max = spawn_range_cfg
+        parsed_spawn_range = (int(spawn_min), int(spawn_max))
+
     # Create environment config with nested structures
     env_cfg = EnvironmentConfig(
         max_steps=env_dict["max_steps"],
@@ -768,6 +887,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         device=env_dict["device"],
         dtype=env_dict["dtype"],
         rewards=reward_cfg,
+        initial_bacteria_per_type_range=parsed_spawn_range,
     )
     
     actions_cfg = ActionConfig(
@@ -812,10 +932,19 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                 "k_doses": config.environment.k_doses,
                 "device": config.environment.device,
                 "dtype": config.environment.dtype,
+                "initial_bacteria_per_type_range": config.environment.initial_bacteria_per_type_range,
                 "rewards": {
                     "population": {
                         k: v for k, v in config.environment.rewards.population.__dict__.items()
                     },
+                    "population_maintenance": (
+                        {
+                            k: v
+                            for k, v in config.environment.rewards.population_maintenance.__dict__.items()
+                        }
+                        if config.environment.rewards.population_maintenance is not None
+                        else None
+                    ),
                     "dose": {
                         k: v for k, v in config.environment.rewards.dose.__dict__.items()
                     },

@@ -736,15 +736,47 @@ def _create_environment(
     if hasattr(informed_dosing, 'penalty_dosing_under_target'):
         # New config format
         penalty_informed_dosing_under = informed_dosing.penalty_dosing_under_target
+        penalty_informed_dosing_under_dose_scale = getattr(
+            informed_dosing, 'penalty_dosing_under_target_dose_scale', 0.0
+        )
+        penalty_informed_dosing_under_dose_exponent = getattr(
+            informed_dosing, 'penalty_dosing_under_target_dose_exponent', 1.0
+        )
+        penalty_informed_dosing_under_deficit_scale = getattr(
+            informed_dosing, 'penalty_dosing_under_target_deficit_scale', 0.0
+        )
+        penalty_informed_dosing_under_deficit_cap = getattr(
+            informed_dosing, 'penalty_dosing_under_target_deficit_cap', 1.0
+        )
+        penalty_informed_dosing_under_max = getattr(
+            informed_dosing, 'penalty_dosing_under_target_max', None
+        )
         reward_informed_dosing_above = informed_dosing.reward_dosing_above_with_seq
         reward_informed_dosing_above_without_seq = informed_dosing.reward_dosing_above_no_seq
         penalty_blind_dose = informed_dosing.penalty_blind_dose
+        penalty_blind_dose_amount_scale = getattr(
+            informed_dosing, 'penalty_blind_dose_amount_scale', 0.0
+        )
+        penalty_blind_dose_amount_exponent = getattr(
+            informed_dosing, 'penalty_blind_dose_amount_exponent', 1.0
+        )
+        penalty_blind_dose_max = getattr(
+            informed_dosing, 'penalty_blind_dose_max', None
+        )
     else:
         # Old format or defaults
         penalty_informed_dosing_under = 5.0
+        penalty_informed_dosing_under_dose_scale = 0.0
+        penalty_informed_dosing_under_dose_exponent = 1.0
+        penalty_informed_dosing_under_deficit_scale = 0.0
+        penalty_informed_dosing_under_deficit_cap = 1.0
+        penalty_informed_dosing_under_max = None
         reward_informed_dosing_above = 2.0
         reward_informed_dosing_above_without_seq = 1.0
         penalty_blind_dose = 3.0
+        penalty_blind_dose_amount_scale = 0.0
+        penalty_blind_dose_amount_exponent = 1.0
+        penalty_blind_dose_max = None
     
     sequencing_rewards = getattr(rewards, 'sequencing', None)
     if sequencing_rewards and hasattr(sequencing_rewards, 'seq_already_pending_penalty'):
@@ -778,20 +810,20 @@ def _create_environment(
     
     # Population maintenance (kernel-based)
     pop_maintenance = getattr(rewards, 'population_maintenance', None)
-    if pop_maintenance:
+    if pop_maintenance is None:
+        kernel_maintenance_enabled = True
+        target_population = rewards.population.target_population
+        kernel_type = "gaussian"
+        kernel_peak_reward = 1.0
+        kernel_max_penalty = 0.0
+        kernel_zero_distance = 100.0
+    else:
         kernel_maintenance_enabled = pop_maintenance.enabled
         target_population = pop_maintenance.target_population
         kernel_type = pop_maintenance.kernel_type
-        kernel_peak_reward = getattr(pop_maintenance, 'peak_reward', 1.0)
-        kernel_max_penalty = getattr(pop_maintenance, 'max_penalty', 0.0)
-        kernel_zero_distance = getattr(pop_maintenance, 'zero_distance', 50.0)
-    else:
-        kernel_maintenance_enabled = True
-        target_population = rewards.population.target_population
-        kernel_type = getattr(rewards.population, 'kernel_type', 'gaussian')
-        kernel_peak_reward = getattr(rewards.population, 'kernel_peak_reward', 1.0)
-        kernel_max_penalty = getattr(rewards.population, 'kernel_max_penalty', 0.0)
-        kernel_zero_distance = getattr(rewards.population, 'kernel_zero_distance', 100.0)
+        kernel_peak_reward = pop_maintenance.kernel_peak_reward
+        kernel_max_penalty = pop_maintenance.kernel_max_penalty
+        kernel_zero_distance = pop_maintenance.kernel_zero_distance
     
     # Survival bonus
     survival_bonus_cfg = rewards.survival_bonus
@@ -805,6 +837,32 @@ def _create_environment(
     # Budget config
     budget_cfg = rewards.budget
     
+    logger.log_info("Informed dosing configuration:")
+    logger.log_info(f"  - Under-target base penalty: {penalty_informed_dosing_under}")
+    logger.log_info(
+        f"    · Dose scale/exponent: {penalty_informed_dosing_under_dose_scale} / "
+        f"{penalty_informed_dosing_under_dose_exponent}"
+    )
+    logger.log_info(
+        f"    · Deficit scale/cap: {penalty_informed_dosing_under_deficit_scale} / "
+        f"{penalty_informed_dosing_under_deficit_cap}"
+    )
+    logger.log_info(
+        f"    · Under-target max penalty: {penalty_informed_dosing_under_max}"
+    )
+    logger.log_info(f"  - Blind base penalty: {penalty_blind_dose}")
+    logger.log_info(
+        f"    · Blind dose scale/exponent: {penalty_blind_dose_amount_scale} / "
+        f"{penalty_blind_dose_amount_exponent}"
+    )
+    logger.log_info(f"    · Blind max penalty: {penalty_blind_dose_max}")
+
+    spawn_range = config.environment.initial_bacteria_per_type_range
+    if spawn_range is not None:
+        logger.log_info(
+            f"Initial bacteria per type range set to [{spawn_range[0]}, {spawn_range[1]}]"
+        )
+
     env = PetriEnvWrapper(
         mesa_model_factory=BacteriaModel,
         k_doses=config.environment.k_doses,
@@ -831,9 +889,17 @@ def _create_environment(
         
         # Pre-step reward scalars (informed dosing)
         penalty_informed_dosing_under=penalty_informed_dosing_under,
+    penalty_informed_dosing_under_dose_scale=penalty_informed_dosing_under_dose_scale,
+    penalty_informed_dosing_under_dose_exponent=penalty_informed_dosing_under_dose_exponent,
+    penalty_informed_dosing_under_deficit_scale=penalty_informed_dosing_under_deficit_scale,
+    penalty_informed_dosing_under_deficit_cap=penalty_informed_dosing_under_deficit_cap,
+    penalty_informed_dosing_under_max=penalty_informed_dosing_under_max,
         reward_informed_dosing_above=reward_informed_dosing_above,
         reward_informed_dosing_above_without_seq=reward_informed_dosing_above_without_seq,
         penalty_blind_dose=penalty_blind_dose,
+    penalty_blind_dose_amount_scale=penalty_blind_dose_amount_scale,
+    penalty_blind_dose_amount_exponent=penalty_blind_dose_amount_exponent,
+    penalty_blind_dose_max=penalty_blind_dose_max,
         
         # Pre-step rewards (sequencing)
         seq_already_pending_penalty=seq_already_pending_penalty,
@@ -841,7 +907,7 @@ def _create_environment(
         
         # Pre-step rewards (counting)
         informative_count_reward=informative_count_reward,
-    cost_weight=config.actions.cost_weight,
+        cost_weight=config.actions.cost_weight,
         
         # Pre-step rewards (strategic NOOP)
         strategic_noop_reward=strategic_noop_reward,
@@ -884,6 +950,7 @@ def _create_environment(
         population_norm=rewards.population.population_norm,
         budget_init=budget_cfg.budget_init,
         budget_norm=budget_cfg.budget_norm,
+    initial_bacteria_per_type_range=spawn_range,
         
         # Device config
         device=config.environment.device,

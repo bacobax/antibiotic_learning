@@ -6,6 +6,7 @@ environment:
   k_doses: 3
   device: "cuda"
   dtype: "float32"
+  initial_bacteria_per_type_range: [30, 90]
 
   # Timing and freshness thresholds
   timing:
@@ -27,10 +28,18 @@ environment:
   rewards:
     # Pre-step rewards (informed dosing)
     informed_dosing:
-      penalty_dosing_under_target: 0.0        # Penalty for dosing when pop < target
+      penalty_dosing_under_target: 6.0        # Base penalty for dosing when pop < target
+      penalty_dosing_under_target_dose_scale: 0.6    # Scales penalty with antibiotic amount
+      penalty_dosing_under_target_dose_exponent: 1.0 # Linear scaling for dose magnitude
+      penalty_dosing_under_target_deficit_scale: 3.0 # Extra penalty per deficit fraction
+      penalty_dosing_under_target_deficit_cap: 1.8   # Multiplier/cap for normalized deficit term
+      penalty_dosing_under_target_max: 14.0    # Hard ceiling for under-target penalty
       reward_dosing_above_with_seq: 1.0       # Reward for dosing above target with seq
       reward_dosing_above_no_seq: 1.0         # Reward for dosing above target without seq
-      penalty_blind_dose: 0.0                 # Penalty for dosing without fresh count
+      penalty_blind_dose: 4.0                 # Base penalty for dosing without fresh count
+      penalty_blind_dose_amount_scale: 0.75   # Scales blind penalty with antibiotic amount
+      penalty_blind_dose_amount_exponent: 1.1 # Non-linear scaling for blind high doses
+      penalty_blind_dose_max: 12.0            # Hard ceiling for blind penalty
     
     # Pre-step rewards (sequencing)
     sequencing:
@@ -63,7 +72,7 @@ environment:
     # Survival bonus (per-step reward for staying alive)
     survival_bonus:
       enabled: true
-      base_bonus: 0.5
+      base_bonus: 0.2
       scaling_type: "linear"                  # "constant", "linear", "exponential"
       scaling_factor: 0.001
       max_bonus: 1.0
@@ -130,11 +139,11 @@ model:
 ppo:
   gamma: 0.99
   gae_lambda: 0.95
-  clip_eps: 0.2
+  clip_eps: 0.15
   vf_coef: 0.5
-  ent_coef: 0.015
+  ent_coef: 0.04
   max_grad_norm: 0.5
-  rollout_steps: 1024
+  rollout_steps: 768
   epochs: 5
   seq_len: 128
   batch_seq_len: 128

@@ -94,26 +94,34 @@ class PetriEnvWrapper:
         # ===== Action costs and durations =====
         sequencing_cost: float = 2.5,
         sequencing_duration: int = 5,
-    noop_cost: float = 0.0,
+        noop_cost: float = 0.0,
         dose_cost: float = 2.0,
         dose_cost_per_unit: float = 2.0,
         count_cost: float = 0.5,
-    cost_weight: float = 1.0,
+        cost_weight: float = 1.0,
         sigmoid_scale_factor: float = 1.0,
         
         # ===== Pre-step reward scalars =====
         # Informed dosing
         penalty_informed_dosing_under: float = 5.0,
+        penalty_informed_dosing_under_dose_scale: float = 0.0,
+        penalty_informed_dosing_under_dose_exponent: float = 1.0,
+        penalty_informed_dosing_under_deficit_scale: float = 0.0,
+        penalty_informed_dosing_under_deficit_cap: float = 1.0,
+        penalty_informed_dosing_under_max: Optional[float] = None,
         reward_informed_dosing_above: float = 2.0,
         reward_informed_dosing_above_without_seq: float = 1.0,
         penalty_blind_dose: float = 3.0,
+        penalty_blind_dose_amount_scale: float = 0.0,
+        penalty_blind_dose_amount_exponent: float = 1.0,
+        penalty_blind_dose_max: Optional[float] = None,
         
         # Sequencing
         seq_already_pending_penalty: float = 2.0,
         informative_seq_reward: float = 1.0,
         
-    # Counting
-    informative_count_reward: float = 1.0,
+        # Counting
+        informative_count_reward: float = 1.0,
         
         # Strategic NOOP
         strategic_noop_reward: float = 0.5,
@@ -156,6 +164,7 @@ class PetriEnvWrapper:
         population_norm: float = 500.0,
         budget_init: float = 100.0,
         budget_norm: float = 100.0,
+        initial_bacteria_per_type_range: Optional[Tuple[int, int]] = None,
         
         device: str = "cpu",
         dtype: torch.dtype = torch.float32,
@@ -186,12 +195,26 @@ class PetriEnvWrapper:
         self.count_cost = float(count_cost)
         self.cost_weight = float(cost_weight)
         self.sigmoid_scale_factor = float(sigmoid_scale_factor)
+        self.last_informed_dosing_breakdown: Dict[str, Any] = {}
         
         # ===== Environment parameters =====
         self.target_population = float(target_population)
         self.population_norm = float(population_norm)
         self.budget_init = float(budget_init)
         self.budget_norm = float(budget_norm)
+        if initial_bacteria_per_type_range is not None:
+            min_range, max_range = initial_bacteria_per_type_range
+            min_range = int(min_range)
+            max_range = int(max_range)
+            if min_range <= 0 or max_range <= 0:
+                raise ValueError("initial_bacteria_per_type_range values must be positive")
+            if min_range > max_range:
+                raise ValueError("initial_bacteria_per_type_range min must be <= max")
+            self.initial_bacteria_per_type_range: Optional[Tuple[int, int]] = (min_range, max_range)
+        else:
+            self.initial_bacteria_per_type_range = None
+        self.last_initial_bacteria_per_type: Optional[int] = None
+        self.last_initial_total_bacteria: Optional[int] = None
         self.device = device
         self.dtype = dtype
         
@@ -219,9 +242,17 @@ class PetriEnvWrapper:
         # Pre-step rewards
         self.informed_dosing_reward = InformedDosingReward(
             penalty_dosing_under_target=penalty_informed_dosing_under,
+            penalty_dosing_under_target_dose_scale=penalty_informed_dosing_under_dose_scale,
+            penalty_dosing_under_target_dose_exponent=penalty_informed_dosing_under_dose_exponent,
+            penalty_dosing_under_target_deficit_scale=penalty_informed_dosing_under_deficit_scale,
+            penalty_dosing_under_target_deficit_cap=penalty_informed_dosing_under_deficit_cap,
+            penalty_dosing_under_target_max=penalty_informed_dosing_under_max,
             reward_dosing_above_with_seq=reward_informed_dosing_above,
             reward_dosing_above_no_seq=reward_informed_dosing_above_without_seq,
             penalty_blind_dose=penalty_blind_dose,
+            penalty_blind_dose_amount_scale=penalty_blind_dose_amount_scale,
+            penalty_blind_dose_amount_exponent=penalty_blind_dose_amount_exponent,
+            penalty_blind_dose_max=penalty_blind_dose_max,
         )
         
         self.sequencing_reward = SequencingReward(
@@ -347,9 +378,32 @@ class PetriEnvWrapper:
     # -------------------------
     # Public API
     # -------------------------
+
+    def _create_mesa_model(self) -> Any:
+        initial_total_bacteria: Optional[int] = None
+        if self.initial_bacteria_per_type_range is not None:
+            min_range, max_range = self.initial_bacteria_per_type_range
+            per_type = int(np.random.randint(min_range, max_range + 1))
+            initial_total_bacteria = per_type * N_BACTERIA_TYPES
+            self.last_initial_bacteria_per_type = per_type
+            self.last_initial_total_bacteria = initial_total_bacteria
+        else:
+            self.last_initial_bacteria_per_type = None
+            self.last_initial_total_bacteria = None
+
+        if initial_total_bacteria is None:
+            return self.mesa_model_factory()
+
+        try:
+            return self.mesa_model_factory(initial_total_bacteria)
+        except TypeError:
+            try:
+                return self.mesa_model_factory(N=initial_total_bacteria)
+            except TypeError:
+                return self.mesa_model_factory()
     
     def reset(self)-> np.ndarray:
-        self.model = self.mesa_model_factory()
+        self.model = self._create_mesa_model()
         self.t = 0
         self.episode_return = 0.0
         self.budget = self.budget_init
@@ -429,7 +483,7 @@ class PetriEnvWrapper:
     # Reward computation (following pseudo-code)
     # -------------------------
 
-    def _compute_pre_reward(self, action: int) -> float:
+    def _compute_pre_reward(self, action: int, dose_amounts: Optional[np.ndarray] = None) -> float:
         """
         Compute pre-step reward based on action quality.
         
@@ -440,14 +494,18 @@ class PetriEnvWrapper:
             Pre-step reward as float
         """
         count_fresh = self._count_fresh()
+        self.last_informed_dosing_breakdown = {}
         
         if action == ACTION_DOSE:
-            return self.informed_dosing_reward(
+            reward = self.informed_dosing_reward(
                 count_fresh=count_fresh,
                 last_count_pop=float(self.last_count_obs) if self.last_count_obs is not None else None,
                 target_pop=self.target_population,
                 recent_sequencing=self.recent_sequencing,
+                dose_amounts=dose_amounts,
             )
+            self.last_informed_dosing_breakdown = self.informed_dosing_reward.last_breakdown
+            return reward
         
         elif action == ACTION_SEQUENCING:
             return self.sequencing_reward(
@@ -591,7 +649,7 @@ class PetriEnvWrapper:
         # ==============================================
         # STEP 1: PRE-STEP REWARD
         # ==============================================
-        pre_reward = self._compute_pre_reward(a_discrete)
+        pre_reward = self._compute_pre_reward(a_discrete, a_cont)
         self.last_pre_reward = pre_reward
         
         # ==============================================
@@ -751,6 +809,8 @@ class PetriEnvWrapper:
             "episode_return": self.episode_return,
             "budget": self.budget,
             "true_population": true_population,
+            "initial_bacteria_per_type": self.last_initial_bacteria_per_type,
+            "initial_total_bacteria": self.last_initial_total_bacteria,
             
             # Timer state (for debugging)
             "t_since_last_count": self.t_since_last_count,
@@ -769,6 +829,7 @@ class PetriEnvWrapper:
             "reward_early_termination_penalty": early_termination_penalty,
             "reward_cost_penalty": cost_penalty,
             "reward_total": total_reward,
+            "informed_dosing_breakdown": self.last_informed_dosing_breakdown,
 
             # Action economics
             "action_cost": action_cost,
