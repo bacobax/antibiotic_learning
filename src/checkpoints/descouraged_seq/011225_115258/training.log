@@ -1,0 +1,75 @@
+2025-12-01 11:52:59 [INFO] Logging to: checkpoints/descouraged_seq/011225_115258
+2025-12-01 11:52:59 [INFO] TensorBoard logs: checkpoints/descouraged_seq/011225_115258/descouraged_seq/20251201_115259
+2025-12-01 11:52:59 [INFO] View with: tensorboard --logdir=checkpoints/descouraged_seq/011225_115258/descouraged_seq
+2025-12-01 11:52:59 [INFO] ======================================================================
+2025-12-01 11:52:59 [INFO] PPO Training Started
+2025-12-01 11:52:59 [INFO] ======================================================================
+2025-12-01 11:52:59 [INFO] Configuration from: ./checkpoints
+2025-12-01 11:52:59 [INFO] Environment Settings:
+2025-12-01 11:52:59 [INFO]   - Max steps: 2048
+2025-12-01 11:52:59 [INFO]   - Target population: 500
+2025-12-01 11:52:59 [INFO]   - Budget: 100.0
+2025-12-01 11:52:59 [INFO]   - K doses (antibiotic types): 3
+2025-12-01 11:52:59 [INFO]   - Device: cuda
+2025-12-01 11:52:59 [INFO] Model Architecture:
+2025-12-01 11:52:59 [INFO]   - Hidden dim: 512
+2025-12-01 11:52:59 [INFO]   - RNN layers: 2
+2025-12-01 11:52:59 [INFO] PPO Hyperparameters:
+2025-12-01 11:52:59 [INFO]   - Learning rate: 0.0001
+2025-12-01 11:52:59 [INFO]   - Gamma: 0.99
+2025-12-01 11:52:59 [INFO]   - GAE lambda: 0.95
+2025-12-01 11:52:59 [INFO]   - Rollout steps: 2048
+2025-12-01 11:52:59 [INFO]   - Epochs: 15
+2025-12-01 11:52:59 [INFO]   - Seq len: 128
+2025-12-01 11:52:59 [INFO] Training Config:
+2025-12-01 11:52:59 [INFO]   - Total updates: 200
+2025-12-01 11:52:59 [INFO]   - Seed: 42
+2025-12-01 11:52:59 [INFO] Reward Weights:
+2025-12-01 11:52:59 [INFO]   - Population: 1.0
+2025-12-01 11:52:59 [INFO]   - Genome: 0.5
+2025-12-01 11:52:59 [INFO]   - Cost: 0.05
+2025-12-01 11:52:59 [INFO]   - Population maintenance: 0.01
+2025-12-01 11:52:59 [INFO] Reward Modules:
+2025-12-01 11:52:59 [INFO]   - Survival bonus: enabled
+2025-12-01 11:52:59 [INFO]     - Base bonus: 0.1
+2025-12-01 11:52:59 [INFO]     - Scaling type: linear
+2025-12-01 11:52:59 [INFO]   - Budget conservation: enabled
+2025-12-01 11:52:59 [INFO]     - Weight: 0.01
+2025-12-01 11:52:59 [INFO]     - Reserve threshold: 0.5
+2025-12-01 11:52:59 [INFO]   - Prediction reward: enabled
+2025-12-01 11:52:59 [INFO]     - Weight: 0.2
+2025-12-01 11:52:59 [INFO]   - Early termination: enabled
+2025-12-01 11:52:59 [INFO]     - Population thresholds: ≤0.2x or ≥3x target
+2025-12-01 11:52:59 [INFO]     - Extinction penalty: 50.0
+2025-12-01 11:52:59 [INFO]     - Penalty (early → late): 25.0 → 10.0
+2025-12-01 11:52:59 [INFO]     - Penalty decay power: 1.0
+2025-12-01 11:52:59 [INFO]     - Require budget depleted: False
+2025-12-01 11:52:59 [INFO] Action Costs:
+2025-12-01 11:52:59 [INFO]   - Sequencing: 2.5
+2025-12-01 11:52:59 [INFO]   - Sequencing duration: 5 steps
+2025-12-01 11:52:59 [INFO]   - Dose per unit: 2.0
+2025-12-01 11:52:59 [INFO] ✓ Run directory created: checkpoints/descouraged_seq/011225_115258
+2025-12-01 11:52:59 [INFO]   Structure: checkpoints/descouraged_seq/011225_115258/
+2025-12-01 11:52:59 [DEBUG] ✓ Random seed set to: 42
+2025-12-01 11:52:59 [INFO] Creating environment with simplified reward structure...
+2025-12-01 11:52:59 [INFO] ✓ Environment created with simplified reward structure
+2025-12-01 11:52:59 [INFO]   - Timing: t_count_freshness=5, t_seq_freshness=8
+2025-12-01 11:52:59 [INFO]   - Kernel maintenance: gaussian (R=1.0, M=0.0, zero_distance=100.0)
+2025-12-01 11:52:59 [INFO]   - Survival bonus: enabled=True
+2025-12-01 11:52:59 [INFO]   - Early termination: enabled=True
+2025-12-01 11:52:59 [INFO]   - Prediction reward: enabled=True
+2025-12-01 11:52:59 [INFO] Observation dimension: 28
+2025-12-01 11:52:59 [INFO] Loading checkpoint from: checkpoints/checkpoint_25.pt
+2025-12-01 11:52:59 [DEBUG] ✓ Loaded optimizer state
+2025-12-01 11:52:59 [INFO] ✓ Loaded checkpoint from update 25
+2025-12-01 11:52:59 [INFO] ✓ Checkpoints will be saved in: checkpoints (shared across runs)
+2025-12-01 11:52:59 [DEBUG] ✓ Saved complete config to: checkpoints/descouraged_seq/011225_115258/complete_config.yaml
+2025-12-01 11:52:59 [INFO] ======================================================================
+2025-12-01 11:52:59 [INFO] Resuming Headless Training from Update 25
+2025-12-01 11:52:59 [INFO] ======================================================================
+2025-12-01 11:52:59 [INFO] Starting PPO training for 200 updates
+2025-12-01 11:52:59 [INFO] Config: obs_dim=28, hidden_dim=512, rnn_layers=2, k_doses=3
+2025-12-01 11:52:59 [INFO] Hyperparams: lr=0.0001, gamma=0.99, gae_lambda=0.95
+2025-12-01 11:52:59 [INFO] Rollout steps per update: 2048, PPO epochs: 15
+2025-12-01 11:52:59 [DEBUG] Using device: cuda
+2025-12-01 11:52:59 [INFO] Resuming training from update 25
