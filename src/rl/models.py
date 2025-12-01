@@ -33,7 +33,7 @@ class RecurrentActorCritic(nn.Module):
     Architecture:
         - GRU core for sequential processing
         - Discrete action head (categorical distribution)
-        - Continuous dose head (Gaussian with tanh squashing to [0,1])
+        - Continuous dose head (Gaussian with sigmoid scaling to [0, sigmoid_scale_factor])
         - Value head (state value estimate)
     
     Shapes:
@@ -54,6 +54,7 @@ class RecurrentActorCritic(nn.Module):
         hidden_dim: int = 256,
         rnn_layers: int = 1,
         dose_action_index: int = 3,
+        sigmoid_scale_factor: float = 1.0,
     ):
         """
         Initialize Recurrent Actor-Critic.
@@ -64,6 +65,7 @@ class RecurrentActorCritic(nn.Module):
             k_doses: Continuous action dimension (number of antibiotic types)
             hidden_dim: Hidden dimension for GRU
             rnn_layers: Number of GRU layers
+            sigmoid_scale_factor: Scaling factor for sigmoid output (doses in [0, sigmoid_scale_factor])
         """
         super().__init__()
         
@@ -73,6 +75,7 @@ class RecurrentActorCritic(nn.Module):
         self.hidden_dim = hidden_dim
         self.rnn_layers = rnn_layers
         self.dose_action_index = dose_action_index
+        self.sigmoid_scale_factor = sigmoid_scale_factor
         self.prev_action_dim = n_discrete + k_doses + 1
         
         # GRU core
@@ -86,8 +89,8 @@ class RecurrentActorCritic(nn.Module):
         # Discrete action head
         self.discrete_head = nn.Linear(hidden_dim, n_discrete)
         
-        # Continuous action head (Gaussian policy)
-        self.continuous_mu = nn.Linear(hidden_dim, k_doses)
+        # Continuous action head (Gaussian policy with sigmoid scaling)
+        self.continuous_head = nn.Linear(hidden_dim, k_doses)
         self.continuous_log_std = nn.Parameter(torch.zeros(k_doses))
         
         # Value head
@@ -101,7 +104,7 @@ class RecurrentActorCritic(nn.Module):
         self.apply(lambda m: init_weights_orthogonal(m, gain=1.0))
         # Smaller init for output layers
         init_weights_orthogonal(self.discrete_head, gain=0.01)
-        init_weights_orthogonal(self.continuous_mu, gain=0.01)
+        init_weights_orthogonal(self.continuous_head, gain=0.01)
         init_weights_orthogonal(self.value_head, gain=1.0)
         init_weights_orthogonal(self.prediction_fc, gain=1.0)
         init_weights_orthogonal(self.pred_head, gain=0.01)
@@ -143,8 +146,9 @@ class RecurrentActorCritic(nn.Module):
         # Discrete action logits
         logits_disc = self.discrete_head(features)  # [B, n_discrete]
         
-        # Continuous action distribution
-        mu = self.continuous_mu(features)  # [B, k_doses]
+        # Continuous action distribution (sigmoid-scaled)
+        mu_raw = self.continuous_head(features)  # [B, k_doses]
+        mu = torch.sigmoid(mu_raw) * self.sigmoid_scale_factor  # [B, k_doses] in [0, sigmoid_scale_factor]
         std = torch.exp(self.continuous_log_std).expand_as(mu)  # [B, k_doses]
 
         # Value estimate
@@ -201,17 +205,18 @@ class RecurrentActorCritic(nn.Module):
         logits_disc, (mu, std), value, features, h_next = self.forward_step(obs, prev_action, h_prev)
         
         # STEP 1: Sample continuous action FIRST (always sample, used for DOSE and for masking)
+        # mu is already sigmoid-scaled to [0, sigmoid_scale_factor]
         dist_cont = Normal(mu, std)
         if deterministic:
-            a_cont_raw = mu
+            a_cont = mu
         else:
-            a_cont_raw = dist_cont.rsample()  # Reparameterized sample
+            a_cont = dist_cont.rsample()  # Reparameterized sample
         
-        # Squash to [0, 1] via tanh
-        a_cont = 0.5 * (torch.tanh(a_cont_raw) + 1.0)  # [B, K]
+        # Clamp to valid range [0, sigmoid_scale_factor]
+        a_cont = torch.clamp(a_cont, 0.0, self.sigmoid_scale_factor)  # [B, K]
         
-        # Log-prob (pre-tanh space, no Jacobian correction for simplicity)
-        logp_cont_raw = dist_cont.log_prob(a_cont_raw).sum(dim=-1)  # [B]
+        # Log-prob (in sigmoid-scaled space)
+        logp_cont_raw = dist_cont.log_prob(a_cont).sum(dim=-1)  # [B]
         
         # STEP 2: Apply action mask if provided
         # Mask is applied to logits: masked_logits = logits + log(mask)
@@ -294,7 +299,8 @@ class RecurrentActorCritic(nn.Module):
         
         # Compute heads
         logits_disc = self.discrete_head(gru_out)  # [T, B, n_discrete]
-        mu = self.continuous_mu(gru_out)  # [T, B, k_doses]
+        mu_raw = self.continuous_head(gru_out)  # [T, B, k_doses]
+        mu = torch.sigmoid(mu_raw) * self.sigmoid_scale_factor  # [T, B, k_doses] in [0, sigmoid_scale_factor]
         std = torch.exp(self.continuous_log_std).expand_as(mu)  # [T, B, k_doses]
         value = self.value_head(gru_out).squeeze(-1)  # [T, B]
         
@@ -311,14 +317,12 @@ class RecurrentActorCritic(nn.Module):
         logp_disc = dist_disc.log_prob(a_disc)  # [T, B]
         entropy_disc = dist_disc.entropy()  # [T, B]
         
-        # Continuous distribution
-        # Need to invert tanh squashing: a_cont = 0.5 * (tanh(a_raw) + 1)
-        # => a_raw = atanh(2 * a_cont - 1)
-        a_cont_clamped = torch.clamp(a_cont, 0.01, 0.99)  # Avoid atanh singularities
-        a_cont_raw = torch.atanh(2.0 * a_cont_clamped - 1.0)  # [T, B, K]
+        # Continuous distribution (sigmoid-scaled space)
+        # a_cont is already in [0, sigmoid_scale_factor] range
+        a_cont_clamped = torch.clamp(a_cont, 0.0, self.sigmoid_scale_factor)  # Ensure valid range
         
         dist_cont = Normal(mu, std)
-        logp_cont_raw = dist_cont.log_prob(a_cont_raw).sum(dim=-1)  # [T, B]
+        logp_cont_raw = dist_cont.log_prob(a_cont_clamped).sum(dim=-1)  # [T, B]
         entropy_cont = dist_cont.entropy().sum(dim=-1)  # [T, B]
         
         # Mask by DOSE action

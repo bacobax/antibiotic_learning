@@ -4,7 +4,7 @@
 environment:
   max_steps: 256
   k_doses: 3
-  device: "cuda"
+  device: "mps"
   dtype: "float32"
 
   # Timing and freshness thresholds
@@ -56,14 +56,14 @@ environment:
       enabled: true
       target_population: 100
       kernel_type: "laplace"                 # "gaussian" or "laplace"
-      kernel_peak_reward: 50.0                 # R: peak reward at target
-      kernel_max_penalty: 0.001                 # M: maximum penalty (min value -M)
-      kernel_zero_distance: 100.0              # distance where kernel equals 0
+      kernel_peak_reward: 90.0                 # R: peak reward at target
+      kernel_max_penalty: 1.0                 # M: maximum penalty (min value -M)
+      kernel_zero_distance: 80.0              # distance where kernel equals 0
     
     # Survival bonus (per-step reward for staying alive)
     survival_bonus:
       enabled: true
-      base_bonus: 0.3
+      base_bonus: 0.5
       scaling_type: "linear"                  # "constant", "linear", "exponential"
       scaling_factor: 0.001
       max_bonus: 1.0
@@ -118,11 +118,12 @@ actions:
 
 # Model architecture
 model:
-  hidden_dim: 512
+  hidden_dim: 256
   rnn_layers: 2
   n_discrete: 4
   dose_action_index: 3
   k_doses: 3
+  sigmoid_scale_factor: 1.0
 
 # PPO hyperparameters
 ppo:
@@ -145,5 +146,5 @@ training:
   checkpoint_interval: 50
   log_interval: 2
   save_dir: "./checkpoints"
-  experiment_name: "descouraged_seq"
-  save_checkpoints_per_run: false
+  experiment_name: "new_reward_system"
+  save_checkpoints_per_run: true
