@@ -32,15 +32,48 @@ actions:
 
 # Environment parameters
 environment:
-  target_population: 100
-  budget_init: 100
   max_steps: 1000
+  k_doses: 3
+  device: "cpu"
+  dtype: "float32"
   
-  # Reward shaping weights
-  reward_weights:
-    population: 0.5      # weight for population control term
-    resistance: 0.05      # weight for resistance reduction term
-    cost: 0.05          # weight for cost penalty
+  # Reward configuration (organized by category)
+  rewards:
+    # Population-based rewards
+    population:
+      target_population: 100
+      population_norm: 1000.0
+      w_population_maintenance: 0.01    # Weight for maintenance penalty
+      noop_band_factor: 0.02            # Deadband around target for NOOP
+      noop_reward_magnitude: 0.01       # NOOP shaping magnitude
+    
+    # Dose efficacy rewards
+    dose:
+      w_pop: 0.5                        # Weight for population control term
+      w_genome: 0.05                    # Weight for resistance reduction term
+      w_cost: 0.05                      # Weight for cost penalty
+    
+    # Budget management
+    budget:
+      budget_init: 100.0
+      budget_norm: 100.0
+      budget_penalty: 10.0              # Penalty when budget reaches 0
+    
+    # Survival bonus reward (encourages longer episodes)
+    survival_bonus:
+      enabled: true
+      base_bonus: 0.01                  # Base bonus per step
+      scaling_type: "constant"          # "constant", "linear", or "exponential"
+      scaling_factor: 0.1               # Multiplier for linear/exponential scaling
+      max_bonus: 0.1                    # Maximum bonus cap
+    
+    # Budget conservation reward (encourages efficient spending)
+    budget_conservation:
+      enabled: true
+      weight: 0.01                      # Overall weight for budget conservation
+      spending_penalty_factor: 1.0      # Penalty multiplier for spending rate
+      reserve_bonus_threshold: 0.5      # Budget fraction for reserve bonus (50%)
+      reserve_bonus_magnitude: 0.005    # Bonus when above threshold
 
 # Example with custom costs:
 # You can uncomment and modify these sections to change behavior

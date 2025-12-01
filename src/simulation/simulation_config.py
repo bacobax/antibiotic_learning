@@ -18,18 +18,22 @@ GRID_RES = 200                      # resolution for nutrient & antibiotic field
 # Simulation Parameters
 # -----------------------
 # Number of bacteria per type at initialization
-BACTERIA_PER_TYPE = 20
+BACTERIA_PER_TYPE = 50
 INITIAL_BACTERIA = None
 FOOD_DIFFUSION_SIGMA = 1.0 #UNUSED          # for gaussian_filter diffusion approximation 
 BACTERIA_SPEED = 1                # scaling factor for bacterium movement speed
 MUTATION_STD = 0.03
+
+# NOOP Action Reward Shaping
+NOOP_BAND_FACTOR = 0.02           # deadband around target as fraction of population_norm (~2%)
+NOOP_REWARD_MAGNITUDE = 0.0      # small shaping magnitude for NOOP action
 
 # Food Patch Configuration
 FOOD_PATCH_COUNT = 120                # number of food patches to spawn
 FOOD_PATCH_AMPLITUDE_MIN = 0.2      # minimum food concentration per patch
 FOOD_PATCH_AMPLITUDE_MAX = 0.8      # maximum food concentration per patch
 FOOD_PATCH_SIGMA_MIN = 3            # minimum patch size (smaller = more concentrated)
-FOOD_PATCH_SIGMA_MAX = 10            # maximum patch size (larger = more spread out)
+FOOD_PATCH_SIGMA_MAX = 15            # maximum patch size (larger = more spread out)
 
 # Gene Transfer Parameters
 HGT_RADIUS = 1.5                    # gene transfer radius between bacteria

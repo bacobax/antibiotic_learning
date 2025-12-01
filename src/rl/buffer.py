@@ -25,6 +25,14 @@ class RolloutBuffer:
         reward: Rewards [T, B]
         done: Done flags [T, B]
         h_in: Initial hidden states [T, layers, B, hidden_dim]
+        pred_next_pop: Predicted next population [T, B]
+        population_counted_norm: True population revealed by COUNT [T, B]
+        count_mask: COUNT action mask [T, B]
+        action_mask: Action masks for hybrid masking [T, B, n_discrete]
+        prev_action_onehot: Previous action one-hot vectors [T, B, n_discrete]
+        prev_action_cont: Previous dose vectors [T, B, K]
+        prev_pred_next_pop: Previous predicted populations [T, B, 1]
+        pred_action_input: Concatenated action features for prediction head [T, B, n_discrete + K]
     """
     
     def __init__(self):
@@ -38,6 +46,14 @@ class RolloutBuffer:
         self.reward: List[torch.Tensor] = []
         self.done: List[torch.Tensor] = []
         self.h_in: List[torch.Tensor] = []
+        self.pred_next_pop: List[torch.Tensor] = []
+        self.population_counted_norm: List[torch.Tensor] = []
+        self.count_mask: List[torch.Tensor] = []
+        self.action_mask: List[torch.Tensor] = []
+        self.prev_a_disc_onehot: List[torch.Tensor] = []
+        self.prev_a_cont: List[torch.Tensor] = []
+        self.pred_action_input: List[torch.Tensor] = []
+        self.prev_pred_next_pop: List[torch.Tensor] = []
     
     def add(
         self,
@@ -50,6 +66,14 @@ class RolloutBuffer:
         reward: torch.Tensor,
         done: torch.Tensor,
         h_in: torch.Tensor,
+        pred_next_pop: torch.Tensor,
+        population_counted_norm: torch.Tensor,
+        count_mask: torch.Tensor,
+        action_mask: torch.Tensor,
+        prev_action_onehot: torch.Tensor,
+        prev_action_cont: torch.Tensor,
+        pred_action_input: torch.Tensor,
+        prev_pred_next_pop: torch.Tensor,
     ) -> None:
         """
         Add one timestep of data.
@@ -66,6 +90,14 @@ class RolloutBuffer:
             reward: Rewards, shape [B]
             done: Done flags, shape [B]
             h_in: Hidden states at step start, shape [layers, B, hidden_dim]
+            pred_next_pop: Predicted next population, shape [B]
+            population_counted_norm: True population revealed by COUNT (normalized), shape [B]
+            count_mask: COUNT action mask (1.0 if COUNT, 0.0 otherwise), shape [B]
+            action_mask: Action mask for hybrid masking, shape [B, n_discrete]
+            prev_action_onehot: Previous action one-hot encoding, shape [B, n_discrete]
+            prev_action_cont: Previous dose vector, shape [B, K]
+            pred_action_input: Current action features for prediction head, shape [B, n_discrete + K]
+            prev_pred_next_pop: Previous predicted population supplied to GRU, shape [B, 1]
         """
         self.obs.append(obs.cpu())
         self.a_disc.append(a_disc.cpu())
@@ -76,6 +108,14 @@ class RolloutBuffer:
         self.reward.append(reward.cpu())
         self.done.append(done.cpu())
         self.h_in.append(h_in.cpu())
+        self.pred_next_pop.append(pred_next_pop.cpu())
+        self.population_counted_norm.append(population_counted_norm.cpu())
+        self.count_mask.append(count_mask.cpu())
+        self.action_mask.append(action_mask.cpu())
+        self.prev_a_disc_onehot.append(prev_action_onehot.cpu())
+        self.prev_a_cont.append(prev_action_cont.cpu())
+        self.pred_action_input.append(pred_action_input.cpu())
+        self.prev_pred_next_pop.append(prev_pred_next_pop.cpu())
     
     def stacked(self) -> Dict[str, torch.Tensor]:
         """
@@ -92,10 +132,25 @@ class RolloutBuffer:
                 reward: [T, B]
                 done: [T, B]
                 h_in: [T, layers, B, hidden_dim]
+                pred_next_pop: [T, B]
+                population_counted_norm: [T, B]
+                count_mask: [T, B]
+                action_mask: [T, B, n_discrete]
+                prev_action_onehot: [T, B, n_discrete]
+                prev_action_cont: [T, B, K]
+                prev_action_encoding: [T, B, n_discrete + K + 1]
+                pred_action_input: [T, B, n_discrete + K]
+                prev_pred_next_pop: [T, B, 1]
         """
         if len(self.obs) == 0:
             raise ValueError("Buffer is empty")
         
+        prev_action_onehot = torch.stack(self.prev_a_disc_onehot, dim=0)
+        prev_action_cont = torch.stack(self.prev_a_cont, dim=0)
+        pred_action_input = torch.stack(self.pred_action_input, dim=0)
+        prev_pred_next_pop = torch.stack(self.prev_pred_next_pop, dim=0)
+        prev_action_encoding = torch.cat([prev_action_onehot, prev_action_cont, prev_pred_next_pop], dim=-1)
+
         return {
             "obs": torch.stack(self.obs, dim=0),  # [T, B, obs_dim]
             "a_disc": torch.stack(self.a_disc, dim=0),  # [T, B]
@@ -106,6 +161,15 @@ class RolloutBuffer:
             "reward": torch.stack(self.reward, dim=0),  # [T, B]
             "done": torch.stack(self.done, dim=0),  # [T, B]
             "h_in": torch.stack(self.h_in, dim=0),  # [T, layers, B, hidden_dim]
+            "pred_next_pop": torch.stack(self.pred_next_pop, dim=0),  # [T, B]
+            "population_counted_norm": torch.stack(self.population_counted_norm, dim=0),  # [T, B]
+            "count_mask": torch.stack(self.count_mask, dim=0),  # [T, B]
+            "action_mask": torch.stack(self.action_mask, dim=0),  # [T, B, n_discrete]
+            "prev_action_onehot": prev_action_onehot,  # [T, B, n_discrete]
+            "prev_action_cont": prev_action_cont,  # [T, B, K]
+            "prev_action_encoding": prev_action_encoding,  # [T, B, n_discrete + K + 1]
+            "pred_action_input": pred_action_input,  # [T, B, n_discrete + K]
+            "prev_pred_next_pop": prev_pred_next_pop,  # [T, B, 1]
         }
     
     def clear(self) -> None:
@@ -119,6 +183,14 @@ class RolloutBuffer:
         self.reward.clear()
         self.done.clear()
         self.h_in.clear()
+        self.pred_next_pop.clear()
+        self.population_counted_norm.clear()
+        self.count_mask.clear()
+        self.action_mask.clear()
+        self.prev_a_disc_onehot.clear()
+        self.prev_a_cont.clear()
+        self.pred_action_input.clear()
+        self.prev_pred_next_pop.clear()
     
     def __len__(self) -> int:
         """Return number of timesteps stored."""

@@ -39,7 +39,9 @@ class TrainingLogger:
         
         self.logger.info(f"Logging to: {self.log_dir}")
         if self.tb_writer:
-            self.logger.info(f"TensorBoard: {self.log_dir / experiment_name}")
+            tb_log_dir = Path(self.tb_writer.log_dir)
+            self.logger.info(f"TensorBoard logs: {tb_log_dir}")
+            self.logger.info(f"View with: tensorboard --logdir={tb_log_dir.parent}")
     
     def _setup_python_logger(self) -> logging.Logger:
         """Setup Python logger with console and file output."""
@@ -68,9 +70,14 @@ class TrainingLogger:
         """Setup TensorBoard writer if available."""
         try:
             from torch.utils.tensorboard import SummaryWriter
-            tb_dir = self.log_dir / experiment_name
+            from datetime import datetime
+            
+            # Create timestamped directory for this run
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            tb_dir = self.log_dir / experiment_name / timestamp
             tb_dir.mkdir(parents=True, exist_ok=True)
-            return SummaryWriter(str(tb_dir))
+            writer = SummaryWriter(str(tb_dir))
+            return writer
         except ImportError:
             self.logger.warning("TensorBoard not installed. Skipping TensorBoard logging.")
             return None
@@ -105,7 +112,7 @@ class TrainingLogger:
                 if self.tb_writer:
                     self.tb_writer.add_scalar("best_reward", self.best_reward, update)
         
-        # Log to TensorBoard
+        # Log to TensorBoard (without console prints)
         if self.tb_writer:
             for name, value in all_metrics.items():
                 if isinstance(value, (int, float)) and not np.isnan(value) and not np.isinf(value):
@@ -165,9 +172,43 @@ class TrainingLogger:
             f"Reward: {rollout_metrics['mean_episode_reward']:7.2f} "
             f"(±{rollout_metrics['std_episode_reward']:5.2f}) | "
             f"Episodes: {rollout_metrics['num_episodes']:3d} | "
-            f"DOSE: {rollout_metrics.get('dose_action_percentage', 0.0):.1f}% | "
-            f"Actor Loss: {train_stats['loss_actor']:.4f} | "
-            f"Critic Loss: {train_stats['loss_critic']:.4f}"
+            f"Pop: {rollout_metrics.get('mean_population_per_episode', 0):.0f} | "
+            f"Budget: {rollout_metrics.get('mean_budget_remaining', 0.0):.1f} | "
+            f"Loss: A={train_stats['loss_actor']:.4f} C={train_stats['loss_critic']:.4f}"
+        )
+        
+        # Action distribution
+        self.logger.info(
+            f"  Actions: "
+            f"DOSE={rollout_metrics.get('dose_action_percentage', 0.0):5.1f}% | "
+            f"COUNT={rollout_metrics.get('count_action_percentage', 0.0):5.1f}% | "
+            f"SEQ={rollout_metrics.get('sequencing_action_percentage', 0.0):5.1f}% | "
+            f"NOOP={rollout_metrics.get('noop_action_percentage', 0.0):5.1f}%"
+        )
+        
+        # Reward component breakdown (new simplified components)
+        total_reward = (
+            rollout_metrics.get('rewards/pre', 0.0) +
+            rollout_metrics.get('rewards/post_penalties', 0.0) +
+            rollout_metrics.get('rewards/kernel_maintenance', 0.0) +
+            rollout_metrics.get('rewards/survival_bonus', 0.0) +
+            rollout_metrics.get('rewards/prediction', 0.0) +
+            rollout_metrics.get('rewards/early_termination_penalty', 0.0)
+        )
+        
+        self.logger.info(
+            f"  Rewards: "
+            f"Pre={rollout_metrics.get('rewards/pre', 0.0):+6.2f} | "
+            f"PostPen={rollout_metrics.get('rewards/post_penalties', 0.0):+6.2f} | "
+            f"Kernel={rollout_metrics.get('rewards/kernel_maintenance', 0.0):+6.2f} | "
+            f"Survival={rollout_metrics.get('rewards/survival_bonus', 0.0):+6.2f} | "
+            f"Predict={rollout_metrics.get('rewards/prediction', 0.0):+6.2f} | "
+            f"EarlyTerm={rollout_metrics.get('rewards/early_termination_penalty', 0.0):+6.2f}"
+        )
+        self.logger.info(
+            f"           "
+            f"TOTAL (calculated)={total_reward:+7.2f} | "
+            f"TOTAL (reported)={rollout_metrics.get('rewards/total', 0.0):+7.2f}"
         )
         
         # Debug info
