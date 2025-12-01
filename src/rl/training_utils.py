@@ -111,6 +111,7 @@ def rollout(
     episode_reward_survival_bonus = []
     episode_reward_prediction = []
     episode_reward_early_termination_penalty = []
+    episode_reward_cost_penalty = []
     
     # Early termination tracking
     early_termination_count = 0
@@ -134,6 +135,7 @@ def rollout(
     current_reward_survival_bonus = 0.0
     current_reward_prediction = 0.0
     current_reward_early_termination_penalty = 0.0
+    current_reward_cost_penalty = 0.0
     
     current_pred_error = 0.0
     
@@ -200,6 +202,7 @@ def rollout(
         current_reward_survival_bonus += info.get('reward_survival_bonus', 0.0)
         current_reward_prediction += info.get('reward_prediction', 0.0)
         current_reward_early_termination_penalty += info.get('reward_early_termination_penalty', 0.0)
+        current_reward_cost_penalty += info.get('reward_cost_penalty', 0.0)
         
         # Track early termination occurrences
         if info.get('early_termination_triggered', False):
@@ -249,6 +252,7 @@ def rollout(
             episode_reward_survival_bonus.append(current_reward_survival_bonus)
             episode_reward_prediction.append(current_reward_prediction)
             episode_reward_early_termination_penalty.append(current_reward_early_termination_penalty)
+            episode_reward_cost_penalty.append(current_reward_cost_penalty)
             
             # Store prediction metrics
             episode_pred_error.append(current_pred_error)
@@ -281,6 +285,7 @@ def rollout(
             current_reward_critical_noop_penalty = 0.0
             current_reward_prediction = 0.0
             current_reward_early_termination_penalty = 0.0
+            current_reward_cost_penalty = 0.0
             current_pred_error = 0.0
             
             obs = env.reset()
@@ -330,6 +335,7 @@ def rollout(
         "rewards/survival_bonus": float(np.mean(episode_reward_survival_bonus)) if episode_reward_survival_bonus else 0.0,
         "rewards/prediction": float(np.mean(episode_reward_prediction)) if episode_reward_prediction else 0.0,
         "rewards/early_termination_penalty": float(np.mean(episode_reward_early_termination_penalty)) if episode_reward_early_termination_penalty else 0.0,
+    "rewards/cost_penalty": float(np.mean(episode_reward_cost_penalty)) if episode_reward_cost_penalty else 0.0,
         "rewards/total": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
         # Prediction metrics
         "prediction/error": float(np.mean(episode_pred_error)) if episode_pred_error else 0.0,

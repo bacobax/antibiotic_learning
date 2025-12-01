@@ -99,6 +99,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
         self.reward_survival_bonus_history = []
         self.reward_prediction_history = []
         self.reward_early_termination_penalty_history = []
+        self.reward_cost_penalty_history = []
         self.early_termination_count = 0  # Track how many episodes ended early
         
         # Create central widget
@@ -324,6 +325,7 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             self.reward_survival_bonus_history.append(reward_components.get('survival_bonus', 0.0))
             self.reward_prediction_history.append(reward_components.get('prediction', 0.0))
             self.reward_early_termination_penalty_history.append(reward_components.get('early_termination_penalty', 0.0))
+            self.reward_cost_penalty_history.append(reward_components.get('cost_penalty', 0.0))
             
             # Track early termination occurrences
             if reward_components.get('early_termination_triggered', False):
@@ -375,11 +377,14 @@ class TrainingControlPanel(QtWidgets.QMainWindow):
             if any(x != 0 for x in self.reward_early_termination_penalty_history):
                 self.reward_components_ax.plot(self.episode_numbers, self.reward_early_termination_penalty_history,
                                                label='Early Term Penalty', linewidth=1.5, alpha=0.9)
+            if any(x != 0 for x in self.reward_cost_penalty_history):
+                self.reward_components_ax.plot(self.episode_numbers, self.reward_cost_penalty_history,
+                                               label='Cost Penalty', linewidth=1.5, alpha=0.9)
             
             self.reward_components_ax.set_xlabel('Episode')
             self.reward_components_ax.set_ylabel('Reward Value')
             self.reward_components_ax.set_title('Reward Component Breakdown')
-            self.reward_components_ax.legend(loc='best', fontsize=8, ncol=2)
+            self.reward_components_ax.legend(loc='best', fontsize=8, ncol=3)
             self.reward_components_ax.grid(True, alpha=0.3)
             self.reward_components_ax.axhline(y=0, color='k', linestyle='--', linewidth=0.5, alpha=0.5)
             self.reward_components_fig.tight_layout()
@@ -420,6 +425,7 @@ DOSE:     {action_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_total', {}).g
         prediction_reward = current_rewards.get('prediction', 0.0)
         pre_reward = current_rewards.get('pre', 0.0)
         post_penalties = current_rewards.get('post_penalties', 0.0)
+    cost_penalty = current_rewards.get('cost_penalty', 0.0)
         
         text = f"""Step: {stats.get('step', 0)}
 Episode Return: {stats.get('episode_return', 0):.2f}
@@ -431,6 +437,7 @@ Predicted Pop: {stats.get('prediction', 0):.1f}
 Current Episode Rewards:
     Pre: {pre_reward:.3f}
     Post Penalties: {post_penalties:.3f}
+    Cost Penalty: {cost_penalty:.3f}
     Kernel Maint.: {current_rewards.get('kernel_maintenance', 0.0):.3f}
     Survival Bonus: {current_rewards.get('survival_bonus', 0.0):.3f}
     Prediction: {prediction_reward:.3f}
@@ -610,6 +617,7 @@ class TrainingVisualizer:
             'prediction': [],
             'early_termination_penalty': [],
             'pred_error': [],  # Diagnostic only
+            'cost_penalty': [],
         }
         
         # Current episode reward component accumulators (new simplified structure)
@@ -621,6 +629,7 @@ class TrainingVisualizer:
             'prediction': 0.0,
             'early_termination_penalty': 0.0,
             'pred_error': 0.0,  # Diagnostic only
+            'cost_penalty': 0.0,
         }
         
         # Budget tracking for rollout metrics
@@ -862,6 +871,7 @@ class TrainingVisualizer:
         self.current_episode_rewards['survival_bonus'] += info.get('reward_survival_bonus', 0.0)
         self.current_episode_rewards['prediction'] += info.get('reward_prediction', 0.0)
         self.current_episode_rewards['early_termination_penalty'] += info.get('reward_early_termination_penalty', 0.0)
+        self.current_episode_rewards['cost_penalty'] += info.get('reward_cost_penalty', 0.0)
         
         # Build prediction head input features (matches training rollout)
         a_disc_onehot = F.one_hot(a_disc, num_classes=self.agent.model.n_discrete).float()
@@ -921,6 +931,7 @@ class TrainingVisualizer:
                 'early_termination_penalty': self.current_episode_rewards['early_termination_penalty'],
                 'early_termination_triggered': info.get('early_termination_triggered', False),
                 'pred_error': self.current_episode_rewards['pred_error'],
+                'cost_penalty': self.current_episode_rewards['cost_penalty'],
             }
             
             # Reset episode reward accumulators
@@ -997,6 +1008,7 @@ class TrainingVisualizer:
             "rewards/kernel_maintenance": float(np.mean(self.rollout_reward_components['kernel_maintenance'])) if self.rollout_reward_components['kernel_maintenance'] else 0.0,
             "rewards/survival_bonus": float(np.mean(self.rollout_reward_components['survival_bonus'])) if self.rollout_reward_components['survival_bonus'] else 0.0,
             "rewards/prediction": float(np.mean(self.rollout_reward_components['prediction'])) if self.rollout_reward_components['prediction'] else 0.0,
+            "rewards/cost_penalty": float(np.mean(self.rollout_reward_components['cost_penalty'])) if self.rollout_reward_components['cost_penalty'] else 0.0,
             "rewards/total": float(np.mean(self.rollout_episode_returns)) if self.rollout_episode_returns else 0.0,
             # Prediction metrics
             "prediction/error": float(np.mean(self.rollout_reward_components['pred_error'])) if self.rollout_reward_components['pred_error'] else 0.0,
