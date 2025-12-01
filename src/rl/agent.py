@@ -55,7 +55,7 @@ class RLAgent:
             from torch.distributions import Normal
             dist_cont = Normal(mu, std)
             a_cont_raw = dist_cont.rsample()
-            a_cont = 0.5 * (torch.tanh(a_cont_raw) + 1.0)  # [1, K]
+            a_cont = torch.sigmoid(a_cont_raw) * self.model.sigmoid_scale_factor  # [1, K]
             
             # STEP 2: Compute action mask using the continuous action
             action_mask = None

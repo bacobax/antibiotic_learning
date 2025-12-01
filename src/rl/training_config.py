@@ -43,6 +43,7 @@ class PPOConfig:
     # Architecture
     hidden_dim: int = 256
     rnn_layers: int = 1
+    sigmoid_scale_factor: float = 1.0
     
     # PPO hyperparameters
     gamma: float = 0.99

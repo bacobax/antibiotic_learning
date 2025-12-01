@@ -358,7 +358,8 @@ def _initialize_agent(cfg: PPOConfig, env: PetriEnvWrapper) -> RLAgent:
         k_doses=cfg.k_doses,
         hidden_dim=cfg.hidden_dim,
         rnn_layers=cfg.rnn_layers,
-        dose_action_index=cfg.dose_action_index
+        dose_action_index=cfg.dose_action_index,
+        sigmoid_scale_factor=cfg.sigmoid_scale_factor,
     )
 
     agent = RLAgent(model, cfg.device, env=env).with_trainer(cfg)
@@ -800,7 +801,6 @@ def _create_environment(
     env = PetriEnvWrapper(
         mesa_model_factory=BacteriaModel,
         k_doses=config.environment.k_doses,
-        scale_dose=lambda x: x / 2 / config.environment.k_doses,
         max_steps=config.environment.max_steps,
         
         # Timing and freshness thresholds
@@ -819,6 +819,7 @@ def _create_environment(
         dose_cost=config.actions.dose_cost,
         dose_cost_per_unit=config.actions.dose_cost_per_unit,
         count_cost=config.actions.count_cost,
+        sigmoid_scale_factor=config.model.sigmoid_scale_factor,
         
         # Pre-step reward scalars (informed dosing)
         penalty_informed_dosing_under=penalty_informed_dosing_under,
@@ -910,6 +911,7 @@ def _build_ppo_config(env: PetriEnvWrapper, config: CompleteConfig) -> PPOConfig
         k_doses=config.environment.k_doses,
         hidden_dim=config.model.hidden_dim,
         rnn_layers=config.model.rnn_layers,
+        sigmoid_scale_factor=config.model.sigmoid_scale_factor,
         gamma=config.ppo.gamma,
         gae_lambda=config.ppo.gae_lambda,
         clip_eps=config.ppo.clip_eps,

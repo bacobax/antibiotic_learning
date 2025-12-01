@@ -191,6 +191,7 @@ class ModelConfig:
     n_discrete: int
     dose_action_index: int
     k_doses: int
+    sigmoid_scale_factor: float = 1.0
 
 
 @dataclass
@@ -368,6 +369,7 @@ def _get_default_config() -> Dict[str, Any]:
             "n_discrete": 4,
             "dose_action_index": 3,
             "k_doses": 3,
+            "sigmoid_scale_factor": 1.0,
         },
         "ppo": {
             "gamma": 0.99,
@@ -691,7 +693,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
                         raise ValueError("Missing required hparam 'cost_per_unit' in actions.dose")
 
             # Model
-            _strict_require(["hidden_dim", "rnn_layers", "n_discrete", "dose_action_index", "k_doses"], model, "model")
+            _strict_require(["hidden_dim", "rnn_layers", "n_discrete", "dose_action_index", "k_doses", "sigmoid_scale_factor"], model, "model")
 
             # PPO
             _strict_require([

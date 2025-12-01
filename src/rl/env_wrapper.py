@@ -77,7 +77,6 @@ class PetriEnvWrapper:
         self,
         mesa_model_factory: Callable[[], Any],
         k_doses: int,
-        scale_dose: Optional[Callable[[np.ndarray], np.ndarray]] = None,
         max_steps: int = 1000,
         
         # ===== Timing and freshness thresholds =====
@@ -98,6 +97,7 @@ class PetriEnvWrapper:
         dose_cost: float = 2.0,
         dose_cost_per_unit: float = 2.0,
         count_cost: float = 0.5,
+        sigmoid_scale_factor: float = 1.0,
         
         # ===== Pre-step reward scalars =====
         # Informed dosing
@@ -161,7 +161,7 @@ class PetriEnvWrapper:
     ):
         self.mesa_model_factory = mesa_model_factory
         self.k_doses = k_doses
-        self.scale_dose = scale_dose if scale_dose is not None else (lambda x: x)
+
         self.max_steps = max_steps
         self.episode_length = max_steps
         
@@ -182,6 +182,7 @@ class PetriEnvWrapper:
         self.dose_cost = float(dose_cost)
         self.dose_cost_per_unit = float(dose_cost_per_unit)
         self.count_cost = float(count_cost)
+        self.sigmoid_scale_factor = float(sigmoid_scale_factor)
         
         # ===== Environment parameters =====
         self.target_population = float(target_population)
@@ -331,7 +332,6 @@ class PetriEnvWrapper:
         self.ts_last_dose_I: Optional[int] = None
         self.ts_last_dose_A: Optional[int] = None
         self._dose_update_buffer: Optional[np.ndarray] = None
-        self.max_dose_values = self._infer_max_dose_values()
         
         # ===== Reward tracking (for logging) =====
         self.last_pre_reward = 0.0
@@ -396,7 +396,6 @@ class PetriEnvWrapper:
         self.ts_last_dose_I = None
         self.ts_last_dose_A = None
         self._dose_update_buffer = None
-        self.max_dose_values = self._infer_max_dose_values()
 
         return self._build_observation()
 
@@ -608,12 +607,12 @@ class PetriEnvWrapper:
         elif a_discrete == ACTION_SEQUENCING:
             action_cost = self.sequencing_cost
         elif a_discrete == ACTION_DOSE:
-            scaled_doses = self.scale_dose(a_cont)
-            action_cost = self.dose_cost + np.sum(scaled_doses) * self.dose_cost_per_unit
+
+            action_cost = self.dose_cost + np.sum(a_cont) * self.dose_cost_per_unit
             # Apply antibiotics to environment
-            self._apply_antibiotics(scaled_doses)
+            self._apply_antibiotics(a_cont)
             # Update dose history for observation
-            self._update_dose_history(scaled_doses)
+            self._update_dose_history(a_cont)
         
         self.budget -= action_cost
         
@@ -837,20 +836,7 @@ class PetriEnvWrapper:
             amt = float(scaled_doses[i])
             self.model.apply_antibiotic(ab_names[i], amt)
 
-    def _infer_max_dose_values(self) -> np.ndarray:
-        """Estimate per-antibiotic max doses using the scaling function."""
-        try:
-            ones = np.ones(self.k_doses, dtype=np.float32)
-            scaled = np.asarray(self.scale_dose(ones), dtype=np.float32)
-        except Exception:
-            scaled = np.ones(self.k_doses, dtype=np.float32)
-        if scaled.shape[0] < self.k_doses:
-            padded = np.ones(self.k_doses, dtype=np.float32)
-            padded[:scaled.shape[0]] = scaled
-            scaled = padded
-        elif scaled.shape[0] > self.k_doses:
-            scaled = scaled[: self.k_doses]
-        return np.maximum(scaled, 1e-6)
+
 
     # -------------------------
     # Observation management (gated)
@@ -989,7 +975,7 @@ class PetriEnvWrapper:
         for value, timestamp, idx in dose_state:
             ts_exists = timestamp is not None
             has_last_dose = 1.0 if ts_exists else 0.0
-            max_dose = self.max_dose_values[idx] if idx < self.max_dose_values.shape[0] else 1.0
+            max_dose = self.sigmoid_scale_factor if self.sigmoid_scale_factor > 0 else 1.0
             norm = (float(value) / max_dose) if ts_exists and max_dose > 0 else 0.0
             norm = float(np.clip(norm, 0.0, 1.0))
             age_norm = self._age_norm(timestamp)
@@ -1109,10 +1095,8 @@ class PetriEnvWrapper:
             mask[ACTION_SEQUENCING] = 1.0
         
         # DOSE validity (depends on the specific continuous action)
-        # Clip continuous action to [0,1] and scale
-        a_cont_clipped = np.clip(a_cont, 0.0, 1.0)
-        scaled = self.scale_dose(a_cont_clipped)
-        variable_cost = float(np.sum(scaled) * self.dose_cost_per_unit)
+        # a_cont is already in final scaled range from model's sigmoid
+        variable_cost = float(np.sum(a_cont) * self.dose_cost_per_unit)
         total_dose_cost = self.dose_cost + variable_cost
         
         if self.budget >= total_dose_cost:
