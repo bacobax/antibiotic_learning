@@ -290,8 +290,43 @@ class ControlPanel:
             cb.stateChanged.connect(lambda state, k=key: self._on_layer_cb(k, state))
             grid.addWidget(cb, i // 3, i % 3)
             self.layer_checkboxes[key] = cb
+
+        # Add a Hide/Show All Fields toggle button spanning full width
+        self.fields_toggle_btn = QtWidgets.QPushButton()
+        self.fields_toggle_btn.clicked.connect(self._toggle_all_fields)
+        next_row = (len(layers) + 2) // 3  # rows used by the checkboxes
+        grid.addWidget(self.fields_toggle_btn, next_row, 0, 1, 3)
         group.setLayout(grid)
         layout.addWidget(group)
+        # Initialize button label
+        self._update_fields_toggle_button_label()
+
+    def _toggle_all_fields(self):
+        """Toggle visibility of all overlays (agents and fields)."""
+        if QtWidgets is None:
+            return
+        field_layers = ("agents", "food", "antibiotic", "qs", "biofilm")
+        # Determine target: hide if any is visible, otherwise show all
+        any_visible = any(
+            self.layer_checkboxes.get(k).isChecked() for k in field_layers if k in self.layer_checkboxes
+        )
+        target = not any_visible
+        # Apply to checkboxes (will trigger callbacks)
+        for k in field_layers:
+            if k in self.layer_checkboxes:
+                self.layer_checkboxes[k].setChecked(target)
+        # Update button label
+        self._update_fields_toggle_button_label()
+
+    def _update_fields_toggle_button_label(self):
+        """Set the toggle button text based on current overall visibility state."""
+        if QtWidgets is None:
+            return
+        field_layers = ("agents", "food", "antibiotic", "qs", "biofilm")
+        any_visible = any(
+            self.layer_checkboxes.get(k).isChecked() for k in field_layers if k in self.layer_checkboxes
+        )
+        self.fields_toggle_btn.setText("Hide all" if any_visible else "Show all")
 
     def _on_layer_cb(self, layer, state):
         """Handle layer checkbox toggle."""
@@ -301,6 +336,11 @@ class ControlPanel:
                 self.on_layer_visibility_change(layer, visible)
             except Exception as exc:
                 print(f"Error toggling layer '{layer}': {exc}")
+        # Keep the toggle-all button label in sync when any layer changes
+        try:
+            self._update_fields_toggle_button_label()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Event handlers
