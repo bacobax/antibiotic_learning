@@ -270,19 +270,10 @@ def rollout(
             # Reset episode tracking
             current_episode_reward = 0.0
             current_episode_length = 0
-            current_reward_immediate = 0.0
-            current_reward_maintenance = 0.0
-            current_reward_budget_penalty = 0.0
-            current_reward_unaffordable_action_penalty = 0.0
-            current_reward_delayed = 0.0
+            current_reward_pre = 0.0
+            current_reward_post_penalties = 0.0
+            current_reward_kernel_maintenance = 0.0
             current_reward_survival_bonus = 0.0
-            current_reward_budget_conservation = 0.0
-            current_reward_regular_count_bonus = 0.0
-            current_reward_safe_behavior_bonus = 0.0
-            current_reward_informed_dose = 0.0
-            current_reward_count_population = 0.0
-            current_reward_critical_inaction_penalty = 0.0
-            current_reward_critical_noop_penalty = 0.0
             current_reward_prediction = 0.0
             current_reward_early_termination_penalty = 0.0
             current_reward_cost_penalty = 0.0

@@ -193,7 +193,8 @@ class TrainingLogger:
             rollout_metrics.get('rewards/kernel_maintenance', 0.0) +
             rollout_metrics.get('rewards/survival_bonus', 0.0) +
             rollout_metrics.get('rewards/prediction', 0.0) +
-            rollout_metrics.get('rewards/early_termination_penalty', 0.0)
+            rollout_metrics.get('rewards/early_termination_penalty', 0.0) +
+            rollout_metrics.get('rewards/cost_penalty', 0.0)
         )
         
         self.logger.info(
@@ -203,7 +204,8 @@ class TrainingLogger:
             f"Kernel={rollout_metrics.get('rewards/kernel_maintenance', 0.0):+6.2f} | "
             f"Survival={rollout_metrics.get('rewards/survival_bonus', 0.0):+6.2f} | "
             f"Predict={rollout_metrics.get('rewards/prediction', 0.0):+6.2f} | "
-            f"EarlyTerm={rollout_metrics.get('rewards/early_termination_penalty', 0.0):+6.2f}"
+            f"EarlyTerm={rollout_metrics.get('rewards/early_termination_penalty', 0.0):+6.2f} | "
+            f"Cost={rollout_metrics.get('rewards/cost_penalty', 0.0):+6.2f}"
         )
         self.logger.info(
             f"           "

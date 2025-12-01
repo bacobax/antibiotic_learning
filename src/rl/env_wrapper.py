@@ -727,11 +727,17 @@ class PetriEnvWrapper:
         # STEP 6: ADDITIONAL REWARDS
         # ==============================================
         
-        # Kernel-based population maintenance reward
+        # Kernel-based population maintenance reward (only when a COUNT delivers data)
         kernel_maintenance_reward = 0.0
-        if self.kernel_maintenance_enabled and self.kernel_maintenance_reward is not None:
+        if (
+            self.kernel_maintenance_enabled
+            and self.kernel_maintenance_reward is not None
+            and count_result_landed
+        ):
             kernel_maintenance_reward = self.kernel_maintenance_reward(true_population)
             self.last_kernel_maintenance_reward = kernel_maintenance_reward
+        else:
+            self.last_kernel_maintenance_reward = 0.0
         
         # Survival bonus
         survival_bonus = 0.0
