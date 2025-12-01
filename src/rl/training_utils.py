@@ -590,7 +590,28 @@ def _setup_logger_and_log_startup(
     logger.log_info(f"  - Target population: {rewards.population.target_population}")
     logger.log_info(f"  - Budget: {rewards.budget.budget_init}")
     logger.log_info(f"  - K doses (antibiotic types): {config.environment.k_doses}")
-    logger.log_info(f"  - Device: {config.environment.device}")
+    # Report device with CUDA details when relevant
+    try:
+        resolved_device = config.device_type
+    except Exception:
+        resolved_device = str(config.environment.device)
+    logger.log_info(f"  - Device: {resolved_device}")
+    try:
+        import torch
+        if isinstance(resolved_device, str) and resolved_device.startswith("cuda"):
+            cuda_available = torch.cuda.is_available()
+            logger.log_info(f"    - torch.cuda.is_available: {cuda_available}")
+            if cuda_available:
+                try:
+                    idx = torch.cuda.current_device()
+                    name = torch.cuda.get_device_name(idx)
+                    logger.log_info(f"    - Using GPU: cuda:{idx} ({name})")
+                except Exception:
+                    pass
+        elif resolved_device == "cpu":
+            logger.log_info("    - Running on CPU")
+    except Exception:
+        pass
     
     logger.log_info(f"Model Architecture:")
     logger.log_info(f"  - Hidden dim: {config.model.hidden_dim}")
@@ -900,7 +921,7 @@ def _build_ppo_config(env: PetriEnvWrapper, config: CompleteConfig) -> PPOConfig
         epochs=config.ppo.epochs,
         batch_seq_len=config.ppo.batch_seq_len,
         lr=config.ppo.lr,
-        device=config.environment.device,
+        device=config.device_type,
         seed=config.training.seed,
         dose_action_index=config.model.dose_action_index,
     )
