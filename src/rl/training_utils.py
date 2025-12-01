@@ -365,6 +365,51 @@ def _initialize_agent(cfg: PPOConfig, env: PetriEnvWrapper) -> RLAgent:
     return agent
 
 
+def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: TrainingLogger) -> int:
+    """
+    Load checkpoint state into an existing agent.
+    
+    Args:
+        agent: Agent to load checkpoint into
+        checkpoint_path: Path to checkpoint file
+        logger: Training logger
+        
+    Returns:
+        Update number from checkpoint
+    """
+    import sys
+    from .training_config import PPOConfig
+    
+    # Same module remapping as in load_agent_from_checkpoint
+    class ConfigModule:
+        PPOConfig = PPOConfig
+    
+    if "rl.config" not in sys.modules:
+        sys.modules["rl.config"] = ConfigModule()
+    
+    try:
+        checkpoint = torch.load(checkpoint_path, weights_only=False)
+    except ModuleNotFoundError as e:
+        if "rl.config" in str(e):
+            sys.modules["rl.config"] = ConfigModule()
+            checkpoint = torch.load(checkpoint_path, weights_only=False)
+        else:
+            raise
+    
+    # Load model state
+    agent.model.load_state_dict(checkpoint["model_state_dict"])
+    
+    # Load optimizer state if available
+    if "optimizer_state_dict" in checkpoint and agent.trainer:
+        agent.trainer.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        logger.log_debug("✓ Loaded optimizer state")
+    
+    update_number = checkpoint.get("update", 0)
+    logger.log_info(f"✓ Loaded checkpoint from update {update_number}")
+    
+    return update_number
+
+
 def _log_training_start(cfg: PPOConfig, total_updates: int, logger: TrainingLogger) -> None:
     """Log training initialization information."""
     logger.log_info(f"Starting PPO training for {total_updates} updates")
@@ -433,12 +478,12 @@ def _finalize_training(
     logger.close()
 
 
-def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: int, logger: TrainingLogger, checkpoint_interval: int = 50):
+def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: int, logger: TrainingLogger, checkpoint_interval: int = 50, starting_update: int = 0, agent: RLAgent = None):
     """
     Main training loop with comprehensive logging and TensorBoard integration.
     
     Core flow:
-        1. Initialize agent
+        1. Initialize agent (or use provided one for resumption)
         2. Collect rollouts and update policy iteratively
         3. Save checkpoints and logs
     
@@ -448,12 +493,19 @@ def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: i
         save_dir: Directory to save checkpoints
         total_updates: Number of PPO updates to perform
         logger: TrainingLogger instance for all logging
+        checkpoint_interval: Save checkpoint every N updates
+        starting_update: Update number to start from (for resuming training)
+        agent: Pre-initialized agent (for resuming from checkpoint)
     """
     # ========================================================================
     # SETUP
     # ========================================================================
-    agent = _initialize_agent(cfg, env)
+    if agent is None:
+        agent = _initialize_agent(cfg, env)
     _log_training_start(cfg, total_updates, logger)
+    
+    if starting_update > 0:
+        logger.log_info(f"Resuming training from update {starting_update}")
     
     # Training state
     log_data = []
@@ -467,7 +519,10 @@ def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: i
     # ========================================================================
     # MAIN TRAINING LOOP
     # ========================================================================
-    for update_idx in iterator:
+    for update_idx in range(starting_update, total_updates):
+        if HAS_TQDM:
+            iterator.update(1)
+            iterator.set_description(f"Training (update {update_idx+1}/{total_updates})")
         # Collect rollout
         buffer = RolloutBuffer()
         rollout_metrics = rollout(env, agent, buffer, cfg.rollout_steps, cfg)

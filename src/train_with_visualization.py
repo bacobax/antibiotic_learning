@@ -554,7 +554,7 @@ class TrainingVisualizer:
     
     def __init__(self, config: CompleteConfig, ppo_cfg: PPOConfig, env: PetriEnvWrapper, 
                  save_dir: Path, logger: TrainingLogger, viz_interval: int = 50, 
-                 steps_per_frame: int = 5, enable_tracking: bool = False):
+                 steps_per_frame: int = 5, enable_tracking: bool = False, resume_from: str = None):
         self.config = config
         self.ppo_cfg = ppo_cfg
         self.env = env
@@ -633,6 +633,18 @@ class TrainingVisualizer:
         # Initialize agent (reusing normal training function)
         self.agent = _initialize_agent(ppo_cfg, self.env)
         _log_training_start(ppo_cfg, self.total_updates, logger)
+        
+        # Handle checkpoint resumption
+        if resume_from:
+            logger.log_info(f"Loading checkpoint from: {resume_from}")
+            try:
+                from rl.training_utils import _load_checkpoint_into_agent
+                self.current_update = _load_checkpoint_into_agent(self.agent, resume_from, logger)
+            except Exception as e:
+                logger.log_error(f"Failed to load checkpoint: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
         
         # IMPORTANT: Reset environment to initialize the model BEFORE setting up visualization
         self.logger.log_info("Initializing environment...")
@@ -1028,7 +1040,14 @@ class TrainingVisualizer:
             return
         
         # Checkpointing (matching normal training - reuse function)
-        _handle_checkpoint(self.agent, self.current_update - 1, self.total_updates, self.save_dir, self.logger)
+        _handle_checkpoint(
+            self.agent,
+            self.current_update - 1,
+            self.total_updates,
+            self.save_dir,
+            self.logger,
+            checkpoint_interval=self.config.training.checkpoint_interval,
+        )
     
     def _finalize_and_exit(self):
         """Finalize training and close application (matching normal training)"""
@@ -1155,6 +1174,13 @@ Examples:
     )
     
     parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Path to checkpoint file to resume training from"
+    )
+    
+    parser.add_argument(
         "--viz-interval",
         type=int,
         default=50,
@@ -1233,7 +1259,8 @@ Examples:
         config, ppo_config, env, save_dir, logger,
         viz_interval=args.viz_interval,
         steps_per_frame=args.steps_per_frame,
-        enable_tracking=args.enable_tracking
+        enable_tracking=args.enable_tracking,
+        resume_from=args.resume,
     )
     trainer.run()
     

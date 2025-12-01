@@ -132,7 +132,19 @@ class RLAgent:
         }, filepath)
 
     @staticmethod
-    def load_agent_from_checkpoint(filepath: str, env=None):
+    def load_agent_from_checkpoint(filepath: str, env=None, load_optimizer: bool = False):
+        """
+        Load agent from checkpoint.
+        
+        Args:
+            filepath: Path to checkpoint file
+            env: Optional environment reference for action masking
+            load_optimizer: Whether to return optimizer state dict for resuming training
+            
+        Returns:
+            If load_optimizer=False: agent
+            If load_optimizer=True: (agent, optimizer_state, update_number)
+        """
         # Import here to avoid circular dependency
         
         # PyTorch 2.6+ requires allowlisting custom classes for security
@@ -175,6 +187,12 @@ class RLAgent:
         
         # Create agent with optional env (for action masking)
         agent = RLAgent(model=model, device=device, env=env)
+        
+        if load_optimizer:
+            optimizer_state = checkpoint.get("optimizer_state_dict", None)
+            update_number = checkpoint.get("update", 0)
+            return agent, optimizer_state, update_number
+        
         return agent
 
     def with_trainer(self, cfg: PPOConfig):

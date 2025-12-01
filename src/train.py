@@ -28,6 +28,8 @@ from rl.training_utils import (
     _create_environment,
     _build_ppo_config,
     _save_configs,
+    _load_checkpoint_into_agent,
+    _initialize_agent,
 )
 
 
@@ -58,6 +60,13 @@ View TensorBoard:
         type=str,
         default="src/rl/configs/training_config.yaml",
         help="Path to YAML configuration file"
+    )
+    
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Path to checkpoint file to resume training from"
     )
     
     args = parser.parse_args()
@@ -91,6 +100,21 @@ View TensorBoard:
     # Build PPO configuration
     ppo_config = _build_ppo_config(env, config)
     
+    # Initialize agent
+    agent = _initialize_agent(ppo_config, env)
+    
+    # Handle checkpoint resumption
+    starting_update = 0
+    if args.resume:
+        logger.log_info(f"Loading checkpoint from: {args.resume}")
+        try:
+            starting_update = _load_checkpoint_into_agent(agent, args.resume, logger)
+        except Exception as e:
+            logger.log_error(f"Failed to load checkpoint: {e}")
+            import traceback
+            traceback.print_exc()
+            return 1
+    
     # Determine checkpoint save directory
     if config.training.save_checkpoints_per_run:
         # Save checkpoints in the timestamped run directory
@@ -106,7 +130,10 @@ View TensorBoard:
     
     # Train
     logger.log_info("="*70)
-    logger.log_info("Starting Headless Training (No Visualization)")
+    if starting_update > 0:
+        logger.log_info(f"Resuming Headless Training from Update {starting_update}")
+    else:
+        logger.log_info("Starting Headless Training (No Visualization)")
     logger.log_info("="*70)
     
     train(
@@ -116,6 +143,8 @@ View TensorBoard:
         config.training.total_updates,
         logger,
         checkpoint_interval=config.training.checkpoint_interval,
+        starting_update=starting_update,
+        agent=agent,
     )
     
     logger.log_info("="*70)

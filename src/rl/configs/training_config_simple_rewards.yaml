@@ -11,7 +11,7 @@ environment:
   timing:
     t_count_freshness: 5              # Steps for count to remain "fresh"
     t_seq_freshness: 8                # Steps for sequencing to remain "fresh"
-    max_count_window: 30              # Max steps without counting before penalty
+    max_count_window: 15              # Max steps without counting before penalty
     critical_ratio: 3.0               # Population ratio for critical state (target × ratio)
     
     # Timing windows for informative actions
@@ -20,7 +20,7 @@ environment:
       max_elapsed: 15                 # Maximum time for informative count
     
     seq_window:
-      min_elapsed: 10                  # Minimum time between sequencing
+      min_elapsed: 25                  # Minimum time between sequencing
       max_elapsed: 50                 # Maximum time for informative sequencing
 
   # Reward/Penalty scalars (all configurable)
@@ -28,7 +28,7 @@ environment:
     # Pre-step rewards (informed dosing)
     informed_dosing:
       penalty_dosing_under_target: 5.0        # Penalty for dosing when pop < target
-      reward_dosing_above_with_seq: 2.0       # Reward for dosing above target with seq
+      reward_dosing_above_with_seq: 1.5       # Reward for dosing above target with seq
       reward_dosing_above_no_seq: 1.0         # Reward for dosing above target without seq
       penalty_blind_dose: 3.0                 # Penalty for dosing without fresh count
     
@@ -80,7 +80,7 @@ environment:
       min_penalty: 10.0                       # Penalty when terminating near horizon
       penalty_decay_power: 1.0                # Decay rate exponent
       population_low_threshold: 0.2           # Terminate if pop < target × this
-      population_threshold: 1.5               # Unrecoverable if pop > target × this
+      population_threshold: 3               # Unrecoverable if pop > target × this
       extinction_penalty: 50.0                # Additional penalty for extinction
       require_budget_depleted: false          # If true, also require budget == 0
 
@@ -91,7 +91,7 @@ environment:
   
   population:
     target_population: 100
-    population_norm: 500.0                    # For observation normalization only
+    population_norm: 300.0                    # For observation normalization only
 
 # Action costs and durations
 actions:
@@ -140,10 +140,10 @@ ppo:
 
 # Training configuration
 training:
-  total_updates: 100
+  total_updates: 200
   seed: 42
   checkpoint_interval: 25
   log_interval: 2
   save_dir: "./checkpoints"
-  experiment_name: "ppo_simple_rewards"
+  experiment_name: "descouraged_seq"
   save_checkpoints_per_run: false
