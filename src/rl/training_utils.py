@@ -15,7 +15,7 @@ The wrapper in env_wrapper.py handles all Mesa interaction.
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Callable
 from datetime import datetime
 
 import numpy as np
@@ -683,6 +683,7 @@ def _setup_logger_and_log_startup(
 def _create_environment(
     config: CompleteConfig,
     logger: TrainingLogger,
+    mesa_model_factory: Callable[[], BacteriaModel] = BacteriaModel,
 ) -> PetriEnvWrapper:
     """
     Create and initialize the environment with the new simplified reward structure.
@@ -859,7 +860,7 @@ def _create_environment(
         )
 
     env = PetriEnvWrapper(
-        mesa_model_factory=BacteriaModel,
+        mesa_model_factory=mesa_model_factory,
         k_doses=config.environment.k_doses,
         max_steps=config.environment.max_steps,
         

@@ -25,7 +25,7 @@ from simulation.visualization import SimulationVisualizer
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 from rl.agent import RLAgent
-from rl.env_wrapper import PetriEnvWrapper, ACTION_NOOP, ACTION_COUNT_BACTERIA, ACTION_SEQUENCING, ACTION_DOSE
+from rl.env_wrapper import ACTION_NOOP, ACTION_COUNT_BACTERIA, ACTION_SEQUENCING, ACTION_DOSE
 
 
 ACTION_NAMES = {
@@ -188,15 +188,17 @@ class AgentSimulatorUI:
     while the visualization shows the real-time bacterium evolution.
     """
     
-    def __init__(self, model, checkpoint_path):
+    def __init__(self, model, env, checkpoint_path):
         """
         Initialize AgentSimulatorUI
         
         Args:
             model: BacteriaModel instance
+            env: Initialized PetriEnvWrapper linked to the provided model
             checkpoint_path: Path to trained agent checkpoint
         """
         self.model = model
+        self.env = env
         self.paused = True
         self.simulation_started = False
         self.population_extinct = False
@@ -205,15 +207,6 @@ class AgentSimulatorUI:
         print(f"Loading agent from {checkpoint_path}...")
         self.agent = RLAgent.load_agent_from_checkpoint(checkpoint_path)
         print(f"Agent loaded successfully! Model device: {self.agent.device}")
-        
-        # Create environment wrapper
-        self.env = PetriEnvWrapper(
-            mesa_model_factory=lambda: model,
-            k_doses=self.agent.model.config.k_doses if hasattr(self.agent.model, 'config') else 3,
-            max_steps=1000,
-            count_cost=0.0,
-            budget_penalty=10.0,
-        )
         
         # Speed control
         self.steps_per_frame = DEFAULT_STEPS_PER_FRAME

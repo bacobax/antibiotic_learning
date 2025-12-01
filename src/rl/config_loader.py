@@ -25,8 +25,21 @@ from inspect import signature
 try:
     import yaml
     HAS_YAML = True
+
+    class _TupleSafeLoader(yaml.SafeLoader):
+        """Safe loader that understands python/tuple tags produced by PyYAML dumps."""
+
+    def _construct_python_tuple(loader, node):
+        return tuple(loader.construct_sequence(node))
+
+    _TupleSafeLoader.add_constructor(
+        "tag:yaml.org,2002:python/tuple",
+        _construct_python_tuple,
+    )
 except ImportError:
     HAS_YAML = False
+    yaml = None  # type: ignore
+    _TupleSafeLoader = None  # type: ignore
 
 
 @dataclass
@@ -684,7 +697,8 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         
         try:
             with open(config_file, 'r') as f:
-                config_dict = yaml.safe_load(f) or {}
+                loader_cls = _TupleSafeLoader if _TupleSafeLoader is not None else yaml.SafeLoader
+                config_dict = yaml.load(f, Loader=loader_cls) or {}
         except Exception as e:
             raise ValueError(f"Failed to load YAML config {config_file}: {e}")
         
