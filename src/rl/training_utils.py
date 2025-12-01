@@ -380,7 +380,6 @@ def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: Tr
     """
     import sys
     from .training_config import PPOConfig
-    
     # Same module remapping as in load_agent_from_checkpoint
     class ConfigModule:
         PPOConfig = PPOConfig
@@ -669,9 +668,13 @@ def _setup_logger_and_log_startup(
         logger.log_info(f"    - Require budget depleted: {rewards.early_termination.require_budget_depleted}")
     
     logger.log_info(f"Action Costs:")
-    logger.log_info(f"  - Sequencing: {config.actions.sequencing_cost}")
-    logger.log_info(f"  - Sequencing duration: {config.actions.sequencing_duration} steps")
-    logger.log_info(f"  - Dose per unit: {config.actions.dose_cost_per_unit}")
+    logger.log_info(f"  - Weight: {config.actions.cost_weight}")
+    logger.log_info(f"  - NOOP: {config.actions.noop_cost}")
+    logger.log_info(f"  - COUNT: {config.actions.count_cost}")
+    logger.log_info(f"  - SEQUENCING: {config.actions.sequencing_cost}")
+    logger.log_info(f"    \u2514 duration: {config.actions.sequencing_duration} steps")
+    logger.log_info(f"  - DOSE base: {config.actions.dose_cost}")
+    logger.log_info(f"  - DOSE per unit: {config.actions.dose_cost_per_unit}")
     
     return logger
 
@@ -747,10 +750,8 @@ def _create_environment(
     
     counting_rewards = getattr(rewards, 'counting', None)
     if counting_rewards:
-        cost_penalty = counting_rewards.cost_penalty
         informative_count_reward = counting_rewards.informative_count_reward
     else:
-        cost_penalty = 0.5
         informative_count_reward = 1.0
     
     noop_rewards = getattr(rewards, 'noop', None)
@@ -816,6 +817,7 @@ def _create_environment(
         # Action costs and durations
         sequencing_cost=config.actions.sequencing_cost,
         sequencing_duration=config.actions.sequencing_duration,
+    noop_cost=config.actions.noop_cost,
         dose_cost=config.actions.dose_cost,
         dose_cost_per_unit=config.actions.dose_cost_per_unit,
         count_cost=config.actions.count_cost,
@@ -832,8 +834,8 @@ def _create_environment(
         informative_seq_reward=informative_seq_reward,
         
         # Pre-step rewards (counting)
-        cost_penalty=cost_penalty,
         informative_count_reward=informative_count_reward,
+    cost_weight=config.actions.cost_weight,
         
         # Pre-step rewards (strategic NOOP)
         strategic_noop_reward=strategic_noop_reward,

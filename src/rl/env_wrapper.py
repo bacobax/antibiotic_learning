@@ -94,9 +94,11 @@ class PetriEnvWrapper:
         # ===== Action costs and durations =====
         sequencing_cost: float = 2.5,
         sequencing_duration: int = 5,
+    noop_cost: float = 0.0,
         dose_cost: float = 2.0,
         dose_cost_per_unit: float = 2.0,
         count_cost: float = 0.5,
+    cost_weight: float = 1.0,
         sigmoid_scale_factor: float = 1.0,
         
         # ===== Pre-step reward scalars =====
@@ -110,9 +112,8 @@ class PetriEnvWrapper:
         seq_already_pending_penalty: float = 2.0,
         informative_seq_reward: float = 1.0,
         
-        # Counting
-        cost_penalty: float = 0.5,
-        informative_count_reward: float = 1.0,
+    # Counting
+    informative_count_reward: float = 1.0,
         
         # Strategic NOOP
         strategic_noop_reward: float = 0.5,
@@ -179,9 +180,11 @@ class PetriEnvWrapper:
         # ===== Action costs and durations =====
         self.sequencing_cost = float(sequencing_cost)
         self.sequencing_duration = int(sequencing_duration)
+        self.noop_cost = float(noop_cost)
         self.dose_cost = float(dose_cost)
         self.dose_cost_per_unit = float(dose_cost_per_unit)
         self.count_cost = float(count_cost)
+        self.cost_weight = float(cost_weight)
         self.sigmoid_scale_factor = float(sigmoid_scale_factor)
         
         # ===== Environment parameters =====
@@ -227,7 +230,6 @@ class PetriEnvWrapper:
         )
         
         self.count_reward = CountReward(
-            cost_penalty=cost_penalty,
             informative_count_reward=informative_count_reward,
         )
         
@@ -602,7 +604,9 @@ class PetriEnvWrapper:
         # ==============================================
         # Deduct action costs from budget
         action_cost = 0.0
-        if a_discrete == ACTION_COUNT_BACTERIA:
+        if a_discrete == ACTION_NOOP:
+            action_cost = self.noop_cost
+        elif a_discrete == ACTION_COUNT_BACTERIA:
             action_cost = self.count_cost
         elif a_discrete == ACTION_SEQUENCING:
             action_cost = self.sequencing_cost
@@ -613,8 +617,12 @@ class PetriEnvWrapper:
             self._apply_antibiotics(a_cont)
             # Update dose history for observation
             self._update_dose_history(a_cont)
-        
+
         self.budget -= action_cost
+        self.episode_budget_spent += max(0.0, action_cost)
+        self.last_step_budget = float(self.budget)
+        cost_penalty = -action_cost * self.cost_weight if action_cost > 0.0 else 0.0
+        self.last_action_cost_penalty = cost_penalty
         
         # Advance the biological simulation by one step
         self.model.step()
@@ -728,7 +736,8 @@ class PetriEnvWrapper:
             kernel_maintenance_reward +
             survival_bonus +
             prediction_reward +
-            early_termination_penalty
+            early_termination_penalty +
+            cost_penalty
         )
         
         self.episode_return += total_reward
@@ -758,7 +767,12 @@ class PetriEnvWrapper:
             "reward_survival_bonus": survival_bonus,
             "reward_prediction": prediction_reward,
             "reward_early_termination_penalty": early_termination_penalty,
+            "reward_cost_penalty": cost_penalty,
             "reward_total": total_reward,
+
+            # Action economics
+            "action_cost": action_cost,
+            "cost_weight": self.cost_weight,
             
             # Early termination
             "early_termination_triggered": self.early_termination_triggered,

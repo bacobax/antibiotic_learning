@@ -38,6 +38,7 @@ class ActionConfig:
     sequencing_duration: int
     dose_cost: float  # Fixed cost per dose action
     dose_cost_per_unit: float  # Variable cost per unit of antibiotic
+    cost_weight: float
 
 
 @dataclass
@@ -346,6 +347,7 @@ def _get_default_config() -> Dict[str, Any]:
             },
         },
         "actions": {
+            "weight_cost": 1.0,
             "noop": {
                 "cost": 0.0,
                 "duration": 0,
@@ -691,6 +693,8 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
                 if act_name == "dose":
                     if "cost_per_unit" not in act:
                         raise ValueError("Missing required hparam 'cost_per_unit' in actions.dose")
+            if "weight_cost" not in actions:
+                raise ValueError("Missing required hparam 'weight_cost' in actions")
 
             # Model
             _strict_require(["hidden_dim", "rnn_layers", "n_discrete", "dose_action_index", "k_doses", "sigmoid_scale_factor"], model, "model")
@@ -773,6 +777,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         sequencing_duration=seq.get("duration", 5),
         dose_cost=dose.get("cost", 2.0),
         dose_cost_per_unit=dose.get("cost_per_unit", 0.2),
+        cost_weight=actions_dict.get("weight_cost", 0.0),
     )
     
     model_cfg = ModelConfig(**config_dict["model"])
@@ -838,6 +843,7 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                 },
             },
             "actions": {
+                "weight_cost": config.actions.cost_weight,
                 "noop": {
                     "cost": config.actions.noop_cost,
                 },
@@ -849,6 +855,7 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                     "duration": config.actions.sequencing_duration,
                 },
                 "dose": {
+                    "cost": config.actions.dose_cost,
                     "cost_per_unit": config.actions.dose_cost_per_unit,
                 },
             },

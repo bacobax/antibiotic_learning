@@ -554,20 +554,17 @@ class CountReward(nn.Module):
     """
     Pre-step reward for COUNT action.
     
-    Includes cost penalty and rewards for informative counting (within timing window).
+    Rewards informative counting (within timing window).
     """
     def __init__(
         self,
-        cost_penalty: float = 0.5,
         informative_count_reward: float = 1.0,
     ):
         """
         Args:
-            cost_penalty: Cost penalty for COUNT action
             informative_count_reward: Reward for counting within timing window
         """
         super(CountReward, self).__init__()
-        self.cost_penalty = float(cost_penalty)
         self.informative_count_reward = float(informative_count_reward)
     
     def forward(
@@ -587,7 +584,7 @@ class CountReward(nn.Module):
         Returns:
             COUNT reward as Python float
         """
-        reward = -self.cost_penalty
+        reward = 0.0
         
         # Check timing window
         if t_min_elapsed_time_count <= t_since_last_count <= t_max_elapsed_time_count:
