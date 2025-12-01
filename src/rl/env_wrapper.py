@@ -614,6 +614,8 @@ class PetriEnvWrapper:
             if not self.seq_pending:
                 self.seq_pending = True
                 self.recent_sequencing = True
+                duration = int(max(1, self.sequencing_duration))
+                self.seq_eta = duration
                 # Timer reset happens after env_step() in _update_timers_after_env_step
 
     def step(self, a_discrete: int, a_cont: np.ndarray, pred_population: Optional[float] = None) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:

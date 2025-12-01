@@ -138,6 +138,7 @@ def rollout(
     current_reward_cost_penalty = 0.0
     
     current_pred_error = 0.0
+    current_pred_error_count = 0
     
     agent.start_episode()
     
@@ -193,6 +194,7 @@ def rollout(
         if count_was_performed:
             pred_error = abs(pred_next_pop_value - population_counted_norm)
             current_pred_error += pred_error
+            current_pred_error_count += 1
             # Note: prediction reward is now computed by environment and included in total reward
         
         # Accumulate reward components for current episode (new keys)
@@ -255,7 +257,8 @@ def rollout(
             episode_reward_cost_penalty.append(current_reward_cost_penalty)
             
             # Store prediction metrics
-            episode_pred_error.append(current_pred_error)
+            avg_pred_error = current_pred_error / current_pred_error_count if current_pred_error_count > 0 else 0.0
+            episode_pred_error.append(avg_pred_error)
             
             # Log population at end of episode
             final_population = env.get_bacteria_population()
@@ -278,6 +281,7 @@ def rollout(
             current_reward_early_termination_penalty = 0.0
             current_reward_cost_penalty = 0.0
             current_pred_error = 0.0
+            current_pred_error_count = 0
             
             obs = env.reset()
             # Reset hidden state on episode boundary
