@@ -20,7 +20,7 @@ Computational Complexity:
 """
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import convolve
 from enum import Enum
 from typing import Set, Dict, Tuple, Optional
 
@@ -72,78 +72,60 @@ class BiofilmManager:
         
         # Initialize EPS field (same resolution as nutrient/antibiotic fields)
         self.eps_field = np.zeros((model.field_w, model.field_h), dtype=float)
-        
-    def update_eps_field(self):
-        """Update EPS field with production, diffusion, and decay.
-        
-        Process:
-            1. Add EPS from irreversibly attached and mature cells
-            2. Apply Gaussian diffusion to spread EPS locally
-            3. Apply exponential decay to degrade EPS over time
-            
-        Biological meaning:
-            EPS is constantly produced by biofilm cells and degrades over time.
-            It diffuses slowly through the environment, creating gradients that
-            attract new recruits.
-            
-        Computational complexity: O(grid_size) for vectorized operations
-        """
-        # Reset production (will accumulate from bacteria)
-        eps_production = np.zeros_like(self.eps_field)
-        
-        # Accumulate EPS production from biofilm cells
-        for bacterium in self.model.agent_set:
-            # Skip persisters and planktonic cells
-            if not hasattr(bacterium, 'biofilm_state'):
-                continue
-                
-            if bacterium.is_persister:
-                continue
-                
-            # Only irreversibly attached and mature cells produce EPS
-            if bacterium.biofilm_state not in [BiofilmState.IRREVERSIBLE_ATTACH, BiofilmState.MATURE]:
-                continue
-            
-            if bacterium.pos is None:
-                continue
-                
-            # Get grid coordinates
-            fx, fy = self.model.nutrient_to_field_coords(bacterium.pos)
-            x = int(round(fx))
-            y = int(round(fy))
-            x = np.clip(x, 0, self.model.field_w - 1)
-            y = np.clip(y, 0, self.model.field_h - 1)
-            
-            # Calculate production rate
-            base_rate = self.params["eps_production_base"]
-            
-            # QS boost for EPS production
-            if bacterium.qs_active:
-                production = base_rate * self.params["eps_production_qs_mult"]
-            else:
-                production = base_rate
-            
-            # Add to field
-            eps_production[x, y] += production
-        
-        # Update field: add production
-        self.eps_field += eps_production
-        
-        # Apply diffusion (EPS spreads slowly)
-        diffusion_sigma = 0.3  # Slower than AI diffusion
-        self.eps_field = gaussian_filter(
-            self.eps_field,
-            sigma=diffusion_sigma,
-            mode='constant',
-            cval=0.0
+        # Pre-build 5-point Laplacian kernel for explicit diffusion step
+        self._lap_kernel = np.array(
+            [[0.0, 1.0, 0.0],
+             [1.0,-4.0, 1.0],
+             [0.0, 1.0, 0.0]], dtype=float
         )
         
-        # Apply decay
-        decay_rate = self.params["eps_decay_rate"]
-        self.eps_field *= (1.0 - decay_rate)
-        
-        # Ensure non-negative
-        self.eps_field = np.maximum(self.eps_field, 0.0)
+    def update_eps_field(self, dt: float = 1.0):
+        """Reaction–diffusion update for EPS with local deposition around biofilm cells.
+
+        Discrete update:
+            E <- E * exp(-λ dt)                       # decay
+            E <- E + Σ_i P * G_sigma(x - x_i) * dt    # production around biofilm members
+            E <- E + D * ΔE * dt                      # diffusion via Laplacian (explicit)
+
+        Stability: keep D*dt <= 0.25 for dx=1.
+        """
+        # Read parameters with safe defaults
+        D = float(self.params.get("eps_diffusion_coef", 0.15))
+        lam = float(self.params.get("eps_decay_rate", 0.02))
+        prod = float(self.params.get("eps_production_rate", self.params.get("eps_production_base", 0.05)))
+        sigma = float(self.params.get("eps_deposit_sigma", 0.8))
+        cap = float(self.params.get("eps_cap", 1.0))
+
+        # 1) Decay (exponential for stability)
+        if lam > 0.0:
+            self.eps_field *= np.exp(-lam * dt)
+
+        # 2) Local deposition around biofilm members
+        if prod > 0.0:
+            for bacterium in list(self.model.agent_set):
+                # Must have state and be producer state
+                if not hasattr(bacterium, 'biofilm_state'):
+                    continue
+                if getattr(bacterium, 'is_persister', False):
+                    continue
+                if bacterium.biofilm_state not in [BiofilmState.IRREVERSIBLE_ATTACH, BiofilmState.MATURE]:
+                    continue
+                if bacterium.pos is None:
+                    continue
+                fx, fy = self.model.nutrient_to_field_coords(bacterium.pos)
+                # Optional QS boost
+                rate = prod
+                if getattr(bacterium, 'qs_active', False):
+                    rate = prod * float(self.params.get("eps_production_qs_mult", 1.0))
+                self.model.add_gaussian_patch(self.eps_field, fx, fy, sigma, rate * dt)
+
+        # 3) Diffusion via explicit Laplacian
+        if D > 0.0:
+            lap = convolve(self.eps_field, self._lap_kernel, mode="nearest")
+            self.eps_field += D * dt * lap
+
+        # 4) Clamp range and ensure non-negative
+        np.clip(self.eps_field, 0.0, cap, out=self.eps_field)
     
     def get_eps_concentration(self, fx: float, fy: float) -> float:
         """Get EPS concentration at a field position.

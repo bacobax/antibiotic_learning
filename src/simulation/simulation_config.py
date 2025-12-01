@@ -33,7 +33,7 @@ FOOD_PATCH_SIGMA_MAX = 10            # maximum patch size (larger = more spread 
 
 # Gene Transfer Parameters
 HGT_RADIUS = 1.5                    # gene transfer radius between bacteria
-HGT_PROB = 0.001                    # probability of gene transfer between neighbors with HGT gene
+HGT_PROB = 0.1                      # probability of gene transfer between neighbors with HGT gene
 
 # Simulation speed settings
 DEFAULT_STEPS_PER_FRAME = 1         # simulation steps to run per visual frame (more direct control)
@@ -245,11 +245,16 @@ BIOFILM_PARAMS = {
     "reversible_duration_max": 15,   # Max steps before irreversible attachment
     "maturation_time": 20,           # Steps to reach full maturation
     
-    # EPS (Extracellular Polymeric Substance) production
-    "eps_production_base": 0.05,     # Base EPS production rate per step
-    "eps_production_qs_mult": 2.0,   # Multiplier when QS active
-    "eps_decay_rate": 0.01,          # EPS degradation per step
-    "eps_diffusion_reduction": 0.5,  # Factor to reduce diffusion in high EPS areas
+    # EPS (Extracellular Polymeric Substance) field (reaction–diffusion)
+    # Keep legacy keys while adding explicit RD parameters
+    "eps_production_base": 0.05,     # Legacy: base EPS production
+    "eps_production_qs_mult": 2.0,   # QS multiplier for production
+    "eps_decay_rate": 0.02,          # λ: EPS degradation rate per step
+    # RD-specific params used by BiofilmManager.update_eps_field
+    "eps_production_rate": 0.010,    # P: production per producing cell per step
+    "eps_deposit_sigma": 0.8,        # σ: deposit width (field pixels)
+    "eps_diffusion_coef": 0.2,      # D: diffusion coefficient (keep D*dt<=0.25)
+    "eps_cap": 1.0,                  # clamp EPS field upper bound
     
     # Maturation benefits
     "maturation_protection_mult": 1.5, # Protection multiplier for mature cells
