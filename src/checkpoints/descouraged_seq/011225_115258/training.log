@@ -73,3 +73,8 @@
 2025-12-01 11:52:59 [INFO] Rollout steps per update: 2048, PPO epochs: 15
 2025-12-01 11:52:59 [DEBUG] Using device: cuda
 2025-12-01 11:52:59 [INFO] Resuming training from update 25
+2025-12-01 12:03:52 [INFO] UPDATE   30/200 | Reward:    8.37 (±18.49) | Episodes:  16 | Pop: 1341 | Budget: 62.2 | Loss: A=-0.0038 C=12.9862
+2025-12-01 12:03:52 [INFO]   Actions: DOSE=  0.3% | COUNT= 16.2% | SEQ=  8.4% | NOOP= 75.1%
+2025-12-01 12:03:52 [INFO]   Rewards: Pre=+165.72 | PostPen=-45.50 | Kernel=+36.86 | Survival=+12.62 | Predict= +2.75 | EarlyTerm=-24.08
+2025-12-01 12:03:52 [INFO]            TOTAL (calculated)=+148.37 | TOTAL (reported)=  +8.37
+2025-12-01 12:03:52 [DEBUG]   Entropy: 0.8188 | Clip Frac: 0.124 | Grad Norm: 69.5435 | ETA: 59.3 min
