@@ -7,6 +7,7 @@ environment:
   device: "cuda"
   dtype: "float32"
   initial_bacteria_per_type_range: [30, 90]
+  warmup_skip_steps: 10
 
   # Timing and freshness thresholds
   timing:

@@ -169,6 +169,7 @@ class PetriEnvWrapper:
         budget_init: float = 100.0,
         budget_norm: float = 100.0,
         initial_bacteria_per_type_range: Optional[Tuple[int, int]] = None,
+        initial_skip_steps: int = 0,
         
         device: str = "cpu",
         dtype: torch.dtype = torch.float32,
@@ -221,6 +222,7 @@ class PetriEnvWrapper:
         self.last_initial_total_bacteria: Optional[int] = None
         self.device = device
         self.dtype = dtype
+        self.initial_skip_steps = max(0, int(initial_skip_steps))
         
         # ===== Prediction reward =====
         self.prediction_reward_enabled = bool(prediction_reward_enabled)
@@ -478,6 +480,39 @@ class PetriEnvWrapper:
         self.ts_last_dose_I = None
         self.ts_last_dose_A = None
         self._dose_update_buffer = None
+
+        if self.initial_skip_steps > 0:
+            return self._fast_forward_without_agent(self.initial_skip_steps)
+        return self._build_observation()
+
+    def _fast_forward_without_agent(self, steps: int) -> np.ndarray:
+        """Advance the biological simulation without agent actions."""
+        steps_to_skip = int(max(0, steps))
+        if steps_to_skip <= 0 or self.model is None:
+            return self._build_observation()
+
+        for _ in range(steps_to_skip):
+            if self.max_steps is not None and self.t >= self.max_steps:
+                break
+
+            self.model.step()
+            self.t += 1
+
+            # No agent actions occurred, so timers simply advance
+            self.t_since_last_count += 1.0
+            self.t_since_last_dose += 1.0
+            self.t_since_last_seq += 1.0
+
+            if self.seq_pending:
+                self.seq_eta -= 1
+                if self.seq_eta <= 0:
+                    seq_result = self._read_true_sequencing()
+                    self._cache_sequencing_obs(seq_result)
+                    self.seq_pending = False
+                    self.seq_eta = 0
+
+            if self.has_ever_sequenced and self.t_since_last_seq > self.t_seq_freshness:
+                self.recent_sequencing = False
 
         return self._build_observation()
 

@@ -958,6 +958,7 @@ def _create_environment(
         budget_init=budget_cfg.budget_init,
         budget_norm=budget_cfg.budget_norm,
     initial_bacteria_per_type_range=spawn_range,
+        initial_skip_steps=config.environment.warmup_skip_steps,
         
         # Device config
         device=config.environment.device,
@@ -966,6 +967,7 @@ def _create_environment(
     
     logger.log_info("✓ Environment created with simplified reward structure")
     logger.log_info(f"  - Timing: t_count_freshness={t_count_freshness}, t_seq_freshness={t_seq_freshness}")
+    logger.log_info(f"  - Warmup skip steps: {config.environment.warmup_skip_steps}")
     logger.log_info(f"  - Kernel maintenance: {kernel_type} (R={kernel_peak_reward}, M={kernel_max_penalty}, zero_distance={kernel_zero_distance})")
     logger.log_info(f"  - Survival bonus: enabled={survival_bonus_cfg.enabled}")
     logger.log_info(f"  - Early termination: enabled={early_term_cfg.enabled}")

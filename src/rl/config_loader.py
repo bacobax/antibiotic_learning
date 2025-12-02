@@ -227,6 +227,7 @@ class EnvironmentConfig:
     dtype: str
     rewards: RewardConfig
     initial_bacteria_per_type_range: Optional[Tuple[int, int]] = None
+    warmup_skip_steps: int = 0
 
 
 @dataclass
@@ -308,6 +309,7 @@ def _get_default_config() -> Dict[str, Any]:
             "device": "cpu",
             "dtype": "float32",
             "initial_bacteria_per_type_range": None,
+            "warmup_skip_steps": 0,
             "rewards": {
                 "population": {
                     "target_population": 500,
@@ -925,6 +927,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         dtype=env_dict["dtype"],
         rewards=reward_cfg,
         initial_bacteria_per_type_range=parsed_spawn_range,
+        warmup_skip_steps=int(env_dict.get("warmup_skip_steps", 0) or 0),
     )
     
     actions_cfg = ActionConfig(
@@ -970,6 +973,7 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                 "device": config.environment.device,
                 "dtype": config.environment.dtype,
                 "initial_bacteria_per_type_range": config.environment.initial_bacteria_per_type_range,
+                "warmup_skip_steps": config.environment.warmup_skip_steps,
                 "rewards": {
                     "population": {
                         k: v for k, v in config.environment.rewards.population.__dict__.items()
