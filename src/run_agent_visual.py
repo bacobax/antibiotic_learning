@@ -25,6 +25,23 @@ DEFAULT_FALLBACK_CONFIG = Path("src/rl/configs/training_config_simple_rewards.ya
 EMBEDDED_CONFIG_NAME = "complete_config.yaml"
 
 
+def _make_shared_model_factory(model: BacteriaModel):
+    """Return a factory that reuses and resets the provided model instance."""
+
+    def _factory(initial_total_bacteria: Optional[int] = None):
+        # Allow the environment to request a specific starting population size
+        if initial_total_bacteria is not None:
+            try:
+                model._initial_bacteria_count = int(initial_total_bacteria)
+            except AttributeError:
+                pass
+
+        model.reset()
+        return model
+
+    return _factory
+
+
 class _ConsoleLogger:
     """Minimal logger compatible with training utilities."""
 
@@ -96,6 +113,17 @@ def main():
         default=None,
         help="Random seed for reproducibility"
     )
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="Override the environment max_steps (set a large value to extend episodes)"
+    )
+    parser.add_argument(
+        "--ignore-max-steps",
+        action="store_true",
+        help="Ignore the config's max_steps and let budget/early termination end the episode"
+    )
     
     args = parser.parse_args()
     
@@ -123,6 +151,13 @@ def main():
     except Exception as exc:
         print(f"❌ Failed to load configuration: {exc}")
         sys.exit(1)
+
+    if args.ignore_max_steps:
+        config.environment.max_steps = None
+        print("Ignoring max_steps: episodes will continue until budget depletion or early termination triggers.")
+    elif args.max_steps is not None:
+        config.environment.max_steps = args.max_steps
+        print(f"Overriding max_steps with: {args.max_steps}")
     
     # Create QApplication
     app = QtWidgets.QApplication.instance()
@@ -141,10 +176,11 @@ def main():
         print(f"Random seed set to {args.seed}")
 
     env_logger = _ConsoleLogger()
+    shared_model_factory = _make_shared_model_factory(model)
     env = _create_environment(
         config,
         env_logger,
-        mesa_model_factory=lambda: model,
+        mesa_model_factory=shared_model_factory,
     )
     
     # Create UI

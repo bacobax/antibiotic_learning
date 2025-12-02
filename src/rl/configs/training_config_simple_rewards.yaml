@@ -2,7 +2,7 @@
 # All rewards are pre/post step based with timing windows and freshness checks
 
 environment:
-  max_steps: 256
+  max_steps: 384
   k_doses: 3
   device: "cuda"
   dtype: "float32"
@@ -28,18 +28,18 @@ environment:
   rewards:
     # Pre-step rewards (informed dosing)
     informed_dosing:
-      penalty_dosing_under_target: 6.0        # Base penalty for dosing when pop < target
-      penalty_dosing_under_target_dose_scale: 0.6    # Scales penalty with antibiotic amount
+      penalty_dosing_under_target: 12.0       # Base penalty for dosing when pop < target
+      penalty_dosing_under_target_dose_scale: 6.0    # Scales penalty with antibiotic amount
       penalty_dosing_under_target_dose_exponent: 1.0 # Linear scaling for dose magnitude
       penalty_dosing_under_target_deficit_scale: 3.0 # Extra penalty per deficit fraction
       penalty_dosing_under_target_deficit_cap: 1.8   # Multiplier/cap for normalized deficit term
-      penalty_dosing_under_target_max: 14.0    # Hard ceiling for under-target penalty
+      penalty_dosing_under_target_max: null    # Hard ceiling for under-target penalty (null = disabled)
       reward_dosing_above_with_seq: 1.0       # Reward for dosing above target with seq
       reward_dosing_above_no_seq: 1.0         # Reward for dosing above target without seq
-      penalty_blind_dose: 4.0                 # Base penalty for dosing without fresh count
-      penalty_blind_dose_amount_scale: 0.75   # Scales blind penalty with antibiotic amount
+      penalty_blind_dose: 10.0                # Base penalty for dosing without fresh count
+      penalty_blind_dose_amount_scale: 1.5    # Scales blind penalty with antibiotic amount
       penalty_blind_dose_amount_exponent: 1.1 # Non-linear scaling for blind high doses
-      penalty_blind_dose_max: 12.0            # Hard ceiling for blind penalty
+      penalty_blind_dose_max: null            # Hard ceiling for blind penalty (null = disabled)
     
     # Pre-step rewards (sequencing)
     sequencing:
@@ -65,31 +65,35 @@ environment:
       enabled: true
       target_population: 100
       kernel_type: "laplace"                 # "gaussian" or "laplace"
-      kernel_peak_reward: 70.0                 # R: peak reward at target
-      kernel_max_penalty: 1.0                 # M: maximum penalty (min value -M)
-      kernel_zero_distance: 60.0              # distance where kernel equals 0
+      kernel_peak_reward: 50.0                 # R: peak reward at target
+      kernel_max_penalty: 10.0                 # M: maximum penalty (min value -M)
+      kernel_zero_distance: 30.0              # distance where kernel equals 0
     
     # Survival bonus (per-step reward for staying alive)
     survival_bonus:
       enabled: true
-      base_bonus: 0.2
+      base_bonus: 1.0
       scaling_type: "linear"                  # "constant", "linear", "exponential"
-      scaling_factor: 0.001
-      max_bonus: 1.0
+      scaling_factor: 0.05
+      max_bonus: 3.0
     
     # Prediction accuracy reward (COUNT-only)
     prediction:
-      enabled: false
-      weight: 0.2
+      enabled: true
+      weight: 1.0
+      align_weight: 3.0
+      target_weight: 1.0
+      align_scale: 6.0
+      target_scale: 3.0
     
     # Early termination on unrecoverable states
     early_termination:
       enabled: true
-      penalty: 50.0                           # Penalty applied on early termination
-      min_penalty: 10.0                       # Penalty when terminating near horizon
-      penalty_decay_power: 1.0                # Decay rate exponent
-      population_low_threshold: 0.2           # Terminate if pop < target × this
-      population_threshold: 3               # Unrecoverable if pop > target × this
+      penalty: 20.0                           # Penalty applied on early termination
+      min_penalty: 2.0                       # Penalty when terminating near horizon
+      penalty_decay_power: 1.2                # Decay rate exponent
+      population_low_threshold: 0.3           # Terminate if pop < target × this
+      population_threshold: 1.5               # Unrecoverable if pop > target × this
       extinction_penalty: 50.0                # Additional penalty for extinction
       require_budget_depleted: false          # If true, also require budget == 0
 
@@ -99,12 +103,12 @@ environment:
     budget_norm: 100.0
   
   population:
-    target_population: 100
+    target_population: 150
     population_norm: 300.0                    # For observation normalization only
 
 # Action costs and durations
 actions:
-  weight_cost: 0.5
+  weight_cost: 1.0
   noop:
     id: 0
     cost: 0.0
@@ -139,19 +143,19 @@ model:
 ppo:
   gamma: 0.99
   gae_lambda: 0.95
-  clip_eps: 0.15
+  clip_eps: 0.3
   vf_coef: 0.5
-  ent_coef: 0.04
+  ent_coef: 0.03
   max_grad_norm: 0.5
   rollout_steps: 768
-  epochs: 5
+  epochs: 6
   seq_len: 128
   batch_seq_len: 128
   lr: 0.0001
 
 # Training configuration
 training:
-  total_updates: 500
+  total_updates: 2000
   seed: 42
   checkpoint_interval: 50
   log_interval: 2

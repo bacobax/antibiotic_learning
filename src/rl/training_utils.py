@@ -647,7 +647,13 @@ def _setup_logger_and_log_startup(
         logger.log_info(f"    - Reserve threshold: {rewards.budget_conservation.reserve_bonus_threshold}")
     logger.log_info(f"  - Prediction reward: {'enabled' if rewards.prediction.enabled else 'disabled'}")
     if rewards.prediction.enabled:
-        logger.log_info(f"    - Weight: {rewards.prediction.weight}")
+        pred_cfg = rewards.prediction
+        logger.log_info(
+            f"    - Align weight/scale: {pred_cfg.resolved_align_weight()} / {pred_cfg.align_scale}"
+        )
+        logger.log_info(
+            f"    - Target weight/scale: {pred_cfg.resolved_target_weight()} / {pred_cfg.target_scale}"
+        )
     logger.log_info(f"  - Early termination: {'enabled' if rewards.early_termination.enabled else 'disabled'}")
     logger.log_info(
         f"    - Population thresholds: ≤{rewards.early_termination.population_low_threshold}x "
@@ -826,6 +832,8 @@ def _create_environment(
     
     # Prediction reward
     prediction_cfg = rewards.prediction
+    prediction_align_weight = prediction_cfg.resolved_align_weight()
+    prediction_target_weight = prediction_cfg.resolved_target_weight()
     
     # Early termination
     early_term_cfg = rewards.early_termination
@@ -929,7 +937,10 @@ def _create_environment(
         
         # Prediction reward
         prediction_reward_enabled=prediction_cfg.enabled,
-        prediction_reward_weight=prediction_cfg.weight,
+    prediction_reward_alignment_weight=prediction_align_weight,
+    prediction_reward_target_weight=prediction_target_weight,
+    prediction_alignment_scale=prediction_cfg.align_scale,
+    prediction_target_scale=prediction_cfg.target_scale,
         
         # Early termination
         early_termination_enabled=early_term_cfg.enabled,
@@ -958,7 +969,11 @@ def _create_environment(
     logger.log_info(f"  - Kernel maintenance: {kernel_type} (R={kernel_peak_reward}, M={kernel_max_penalty}, zero_distance={kernel_zero_distance})")
     logger.log_info(f"  - Survival bonus: enabled={survival_bonus_cfg.enabled}")
     logger.log_info(f"  - Early termination: enabled={early_term_cfg.enabled}")
-    logger.log_info(f"  - Prediction reward: enabled={prediction_cfg.enabled}")
+    logger.log_info(
+        f"  - Prediction reward: enabled={prediction_cfg.enabled}, "
+        f"align={prediction_align_weight}/{prediction_cfg.align_scale}, "
+        f"target={prediction_target_weight}/{prediction_cfg.target_scale}"
+    )
     
     return env
 

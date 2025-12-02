@@ -10,6 +10,8 @@ import matplotlib.animation as animation
 import time
 from PyQt5 import QtWidgets, QtCore
 from pathlib import Path
+from typing import Optional
+from matplotlib.figure import Figure
 
 from simulation.simulation_config import (
     DEFAULT_STEPS_PER_FRAME,
@@ -34,6 +36,22 @@ ACTION_NAMES = {
     ACTION_SEQUENCING: "SEQUENCE",
     ACTION_DOSE: "DOSE"
 }
+
+# Ordered metadata describing reward components to visualize
+REWARD_COMPONENT_ORDER = [
+    ("pre", "reward_pre", "pre", "tab:blue"),
+    ("post_penalties", "reward_post_penalties", "post_penalties", "tab:orange"),
+    ("kernel_maintenance", "reward_kernel_maintenance", "kernel_maintenance", "tab:green"),
+    ("survival_bonus", "reward_survival_bonus", "survival_bonus", "tab:purple"),
+    ("prediction", "reward_prediction", "prediction", "tab:pink"),
+    ("early_termination_penalty", "reward_early_termination_penalty", "early_termination_penalty", "tab:brown"),
+    ("cost_penalty", "reward_cost_penalty", "cost_penalty", "tab:gray"),
+    ("total", "reward_total", "total", "black"),
+]
+
+REWARD_COMPONENT_INFO_KEYS = {key: info_key for key, info_key, _label, _color in REWARD_COMPONENT_ORDER}
+REWARD_COMPONENT_LABELS = {key: label for key, _info, label, _color in REWARD_COMPONENT_ORDER}
+REWARD_COMPONENT_COLORS = {key: color for key, _info, _label, color in REWARD_COMPONENT_ORDER}
 
 
 class VisualizationWindow(QtWidgets.QMainWindow):
@@ -61,7 +79,7 @@ class AgentControlPanel(QtWidgets.QMainWindow):
     def __init__(self, on_toggle_pause, on_reset, on_speed_change):
         super().__init__()
         self.setWindowTitle("RL Agent - Control Panel")
-        self.setGeometry(0, 0, 400, 900)
+        self.setGeometry(0, 0, 500, 1100)
         
         self.on_toggle_pause = on_toggle_pause
         self.on_reset = on_reset
@@ -127,21 +145,70 @@ class AgentControlPanel(QtWidgets.QMainWindow):
         
         stats_group.setLayout(stats_layout)
         layout.addWidget(stats_group)
-        
-        # Population Statistics
-        pop_group = QtWidgets.QGroupBox("Population Statistics")
-        pop_layout = QtWidgets.QVBoxLayout()
-        
-        self.pop_display = QtWidgets.QTextEdit()
-        self.pop_display.setReadOnly(True)
-        self.pop_display.setMaximumHeight(300)
-        pop_layout.addWidget(self.pop_display)
-        
-        pop_group.setLayout(pop_layout)
-        layout.addWidget(pop_group)
+
+        # Episode Graphs
+        self._init_episode_graphs(layout)
         
         # Stretch to fill remaining space
         layout.addStretch()
+
+    def _init_episode_graphs(self, layout: QtWidgets.QVBoxLayout) -> None:
+        """Create matplotlib graphs for per-episode diagnostics."""
+        self._action_ticks = sorted(ACTION_NAMES.items())
+        
+        graphs_container = QtWidgets.QWidget()
+        graphs_layout = QtWidgets.QGridLayout()
+        graphs_layout.setContentsMargins(0, 0, 0, 0)
+        graphs_layout.setHorizontalSpacing(12)
+        graphs_layout.setVerticalSpacing(12)
+
+        # Budget over steps
+        budget_group = QtWidgets.QGroupBox("Budget Over Steps (Current Episode)")
+        budget_layout = QtWidgets.QVBoxLayout()
+        self.budget_fig = Figure(figsize=(4.5, 2.4), dpi=100)
+        self.budget_ax = self.budget_fig.add_subplot(111)
+        self.budget_canvas = FigureCanvas(self.budget_fig)
+        budget_layout.addWidget(self.budget_canvas)
+        budget_group.setLayout(budget_layout)
+        graphs_layout.addWidget(budget_group, 0, 0)
+
+        # Action history
+        action_group = QtWidgets.QGroupBox("Actions Over Steps")
+        action_layout = QtWidgets.QVBoxLayout()
+        self.action_fig = Figure(figsize=(4.5, 2.4), dpi=100)
+        self.action_ax = self.action_fig.add_subplot(111)
+        self.action_canvas = FigureCanvas(self.action_fig)
+        action_layout.addWidget(self.action_canvas)
+        action_group.setLayout(action_layout)
+        graphs_layout.addWidget(action_group, 0, 1)
+
+        # Reward evolution
+        reward_group = QtWidgets.QGroupBox("Reward Over Steps")
+        reward_layout = QtWidgets.QVBoxLayout()
+        self.reward_fig = Figure(figsize=(4.5, 2.4), dpi=100)
+        self.reward_ax = self.reward_fig.add_subplot(111)
+        self.reward_canvas = FigureCanvas(self.reward_fig)
+        reward_layout.addWidget(self.reward_canvas)
+        reward_group.setLayout(reward_layout)
+        graphs_layout.addWidget(reward_group, 1, 0)
+        self.reward_component_keys = [key for key, *_ in REWARD_COMPONENT_ORDER]
+
+        # Prediction vs true population
+        population_group = QtWidgets.QGroupBox("Prediction vs True Population")
+        population_layout = QtWidgets.QVBoxLayout()
+        self.population_fig = Figure(figsize=(4.5, 2.6), dpi=100)
+        self.population_ax = self.population_fig.add_subplot(111)
+        self.population_canvas = FigureCanvas(self.population_fig)
+        population_layout.addWidget(self.population_canvas)
+        population_group.setLayout(population_layout)
+        graphs_layout.addWidget(population_group, 1, 1)
+
+        graphs_layout.setColumnStretch(0, 1)
+        graphs_layout.setColumnStretch(1, 1)
+        graphs_container.setLayout(graphs_layout)
+        layout.addWidget(graphs_container)
+        
+        self.reset_graphs()
         
     def set_pause_button_text(self, text):
         """Update pause button text"""
@@ -164,20 +231,114 @@ Last Action: {stats.get('last_action', 'N/A')}
 Last Reward: {stats.get('last_reward', 0):.4f}
 Seq Pending: {stats.get('seq_pending', False)}
 Seq ETA: {stats.get('seq_eta', 0)}
+Status: {stats.get('termination_reason', 'Running')}
+Awaiting Reset: {"Yes (press Reset)" if stats.get('awaiting_reset') else "No"}
 """
         self.stats_display.setText(text)
-    
-    def update_population_stats(self, stats):
-        """Update population statistics display"""
-        text = f"""Total Population: {stats.get('total', 0)}
-Avg Energy: {stats.get('avg_energy', 0):.2f}
-Avg Resistance:
-  Enzyme: {stats.get('avg_enzyme', 0):.2f}
-  Efflux: {stats.get('avg_efflux', 0):.2f}
-  Membrane: {stats.get('avg_membrane', 0):.2f}
-  Repair: {stats.get('avg_repair', 0):.2f}
-"""
-        self.pop_display.setText(text)
+
+    def reset_graphs(self) -> None:
+        """Clear all episode graphs."""
+        self._clear_axis(self.budget_ax, "Budget Over Steps (Current Episode)", "Step", "Budget", zero_min=True)
+        self.budget_canvas.draw_idle()
+        self._clear_axis(self.action_ax, "Actions Over Steps", "Step", "Action")
+        if self._action_ticks:
+            positions = [k for k, _ in self._action_ticks]
+            labels = [v for _, v in self._action_ticks]
+            self.action_ax.set_yticks(positions)
+            self.action_ax.set_yticklabels(labels)
+        self.action_canvas.draw_idle()
+        self._clear_axis(self.reward_ax, "Reward Over Steps", "Step", "Reward")
+        self.reward_ax.axhline(0, color='gray', linestyle='--', linewidth=0.8, alpha=0.5)
+        self.reward_canvas.draw_idle()
+        self._clear_axis(self.population_ax, "Prediction vs True Population", "Step", "Population", zero_min=True)
+        self.population_canvas.draw_idle()
+
+    def update_episode_graphs(self, history: dict) -> None:
+        """Refresh graph canvases with the latest episode history."""
+        steps = history.get('steps', [])
+        budgets = history.get('budgets', [])
+        actions = history.get('actions', [])
+        reward_components = history.get('reward_components', {})
+        true_population = history.get('true_population', [])
+        pred_population = history.get('pred_population', [])
+
+        self._update_budget_plot(steps, budgets)
+        self._update_action_plot(steps, actions)
+        self._update_reward_plot(steps, reward_components)
+        self._update_population_plot(steps, true_population, pred_population)
+
+    def _clear_axis(self, ax, title: str, xlabel: str, ylabel: str, zero_min: bool = False) -> None:
+        ax.clear()
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.grid(True, alpha=0.3)
+        if zero_min:
+            ax.set_ylim(bottom=0)
+
+    def _update_budget_plot(self, steps, budgets) -> None:
+        self._clear_axis(self.budget_ax, "Budget Over Steps (Current Episode)", "Step", "Budget", zero_min=True)
+        y_max = 1.0
+        if steps and budgets and len(steps) == len(budgets):
+            self.budget_ax.plot(steps, budgets, color="tab:green", linewidth=1.5)
+            y_max = max(1.0, max(budgets))
+        self.budget_ax.set_ylim(0, y_max * 1.05)
+        self.budget_fig.tight_layout()
+        self.budget_canvas.draw_idle()
+
+    def _update_action_plot(self, steps, actions) -> None:
+        self._clear_axis(self.action_ax, "Actions Over Steps", "Step", "Action")
+        if self._action_ticks:
+            positions = [k for k, _ in self._action_ticks]
+            labels = [v for _, v in self._action_ticks]
+            self.action_ax.set_yticks(positions)
+            self.action_ax.set_yticklabels(labels)
+        if steps and actions and len(steps) == len(actions):
+            self.action_ax.step(steps, actions, where='post', linewidth=1.2, color='tab:orange')
+        self.action_fig.tight_layout()
+        self.action_canvas.draw_idle()
+
+    def _update_reward_plot(self, steps, reward_components) -> None:
+        self._clear_axis(self.reward_ax, "Reward Over Steps", "Step", "Reward")
+        self.reward_ax.axhline(0, color='gray', linestyle='--', linewidth=0.8, alpha=0.5)
+        plotted = False
+        if steps and reward_components:
+            for key in self.reward_component_keys:
+                values = reward_components.get(key)
+                if not values or len(values) != len(steps):
+                    continue
+                color = REWARD_COMPONENT_COLORS.get(key)
+                label = REWARD_COMPONENT_LABELS.get(key, key)
+                linewidth = 2.0 if key == "total" else 1.2
+                self.reward_ax.plot(
+                    steps,
+                    values,
+                    label=label,
+                    color=color,
+                    linewidth=linewidth,
+                )
+                plotted = True
+        if plotted:
+            self.reward_ax.legend(loc='upper left', fontsize=8)
+        self.reward_fig.tight_layout()
+        self.reward_canvas.draw_idle()
+
+    def _update_population_plot(self, steps, true_population, pred_population) -> None:
+        self._clear_axis(self.population_ax, "Prediction vs True Population", "Step", "Population", zero_min=True)
+        has_true = steps and true_population and len(steps) == len(true_population)
+        has_pred = steps and pred_population and len(steps) == len(pred_population)
+        y_max = 1.0
+        if has_true:
+            self.population_ax.plot(steps, true_population, label='True Population', color='tab:blue', linewidth=1.5)
+            y_max = max(y_max, max(true_population))
+        if has_pred:
+            self.population_ax.plot(steps, pred_population, label='Predicted Population', color='tab:red', linestyle='--', linewidth=1.2)
+            y_max = max(y_max, max(pred_population))
+        if has_true or has_pred:
+            self.population_ax.legend(loc='upper right', fontsize=8)
+        self.population_ax.set_ylim(0, y_max * 1.05)
+        self.population_fig.tight_layout()
+        self.population_canvas.draw_idle()
 
 
 class AgentSimulatorUI:
@@ -202,6 +363,8 @@ class AgentSimulatorUI:
         self.paused = True
         self.simulation_started = False
         self.population_extinct = False
+        self.awaiting_manual_reset = False
+        self.last_termination_reason: Optional[str] = None
         
         # Load trained agent
         print(f"Loading agent from {checkpoint_path}...")
@@ -231,6 +394,11 @@ class AgentSimulatorUI:
         self.last_reward = 0.0
         self.action_history = []
         self.reward_history = []
+        self.episode_steps = []
+        self.budget_history = []
+        self.true_population_history = []
+        self.prediction_history = []
+        self.reward_component_history = {key: [] for key in REWARD_COMPONENT_INFO_KEYS}
         
         # Individual tracking
         self.individual_plotter = IndividualPlotter(
@@ -266,7 +434,18 @@ class AgentSimulatorUI:
         self.agent.start_episode()
         self.action_history = []
         self.reward_history = []
+        self.episode_steps = []
+        self.budget_history = []
+        self.true_population_history = []
+        self.prediction_history = []
+        self.reward_component_history = {key: [] for key in REWARD_COMPONENT_INFO_KEYS}
         print("Environment reset for new episode")
+        self.awaiting_manual_reset = False
+        self.last_termination_reason = None
+        if self.control_panel:
+            self.control_panel.set_pause_button_state("normal")
+            self.control_panel.set_pause_button_text("Start")
+            self.control_panel.reset_graphs()
 
     def _arrange_windows(self):
         """Arrange visualization and control panel windows"""
@@ -288,6 +467,9 @@ class AgentSimulatorUI:
 
     def toggle_pause(self):
         """Toggle simulation pause/start"""
+        if self.awaiting_manual_reset:
+            print("Episode finished. Press Reset to start a new run.")
+            return
         if not self.simulation_started:
             self.simulation_started = True
             self.paused = False
@@ -306,8 +488,7 @@ class AgentSimulatorUI:
         """Reset simulation to initial conditions"""
         if hasattr(self, 'individual_plotter'):
             self.individual_plotter.close()
-        
-        self.model.reset()
+
         self._reset_environment()
         
         self.paused = True
@@ -330,7 +511,6 @@ class AgentSimulatorUI:
         )
         
         self.visualizer.update_main_plot()
-        self.control_panel.update_population_stats(self.model.get_population_stats())
         
         print("Simulation reset - press Start to begin")
 
@@ -433,12 +613,12 @@ class AgentSimulatorUI:
                     'last_reward': self.last_reward,
                     'seq_pending': self.env.seq_pending,
                     'seq_eta': self.env.seq_eta,
+                    'termination_reason': self._format_termination_reason(self.last_termination_reason),
+                    'awaiting_reset': self.awaiting_manual_reset,
                 }
                 self.control_panel.update_agent_stats(agent_stats)
+                self.control_panel.update_episode_graphs(self._collect_episode_history())
                 
-                # Update population stats
-                pop_stats = self.model.get_population_stats()
-                self.control_panel.update_population_stats(pop_stats)
             
             # Update individual plotter if bacterium is selected
             if self.individual_plotter.current_id is not None:
@@ -475,9 +655,9 @@ class AgentSimulatorUI:
         a_cont_np = a_cont.squeeze().cpu().numpy()
         
         # Format continuous action for logging
-        a_cont_str = str(a_cont_np) if a_cont_np.ndim > 0 else f"{a_cont_np:.2f}"
+        # a_cont_str = str(a_cont_np) if a_cont_np.ndim > 0 else f"{a_cont_np:.2f}"
 
-        print(f"Agent Action: {ACTION_NAMES.get(a_disc_np, 'N/A')} ({a_cont_str})")
+        # print(f"Agent Action: {ACTION_NAMES.get(a_disc_np, 'N/A')} ({a_cont_str})")
         
         # Store for tracking
         self.last_action = a_disc_np
@@ -489,6 +669,14 @@ class AgentSimulatorUI:
         self.last_reward = reward
         self.action_history.append(a_disc_np)
         self.reward_history.append(reward)
+        self.episode_steps.append(self.env.t)
+        self.budget_history.append(self.env.budget)
+        self.true_population_history.append(info.get('true_population', np.nan))
+        pred_norm = float(_pred_next_pop.squeeze().detach().cpu().item()) if _pred_next_pop is not None else np.nan
+        scaled_prediction = pred_norm * max(1.0, getattr(self.env, 'population_norm', 1.0))
+        self.prediction_history.append(scaled_prediction)
+        for comp_key, info_key in REWARD_COMPONENT_INFO_KEYS.items():
+            self.reward_component_history.setdefault(comp_key, []).append(info.get(info_key, 0.0))
         
         # Update observation for next step
         self.last_obs = obs
@@ -496,7 +684,41 @@ class AgentSimulatorUI:
         # Handle episode termination
         if done:
             print(f"Episode done! Total return: {self.env.episode_return:.2f}")
-            self._reset_environment()
+            self.last_termination_reason = info.get('termination_reason')
+            if self.last_termination_reason:
+                print(f"Termination reason: {self.last_termination_reason}")
+            self.population_extinct = self.last_termination_reason == "extinction"
+            self.paused = True
+            self.simulation_started = False
+            self.awaiting_manual_reset = True
+            if self.control_panel:
+                self.control_panel.set_pause_button_text("Start")
+                self.control_panel.set_pause_button_state("disabled")
+
+    def _format_termination_reason(self, reason: Optional[str]) -> str:
+        if reason is None:
+            return "Running"
+        mapping = {
+            "extinction": "Extinction (population reached 0)",
+            "max_steps": "Max steps reached",
+            "budget_depleted": "Budget depleted",
+            "unrecoverable_high_population": "Unrecoverable: population too high",
+            "unrecoverable_low_population": "Unrecoverable: population too low",
+            "unrecoverable_state": "Unrecoverable state",
+            "early_termination": "Early termination triggered",
+        }
+        return mapping.get(reason, reason)
+
+    def _collect_episode_history(self) -> dict:
+        return {
+            'steps': list(self.episode_steps),
+            'budgets': list(self.budget_history),
+            'actions': list(self.action_history),
+            'rewards': list(self.reward_history),
+            'reward_components': {k: list(v) for k, v in self.reward_component_history.items()},
+            'true_population': list(self.true_population_history),
+            'pred_population': list(self.prediction_history),
+        }
 
     @staticmethod
     def create_and_run(model, checkpoint_path):

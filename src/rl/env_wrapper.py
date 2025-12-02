@@ -1,4 +1,5 @@
 from typing import Any, Callable, Dict, Tuple, Optional, Union, List
+import math
 import numpy as np
 import torch
 from simulation.simulation_config import ANTIBIOTIC_TYPES, antibiotic_resistances, TOX_TIMES_DOSE_MAX, N_TRAITS, N_BACTERIA_TYPES
@@ -75,9 +76,9 @@ class PetriEnvWrapper:
 
     def __init__(
         self,
-        mesa_model_factory: Callable[[], Any],
-        k_doses: int,
-        max_steps: int = 1000,
+    mesa_model_factory: Callable[[], Any],
+    k_doses: int,
+    max_steps: Optional[int] = 1000,
         
         # ===== Timing and freshness thresholds =====
         t_count_freshness: int = 5,            # Steps for count to remain "fresh"
@@ -147,7 +148,10 @@ class PetriEnvWrapper:
         
         # ===== Prediction reward =====
         prediction_reward_enabled: bool = True,
-        prediction_reward_weight: float = 0.4,
+    prediction_reward_alignment_weight: float = 0.5,
+    prediction_reward_target_weight: float = 0.25,
+    prediction_alignment_scale: float = 5.0,
+    prediction_target_scale: float = 3.0,
         
         # ===== Early termination =====
         early_termination_enabled: bool = True,
@@ -172,8 +176,8 @@ class PetriEnvWrapper:
         self.mesa_model_factory = mesa_model_factory
         self.k_doses = k_doses
 
-        self.max_steps = max_steps
-        self.episode_length = max_steps
+        self.max_steps = int(max_steps) if (max_steps is not None and max_steps > 0) else None
+        self.episode_length = float(self.max_steps) if self.max_steps is not None else None
         
         # ===== Timing and freshness thresholds =====
         self.t_count_freshness = int(t_count_freshness)
@@ -220,7 +224,17 @@ class PetriEnvWrapper:
         
         # ===== Prediction reward =====
         self.prediction_reward_enabled = bool(prediction_reward_enabled)
-        self.prediction_reward_weight = float(prediction_reward_weight)
+        self.prediction_alignment_weight = float(prediction_reward_alignment_weight)
+        self.prediction_target_weight = float(prediction_reward_target_weight)
+        self.prediction_alignment_scale = float(max(1e-6, prediction_alignment_scale))
+        self.prediction_target_scale = float(max(1e-6, prediction_target_scale))
+        self.prediction_target_norm = float(self.target_population / max(1.0, self.population_norm))
+        self.prev_prediction_alignment_potential = 0.0
+        self.prev_prediction_target_potential = 0.0
+        self.last_prediction_alignment_error = 0.0
+        self.last_prediction_target_error = 0.0
+        self.last_prediction_alignment_potential = 0.0
+        self.last_prediction_target_potential = 0.0
         
         # ===== Early termination parameters =====
         self.early_termination_enabled = bool(early_termination_enabled)
@@ -374,6 +388,12 @@ class PetriEnvWrapper:
         self.last_prediction_reward = 0.0
         self.last_early_termination_penalty = 0.0
         self.early_termination_triggered = False
+        self.prev_prediction_alignment_potential = 0.0
+        self.prev_prediction_target_potential = 0.0
+        self.last_prediction_alignment_error = 0.0
+        self.last_prediction_target_error = 0.0
+        self.last_prediction_alignment_potential = 0.0
+        self.last_prediction_target_potential = 0.0
 
     # -------------------------
     # Public API
@@ -434,6 +454,12 @@ class PetriEnvWrapper:
         self.last_prediction_reward = 0.0
         self.last_early_termination_penalty = 0.0
         self.early_termination_triggered = False
+        self.prev_prediction_alignment_potential = 0.0
+        self.prev_prediction_target_potential = 0.0
+        self.last_prediction_alignment_error = 0.0
+        self.last_prediction_target_error = 0.0
+        self.last_prediction_alignment_potential = 0.0
+        self.last_prediction_target_potential = 0.0
 
         # Clear observation caches
         self.last_count_obs = None
@@ -747,30 +773,60 @@ class PetriEnvWrapper:
             survival_bonus = self.survival_bonus_reward(self.t)
             self.last_survival_bonus = survival_bonus
         
-        # Prediction accuracy reward (COUNT-only)
+        # Prediction accuracy reward (COUNT-only, potential-based)
         prediction_reward = 0.0
-        if count_result_landed and pred_population is not None and self.prediction_reward_enabled:
-            # Compute accuracy reward based on prediction error
-            predicted_norm = float(pred_population)
-            actual_norm = population_counted_norm
-            error = abs(predicted_norm - actual_norm)
-            # Reward is higher for lower error (exponential decay)
-            import math
-            prediction_reward = self.prediction_reward_weight * math.exp(-5.0 * error)
+        if count_result_landed:
+            if pred_population is not None and self.prediction_reward_enabled:
+                predicted_norm = float(pred_population)
+                actual_norm = population_counted_norm
+                align_error = abs(predicted_norm - actual_norm)
+                target_error = abs(predicted_norm - self.prediction_target_norm)
+
+                align_potential = math.exp(-self.prediction_alignment_scale * align_error)
+                target_potential = math.exp(-self.prediction_target_scale * target_error)
+
+                reward_alignment = self.prediction_alignment_weight * (
+                    align_potential - self.prev_prediction_alignment_potential
+                )
+                reward_target = self.prediction_target_weight * (
+                    target_potential - self.prev_prediction_target_potential
+                )
+
+                prediction_reward = reward_alignment + reward_target
+                self.prev_prediction_alignment_potential = align_potential
+                self.prev_prediction_target_potential = target_potential
+
+                self.last_prediction_alignment_error = align_error
+                self.last_prediction_target_error = target_error
+                self.last_prediction_alignment_potential = align_potential
+                self.last_prediction_target_potential = target_potential
+            else:
+                # Reset potentials when supervision is missing to avoid stale improvements
+                self.prev_prediction_alignment_potential = 0.0
+                self.prev_prediction_target_potential = 0.0
+                self.last_prediction_alignment_error = 0.0
+                self.last_prediction_target_error = 0.0
+                self.last_prediction_alignment_potential = 0.0
+                self.last_prediction_target_potential = 0.0
+
             self.last_prediction_reward = prediction_reward
         
         # ==============================================
         # STEP 7: EARLY TERMINATION CHECK
         # ==============================================
-        base_done = (self.t >= self.max_steps) or (self.budget <= 0.0)
+        max_steps_reached = self.max_steps is not None and self.t >= self.max_steps
+        budget_depleted = self.budget <= 0.0
+        base_done = max_steps_reached or budget_depleted
         done = base_done
         early_termination_penalty = 0.0
+        termination_reason: Optional[str] = None
         
         # Immediate termination on extinction
         if true_population <= 0:
             done = True
             early_termination_penalty = -self.early_termination_extinction_penalty
             self.early_termination_triggered = True
+            termination_reason = "extinction"
         
         # Check for unrecoverable states (only NOOP available)
         if self.early_termination_enabled and not base_done and true_population > 0:
@@ -790,8 +846,22 @@ class PetriEnvWrapper:
                 done = True
                 early_termination_penalty = -self._compute_step_scaled_early_termination_penalty()
                 self.early_termination_triggered = True
+                if population_high:
+                    termination_reason = "unrecoverable_high_population"
+                elif population_low:
+                    termination_reason = "unrecoverable_low_population"
+                else:
+                    termination_reason = "unrecoverable_state"
         
         self.last_early_termination_penalty = early_termination_penalty
+
+        if done and termination_reason is None:
+            if max_steps_reached:
+                termination_reason = "max_steps"
+            elif budget_depleted:
+                termination_reason = "budget_depleted"
+            elif self.early_termination_triggered:
+                termination_reason = "early_termination"
         
         # ==============================================
         # STEP 8: TOTAL REWARD
@@ -834,6 +904,10 @@ class PetriEnvWrapper:
             "reward_kernel_maintenance": kernel_maintenance_reward,
             "reward_survival_bonus": survival_bonus,
             "reward_prediction": prediction_reward,
+            "prediction_alignment_error": self.last_prediction_alignment_error,
+            "prediction_target_error": self.last_prediction_target_error,
+            "prediction_alignment_potential": self.last_prediction_alignment_potential,
+            "prediction_target_potential": self.last_prediction_target_potential,
             "reward_early_termination_penalty": early_termination_penalty,
             "reward_cost_penalty": cost_penalty,
             "reward_total": total_reward,
@@ -845,6 +919,7 @@ class PetriEnvWrapper:
             
             # Early termination
             "early_termination_triggered": self.early_termination_triggered,
+            "termination_reason": termination_reason,
             
             # Prediction supervision signal
             "population_next_norm": population_counted_norm,
@@ -861,7 +936,7 @@ class PetriEnvWrapper:
     def _compute_step_scaled_early_termination_penalty(self) -> float:
         
         """Scale the early termination penalty based on how far the episode has progressed."""
-        if self.max_steps <= 0:
+        if self.max_steps is None or self.max_steps <= 0:
             remaining_fraction = 1.0
         else:
             remaining_fraction = max(0.0, min(1.0, (self.max_steps - self.t) / float(self.max_steps)))
@@ -1067,8 +1142,11 @@ class PetriEnvWrapper:
                 age_norm = 0.0
             dose_features.extend([has_last_dose, norm, age_norm])
 
-        t_norm = float(self.t) / max(1.0, float(self.episode_length))
-        t_norm = float(np.clip(t_norm, 0.0, 1.0))
+        if self.episode_length is None or self.episode_length <= 0:
+            t_norm = 0.0
+        else:
+            t_norm = float(self.t) / max(1.0, float(self.episode_length))
+            t_norm = float(np.clip(t_norm, 0.0, 1.0))
 
         obs_parts = [
             last_count_norm,

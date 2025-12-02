@@ -186,7 +186,19 @@ class SequencingRewardConfig:
 class PredictionRewardConfig:
     """Configuration for prediction accuracy rewards."""
     enabled: bool = True
-    weight: float = 1.0  # Weight multiplier for prediction accuracy reward
+    weight: float = 1.0  # Legacy global weight (used as fallback)
+    align_weight: Optional[float] = None  # Weight for aligning prediction to true population
+    target_weight: Optional[float] = None  # Weight for aligning prediction to target population
+    align_scale: float = 5.0  # Sharpness for true-population potential
+    target_scale: float = 2.5  # Sharpness for target-population potential
+
+    def resolved_align_weight(self) -> float:
+        """Return the effective alignment weight, honoring legacy configs."""
+        return float(self.align_weight if self.align_weight is not None else self.weight)
+
+    def resolved_target_weight(self) -> float:
+        """Return the effective target weight, honoring legacy configs."""
+        return float(self.target_weight if self.target_weight is not None else self.weight)
 
 
 @dataclass
@@ -383,6 +395,10 @@ def _get_default_config() -> Dict[str, Any]:
                 "prediction": {
                     "enabled": True,
                     "weight": 1.0,
+                    "align_weight": None,
+                    "target_weight": None,
+                    "align_scale": 5.0,
+                    "target_scale": 2.5,
                 },
                 "early_termination": {
                     "enabled": False,
@@ -780,7 +796,14 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
 
             # Prediction
             pred = rewards.get("prediction", {})
-            _strict_require(["enabled", "weight"], pred, "environment.rewards.prediction")
+            _strict_require([
+                "enabled",
+                "weight",
+                "align_weight",
+                "target_weight",
+                "align_scale",
+                "target_scale",
+            ], pred, "environment.rewards.prediction")
 
             # Early termination
             early = rewards.get("early_termination", {})
@@ -982,6 +1005,12 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                     },
                     "sequencing": {
                         k: v for k, v in config.environment.rewards.sequencing.__dict__.items()
+                    },
+                    "prediction": {
+                        k: v for k, v in config.environment.rewards.prediction.__dict__.items()
+                    },
+                    "early_termination": {
+                        k: v for k, v in config.environment.rewards.early_termination.__dict__.items()
                     },
                 },
             },
