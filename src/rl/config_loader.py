@@ -956,7 +956,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     critical_penalties_cfg = CriticalPenaltiesConfig(**_filter_keys_for(CriticalPenaltiesConfig, rewards_dict.get("critical_penalties", {})))
     
     # For population_maintenance, merge with population data and population_maintenance section
-    pop_maint_data = population_data.copy()
+    pop_maint_data = rewards_dict.get("population", {}).copy()
     pop_maint_data.update(rewards_dict.get("population_maintenance", {}))
     population_maintenance_cfg = PopulationRewardConfig(**_filter_keys_for(PopulationRewardConfig, pop_maint_data))
     
