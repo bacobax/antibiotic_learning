@@ -1,0 +1,9 @@
+2025-12-03 18:10:05 [INFO] Logging to: test_logs
+2025-12-03 18:10:05 [INFO] TensorBoard logs: test_logs/test_experiment/20251203_181005
+2025-12-03 18:10:05 [INFO] View with: tensorboard --logdir=test_logs/test_experiment
+2025-12-03 18:10:41 [INFO] Logging to: test_logs
+2025-12-03 18:10:41 [INFO] TensorBoard logs: test_logs/test_experiment/20251203_181041
+2025-12-03 18:10:41 [INFO] View with: tensorboard --logdir=test_logs/test_experiment
+2025-12-03 18:41:24 [INFO] Logging to: test_logs
+2025-12-03 18:41:24 [INFO] TensorBoard logs: test_logs/test_experiment/20251203_184124
+2025-12-03 18:41:24 [INFO] View with: tensorboard --logdir=test_logs/test_experiment

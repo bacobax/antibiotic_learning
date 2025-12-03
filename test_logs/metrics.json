@@ -1,0 +1,227 @@
+[
+  {
+    "update": 0,
+    "metric": "mean_episode_reward",
+    "value": 50.0
+  },
+  {
+    "update": 0,
+    "metric": "std_episode_reward",
+    "value": 5.0
+  },
+  {
+    "update": 0,
+    "metric": "num_episodes",
+    "value": 5.0
+  },
+  {
+    "update": 0,
+    "metric": "loss_actor",
+    "value": 0.5
+  },
+  {
+    "update": 0,
+    "metric": "loss_critic",
+    "value": 0.3
+  },
+  {
+    "update": 0,
+    "metric": "entropy",
+    "value": 1.0
+  },
+  {
+    "update": 0,
+    "metric": "clip_fraction",
+    "value": 0.2
+  },
+  {
+    "update": 0,
+    "metric": "grad_norm",
+    "value": 0.8
+  },
+  {
+    "update": 0,
+    "metric": "value_mean",
+    "value": 0.5
+  },
+  {
+    "update": 1,
+    "metric": "mean_episode_reward",
+    "value": 60.0
+  },
+  {
+    "update": 1,
+    "metric": "std_episode_reward",
+    "value": 5.0
+  },
+  {
+    "update": 1,
+    "metric": "num_episodes",
+    "value": 5.0
+  },
+  {
+    "update": 1,
+    "metric": "loss_actor",
+    "value": 0.45
+  },
+  {
+    "update": 1,
+    "metric": "loss_critic",
+    "value": 0.27
+  },
+  {
+    "update": 1,
+    "metric": "entropy",
+    "value": 0.9
+  },
+  {
+    "update": 1,
+    "metric": "clip_fraction",
+    "value": 0.25
+  },
+  {
+    "update": 1,
+    "metric": "grad_norm",
+    "value": 0.8
+  },
+  {
+    "update": 1,
+    "metric": "value_mean",
+    "value": 0.5
+  },
+  {
+    "update": 2,
+    "metric": "mean_episode_reward",
+    "value": 70.0
+  },
+  {
+    "update": 2,
+    "metric": "std_episode_reward",
+    "value": 5.0
+  },
+  {
+    "update": 2,
+    "metric": "num_episodes",
+    "value": 5.0
+  },
+  {
+    "update": 2,
+    "metric": "loss_actor",
+    "value": 0.4
+  },
+  {
+    "update": 2,
+    "metric": "loss_critic",
+    "value": 0.24
+  },
+  {
+    "update": 2,
+    "metric": "entropy",
+    "value": 0.8
+  },
+  {
+    "update": 2,
+    "metric": "clip_fraction",
+    "value": 0.30000000000000004
+  },
+  {
+    "update": 2,
+    "metric": "grad_norm",
+    "value": 0.8
+  },
+  {
+    "update": 2,
+    "metric": "value_mean",
+    "value": 0.5
+  },
+  {
+    "update": 3,
+    "metric": "mean_episode_reward",
+    "value": 80.0
+  },
+  {
+    "update": 3,
+    "metric": "std_episode_reward",
+    "value": 5.0
+  },
+  {
+    "update": 3,
+    "metric": "num_episodes",
+    "value": 5.0
+  },
+  {
+    "update": 3,
+    "metric": "loss_actor",
+    "value": 0.35
+  },
+  {
+    "update": 3,
+    "metric": "loss_critic",
+    "value": 0.21
+  },
+  {
+    "update": 3,
+    "metric": "entropy",
+    "value": 0.7
+  },
+  {
+    "update": 3,
+    "metric": "clip_fraction",
+    "value": 0.35000000000000003
+  },
+  {
+    "update": 3,
+    "metric": "grad_norm",
+    "value": 0.8
+  },
+  {
+    "update": 3,
+    "metric": "value_mean",
+    "value": 0.5
+  },
+  {
+    "update": 4,
+    "metric": "mean_episode_reward",
+    "value": 90.0
+  },
+  {
+    "update": 4,
+    "metric": "std_episode_reward",
+    "value": 5.0
+  },
+  {
+    "update": 4,
+    "metric": "num_episodes",
+    "value": 5.0
+  },
+  {
+    "update": 4,
+    "metric": "loss_actor",
+    "value": 0.3
+  },
+  {
+    "update": 4,
+    "metric": "loss_critic",
+    "value": 0.18
+  },
+  {
+    "update": 4,
+    "metric": "entropy",
+    "value": 0.6
+  },
+  {
+    "update": 4,
+    "metric": "clip_fraction",
+    "value": 0.4
+  },
+  {
+    "update": 4,
+    "metric": "grad_norm",
+    "value": 0.8
+  },
+  {
+    "update": 4,
+    "metric": "value_mean",
+    "value": 0.5
+  }
+]

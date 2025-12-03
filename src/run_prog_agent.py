@@ -20,7 +20,7 @@ from prog_agent.simulator import ProgrammaticAgentSimulator
 from simulation.model import BacteriaModel
 from simulation.simulation_config import ANTIBIOTIC_TYPES
 
-DEFAULT_LOG_PATH = Path("checkpoints/prog_agent_logs/agent_log.jsonl")
+DEFAULT_LOG_PATH = Path("prog_agent/prog_agent_logs/agent_log.jsonl")
 ANTIBIOTIC_CHOICES = ["auto"] + sorted(ANTIBIOTIC_TYPES.keys())
 
 
@@ -58,6 +58,42 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         default=0.5,
         help="Physical antibiotic quantity per unit of agent-selected strength",
+    )
+    parser.add_argument(
+        "--initial-budget",
+        type=float,
+        default=100.0,
+        help="Starting action budget (matches RL environment default of 100)",
+    )
+    parser.add_argument(
+        "--noop-cost",
+        type=float,
+        default=0.0,
+        help="Cost for NOOP actions (usually zero)",
+    )
+    parser.add_argument(
+        "--count-cost",
+        type=float,
+        default=0.5,
+        help="Fixed cost for COUNT actions",
+    )
+    parser.add_argument(
+        "--sequence-cost",
+        type=float,
+        default=2.5,
+        help="Fixed cost for SEQUENCE actions",
+    )
+    parser.add_argument(
+        "--dose-cost",
+        type=float,
+        default=2.0,
+        help="Base cost charged whenever a DOSE is attempted",
+    )
+    parser.add_argument(
+        "--dose-cost-per-unit",
+        type=float,
+        default=2.0,
+        help="Variable cost per antibiotic unit (strength × dose-scale)",
     )
     parser.add_argument(
         "--kp",
@@ -174,6 +210,12 @@ def main() -> None:
         "tolerance": args.tolerance,
         "dose_cooldown": args.dose_cooldown,
         "sequence_delay": args.sequence_delay,
+        "initial_budget": args.initial_budget,
+        "noop_cost": args.noop_cost,
+        "count_cost": args.count_cost,
+        "sequence_cost": args.sequence_cost,
+        "dose_cost": args.dose_cost,
+        "dose_cost_per_unit": args.dose_cost_per_unit,
     }
     if log_path is not None:
         agent_kwargs["log_path"] = str(log_path)
@@ -184,6 +226,12 @@ def main() -> None:
         agent,
         antibiotic_type=antibiotic_override,
         dose_scale=args.dose_scale,
+        initial_budget=args.initial_budget,
+        noop_cost=args.noop_cost,
+        count_cost=args.count_cost,
+        sequencing_cost=args.sequence_cost,
+        dose_cost=args.dose_cost,
+        dose_cost_per_unit=args.dose_cost_per_unit,
         sequence_window=args.sequence_delay,
         log_interval=args.log_interval,
         verbose=not args.quiet,
