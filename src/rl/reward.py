@@ -267,8 +267,8 @@ class SurvivalBonusReward(nn.Module):
         if self.scaling_type == "constant":
             bonus = self.base_bonus
         elif self.scaling_type == "linear":
-            # Bonus increases linearly with time: base * (1 + factor * t / 1000)
-            bonus = self.base_bonus * (1.0 + self.scaling_factor * timestep / 1000.0)
+            # Bonus increases linearly with time: base * (1 + factor * t)
+            bonus = self.base_bonus * (1.0 + self.scaling_factor * timestep)
         elif self.scaling_type == "exponential":
             # Bonus grows exponentially but slowly: base * exp(factor * t / 1000)
             import math

@@ -78,21 +78,21 @@ environment:
       enabled: true
       target_population: 100
       kernel_type: "laplace"                 # "gaussian" or "laplace"
-      kernel_peak_reward: 50.0                 # R: peak reward at target
+      kernel_peak_reward: 30.0                 # R: peak reward at target
       kernel_max_penalty: 10.0                 # M: maximum penalty (min value -M)
       kernel_zero_distance: 30.0              # distance where kernel equals 0
     
     # Survival bonus (per-step reward for staying alive)
     survival_bonus:
       enabled: true
-      base_bonus: 1.0
+      base_bonus: 2.0
       scaling_type: "linear"                  # "constant", "linear", "exponential"
-      scaling_factor: 0.05
-      max_bonus: 3.0
+      scaling_factor: 0.005
+      max_bonus: 10.0
     
     # Prediction accuracy reward (COUNT-only)
     prediction:
-      enabled: true
+      enabled: false
       weight: 1.0
       align_weight: 3.0
       target_weight: 1.0
@@ -102,17 +102,17 @@ environment:
     # Early termination on unrecoverable states
     early_termination:
       enabled: true
-      penalty: 20.0                           # Penalty applied on early termination
+      penalty: 10.0                           # Penalty applied on early termination
       min_penalty: 2.0                       # Penalty when terminating near horizon
       penalty_decay_power: 1.2                # Decay rate exponent
       population_low_threshold: 0.3           # Terminate if pop < target × this
       population_threshold: 1.5               # Unrecoverable if pop > target × this
-      extinction_penalty: 50.0                # Additional penalty for extinction
+      extinction_penalty: 15.0                # Additional penalty for extinction
       require_budget_depleted: false          # If true, also require budget == 0
 
   # Other environment parameters
   budget:
-    budget_init: 100.0
+    budget_init: 30.0
     budget_norm: 100.0
   
   population:
@@ -121,7 +121,7 @@ environment:
 
 # Action costs and durations
 actions:
-  weight_cost: 1.0
+  weight_cost: 5.0
   noop:
     id: 0
     cost: 0.0
@@ -139,8 +139,8 @@ actions:
 
   dose:
     id: 3
-    cost: 2.0
-    cost_per_unit: 2.0
+    cost: 1.0
+    cost_per_unit: 3.0
     duration: 0
 
 # Model architecture
@@ -150,7 +150,7 @@ model:
   n_discrete: 4
   dose_action_index: 3
   k_doses: 3
-  sigmoid_scale_factor: 1.0
+  sigmoid_scale_factor: 2.0
 
 # PPO hyperparameters
 ppo:
@@ -161,7 +161,7 @@ ppo:
   ent_coef: 0.03
   max_grad_norm: 0.5
   rollout_steps: 768
-  epochs: 5
+  epochs: 15
   seq_len: 128
   batch_seq_len: 128
   lr: 0.0001
