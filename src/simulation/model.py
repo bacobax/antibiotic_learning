@@ -2,6 +2,7 @@
 Bacteria simulation model implementation.
 """
 
+import math
 import random
 import numpy as np
 from mesa import Model
@@ -305,12 +306,32 @@ class BacteriaModel(Model):
 
     # Field utilities
     def add_gaussian_patch(self, field, cx, cy, sigma, amplitude):
-        """Add a Gaussian patch to the field"""
-        X, Y = np.meshgrid(
-            np.arange(self.field_w), np.arange(self.field_h), indexing="ij"
-        )
-        patch = amplitude * np.exp(-((X - cx) ** 2 + (Y - cy) ** 2) / (2 * sigma**2))
-        field += patch
+        """Add a Gaussian patch to the field using a clipped window to reduce allocations."""
+        if amplitude == 0.0:
+            return
+
+        if sigma <= 0.0:
+            x = int(round(np.clip(cx, 0, self.field_w - 1)))
+            y = int(round(np.clip(cy, 0, self.field_h - 1)))
+            field[x, y] += amplitude
+            return
+
+        radius = max(1, int(math.ceil(3.0 * sigma)))
+        x0 = max(0, int(np.floor(cx)) - radius)
+        x1 = min(self.field_w, int(np.floor(cx)) + radius + 1)
+        y0 = max(0, int(np.floor(cy)) - radius)
+        y1 = min(self.field_h, int(np.floor(cy)) + radius + 1)
+
+        if x0 >= x1 or y0 >= y1:
+            return
+
+        xs = np.arange(x0, x1, dtype=np.float32) - float(cx)
+        ys = np.arange(y0, y1, dtype=np.float32) - float(cy)
+        xs_sq = xs[:, None] ** 2
+        ys_sq = ys[None, :] ** 2
+        inv_two_sigma_sq = 1.0 / (2.0 * sigma * sigma)
+        patch = amplitude * np.exp(-(xs_sq + ys_sq) * inv_two_sigma_sq)
+        field[x0:x1, y0:y1] += patch.astype(field.dtype, copy=False)
 
     def nutrient_to_field_coords(self, pos):
         """Convert position to field coordinates"""
