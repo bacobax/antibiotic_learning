@@ -1,4 +1,5 @@
 from typing import Any, Callable, Dict, Tuple, Optional, Union, List
+from collections import deque
 import math
 import numpy as np
 import torch
@@ -76,9 +77,9 @@ class PetriEnvWrapper:
 
     def __init__(
         self,
-    mesa_model_factory: Callable[[], Any],
-    k_doses: int,
-    max_steps: Optional[int] = 1000,
+        mesa_model_factory: Callable[[], Any],
+        k_doses: int,
+        max_steps: Optional[int] = 1000,
         
         # ===== Timing and freshness thresholds =====
         t_count_freshness: int = 5,            # Steps for count to remain "fresh"
@@ -148,10 +149,10 @@ class PetriEnvWrapper:
         
         # ===== Prediction reward =====
         prediction_reward_enabled: bool = True,
-    prediction_reward_alignment_weight: float = 0.5,
-    prediction_reward_target_weight: float = 0.25,
-    prediction_alignment_scale: float = 5.0,
-    prediction_target_scale: float = 3.0,
+        prediction_reward_alignment_weight: float = 0.5,
+        prediction_reward_target_weight: float = 0.25,
+        prediction_alignment_scale: float = 5.0,
+        prediction_target_scale: float = 3.0,
         
         # ===== Early termination =====
         early_termination_enabled: bool = True,
@@ -170,6 +171,7 @@ class PetriEnvWrapper:
         budget_norm: float = 100.0,
         initial_bacteria_per_type_range: Optional[Tuple[int, int]] = None,
         initial_skip_steps: int = 0,
+        max_recent_dose_events: int = 256,
         
         device: str = "cpu",
         dtype: torch.dtype = torch.float32,
@@ -223,6 +225,7 @@ class PetriEnvWrapper:
         self.device = device
         self.dtype = dtype
         self.initial_skip_steps = max(0, int(initial_skip_steps))
+        self.max_recent_dose_events = max(1, int(max_recent_dose_events))
         
         # ===== Prediction reward =====
         self.prediction_reward_enabled = bool(prediction_reward_enabled)
@@ -348,7 +351,7 @@ class PetriEnvWrapper:
         self.recent_sequencing = False
 
         # Legacy dose event tracking (kept inert; initialized to avoid attribute errors)
-        self.recent_dose_events = []
+        self.recent_dose_events = deque(maxlen=self.max_recent_dose_events)
         self.pending_dose_events = []
         self.last_regular_count_bonus = 0.0
         self.last_informed_dose_reward = 0.0
@@ -401,18 +404,20 @@ class PetriEnvWrapper:
     # Public API
     # -------------------------
 
-    def _create_mesa_model(self) -> Any:
-        initial_total_bacteria: Optional[int] = None
+    def _sample_initial_population(self) -> Optional[int]:
         if self.initial_bacteria_per_type_range is not None:
             min_range, max_range = self.initial_bacteria_per_type_range
             per_type = int(np.random.randint(min_range, max_range + 1))
             initial_total_bacteria = per_type * N_BACTERIA_TYPES
             self.last_initial_bacteria_per_type = per_type
             self.last_initial_total_bacteria = initial_total_bacteria
-        else:
-            self.last_initial_bacteria_per_type = None
-            self.last_initial_total_bacteria = None
+            return initial_total_bacteria
 
+        self.last_initial_bacteria_per_type = None
+        self.last_initial_total_bacteria = None
+        return None
+
+    def _create_mesa_model(self, initial_total_bacteria: Optional[int]) -> Any:
         if initial_total_bacteria is None:
             return self.mesa_model_factory()
 
@@ -425,7 +430,11 @@ class PetriEnvWrapper:
                 return self.mesa_model_factory()
     
     def reset(self)-> np.ndarray:
-        self.model = self._create_mesa_model()
+        initial_total_bacteria = self._sample_initial_population()
+        if self.model is None:
+            self.model = self._create_mesa_model(initial_total_bacteria)
+        else:
+            self.model.reset(initial_total_bacteria)
         self.t = 0
         self.episode_return = 0.0
         self.budget = self.budget_init

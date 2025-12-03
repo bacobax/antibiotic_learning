@@ -228,6 +228,11 @@ class EnvironmentConfig:
     rewards: RewardConfig
     initial_bacteria_per_type_range: Optional[Tuple[int, int]] = None
     warmup_skip_steps: int = 0
+    enable_individual_tracking: bool = True
+    max_individual_history: int = 1000
+    max_tracked_individuals: Optional[int] = 2000
+    max_history_steps: Optional[int] = 2000
+    max_recent_dose_events: int = 256
 
 
 @dataclass
@@ -267,6 +272,9 @@ class TrainingConfig:
     save_dir: str
     experiment_name: str
     save_checkpoints_per_run: bool = False  # Whether to save checkpoints in timestamped run directories
+    log_window_size: Optional[int] = 2000
+    log_memory: bool = False
+    memory_log_interval: int = 25
 
 
 @dataclass
@@ -310,6 +318,11 @@ def _get_default_config() -> Dict[str, Any]:
             "dtype": "float32",
             "initial_bacteria_per_type_range": None,
             "warmup_skip_steps": 0,
+            "enable_individual_tracking": True,
+            "max_individual_history": 1000,
+            "max_tracked_individuals": 2000,
+            "max_history_steps": 2000,
+            "max_recent_dose_events": 256,
             "rewards": {
                 "population": {
                     "target_population": 500,
@@ -461,6 +474,8 @@ def _get_default_config() -> Dict[str, Any]:
             "log_interval": 10,
             "save_dir": "./checkpoints",
             "experiment_name": "ppo_training",
+            "save_checkpoints_per_run": False,
+            "log_window_size": 2000,
         },
     }
 
@@ -919,6 +934,30 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
             spawn_min, spawn_max = spawn_range_cfg
         parsed_spawn_range = (int(spawn_min), int(spawn_max))
 
+    tracking_defaults = {
+        "enabled": env_dict.get("enable_individual_tracking", True),
+        "max_individual_history": env_dict.get("max_individual_history", 1000),
+        "max_tracked_individuals": env_dict.get("max_tracked_individuals", 2000),
+    }
+    tracking_cfg = env_dict.get("tracking") or {}
+    enable_tracking = bool(tracking_cfg.get("enabled", tracking_defaults["enabled"]))
+    max_individual_history = int(tracking_cfg.get("max_individual_history", tracking_defaults["max_individual_history"]))
+    max_tracked_individuals_val = tracking_cfg.get("max_tracked_individuals", tracking_defaults["max_tracked_individuals"])
+    max_tracked_individuals = None if max_tracked_individuals_val is None else int(max_tracked_individuals_val)
+
+    history_defaults = env_dict.get("max_history_steps", 2000)
+    history_cfg = env_dict.get("history") or env_dict.get("history_limits") or {}
+    max_history_steps_val = history_cfg.get("max_steps", history_defaults)
+    max_history_steps = None if max_history_steps_val is None else int(max_history_steps_val)
+
+    reward_buffer_cfg = env_dict.get("reward_buffers") or {}
+    max_recent_dose_events = int(
+        reward_buffer_cfg.get(
+            "max_recent_dose_events",
+            env_dict.get("max_recent_dose_events", 256),
+        )
+    )
+
     # Create environment config with nested structures
     env_cfg = EnvironmentConfig(
         max_steps=env_dict["max_steps"],
@@ -928,6 +967,11 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         rewards=reward_cfg,
         initial_bacteria_per_type_range=parsed_spawn_range,
         warmup_skip_steps=int(env_dict.get("warmup_skip_steps", 0) or 0),
+        enable_individual_tracking=enable_tracking,
+        max_individual_history=max_individual_history,
+        max_tracked_individuals=max_tracked_individuals,
+        max_history_steps=max_history_steps,
+        max_recent_dose_events=max_recent_dose_events,
     )
     
     actions_cfg = ActionConfig(
@@ -974,6 +1018,11 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                 "dtype": config.environment.dtype,
                 "initial_bacteria_per_type_range": config.environment.initial_bacteria_per_type_range,
                 "warmup_skip_steps": config.environment.warmup_skip_steps,
+                "enable_individual_tracking": config.environment.enable_individual_tracking,
+                "max_individual_history": config.environment.max_individual_history,
+                "max_tracked_individuals": config.environment.max_tracked_individuals,
+                "max_history_steps": config.environment.max_history_steps,
+                "max_recent_dose_events": config.environment.max_recent_dose_events,
                 "rewards": {
                     "population": {
                         k: v for k, v in config.environment.rewards.population.__dict__.items()

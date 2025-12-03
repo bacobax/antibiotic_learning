@@ -7,16 +7,26 @@ from collections import deque
 
 
 class IndividualTracker:
-    """Tracks individual bacteria throughout their lifecycle."""
+    """Tracks individual bacteria throughout their lifecycle with bounded memory."""
 
-    def __init__(self, max_history=1000):
+    def __init__(self, max_history=1000, max_individuals=2000, enabled=True):
+        self.enabled = bool(enabled)
         self.max_history = max_history
+        self.max_individuals = None
+        if max_individuals is not None:
+            max_individuals = int(max_individuals)
+            if max_individuals > 0:
+                self.max_individuals = max_individuals
         self.tracked_individuals = {}  # {bacterium_id: data_history}
         self.alive_individuals = set()
         self.deceased_individuals = set()
+        self._registration_order = deque()
 
     def register_individual(self, bacterium):
         """Automatically register a new bacterium for tracking"""
+        if not self.enabled:
+            return
+
         if bacterium.unique_id not in self.tracked_individuals:
             self.tracked_individuals[bacterium.unique_id] = {
                 "steps": deque(maxlen=self.max_history),
@@ -33,6 +43,19 @@ class IndividualTracker:
                 "cause_of_death": None,  # 'starvation', 'antibiotic', 'old_age'
             }
             self.alive_individuals.add(bacterium.unique_id)
+            self._registration_order.append(bacterium.unique_id)
+            self._evict_if_needed()
+
+    def _evict_if_needed(self):
+        if self.max_individuals is None:
+            return
+
+        while len(self.tracked_individuals) > self.max_individuals and self._registration_order:
+            oldest_id = self._registration_order.popleft()
+            if oldest_id in self.tracked_individuals:
+                del self.tracked_individuals[oldest_id]
+                self.alive_individuals.discard(oldest_id)
+                self.deceased_individuals.discard(oldest_id)
 
     def update_tracked_individuals(self, model, to_remove=None):
         """Update data for all tracked individuals
@@ -41,6 +64,9 @@ class IndividualTracker:
             model: The simulation model
             to_remove: Set of bacteria being removed this step (optional)
         """
+        if not self.enabled:
+            return
+
         current_step = model.step_count
 
         # Get current alive IDs (including those about to be removed)
@@ -97,6 +123,8 @@ class IndividualTracker:
 
     def mark_death(self, bacterium_id, cause):
         """Mark a bacterium as deceased with cause"""
+        if not self.enabled:
+            return
         if bacterium_id in self.tracked_individuals:
             self.tracked_individuals[bacterium_id]["cause_of_death"] = cause
 

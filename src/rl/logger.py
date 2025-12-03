@@ -5,15 +5,22 @@ Logs to: Python logs, JSON metrics, and TensorBoard (if available).
 
 import json
 import logging
+from collections import deque
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 import numpy as np
 
 
 class TrainingLogger:
     """Simple logger for training metrics. Handles all logging destinations."""
     
-    def __init__(self, log_dir: Path, experiment_name: str = "ppo_training"):
+    def __init__(
+        self,
+        log_dir: Path,
+        experiment_name: str = "ppo_training",
+        *,
+        max_metrics_entries: Optional[int] = None,
+    ):
         """
         Initialize logger.
         
@@ -32,7 +39,12 @@ class TrainingLogger:
         
         # JSON metrics file
         self.metrics_file = self.log_dir / "metrics.json"
-        self.metrics_data = []
+        self.max_metrics_entries = None
+        if max_metrics_entries is not None and max_metrics_entries > 0:
+            self.max_metrics_entries = int(max_metrics_entries)
+        self.metrics_data = (
+            deque(maxlen=self.max_metrics_entries) if self.max_metrics_entries else []
+        )
         
         # Track best reward
         self.best_reward = float('-inf')
@@ -89,7 +101,13 @@ class TrainingLogger:
     # Public Methods
     # ========================================================================
     
-    def log_metrics(self, update: int, rollout_metrics: Dict, train_stats: Dict) -> None:
+    def log_metrics(
+        self,
+        update: int,
+        rollout_metrics: Dict,
+        train_stats: Dict,
+        extra_metrics: Optional[Dict] = None,
+    ) -> None:
         """
         Log all metrics from an update.
         
@@ -103,6 +121,8 @@ class TrainingLogger:
             **rollout_metrics,
             **train_stats,
         }
+        if extra_metrics:
+            all_metrics.update(extra_metrics)
         
         # Track best reward
         if 'mean_episode_reward' in rollout_metrics:
@@ -121,11 +141,15 @@ class TrainingLogger:
         # Log to JSON
         for name, value in all_metrics.items():
             if isinstance(value, (int, float)):
-                self.metrics_data.append({
+                entry = {
                     "update": update,
                     "metric": name,
                     "value": float(value),
-                })
+                }
+                if isinstance(self.metrics_data, deque):
+                    self.metrics_data.append(entry)
+                else:
+                    self.metrics_data.append(entry)
         
         self._flush_json()
     
@@ -299,8 +323,9 @@ class TrainingLogger:
     def _flush_json(self) -> None:
         """Save metrics to JSON file."""
         try:
+            data = list(self.metrics_data) if isinstance(self.metrics_data, deque) else self.metrics_data
             with open(self.metrics_file, 'w') as f:
-                json.dump(self.metrics_data, f, indent=2)
+                json.dump(data, f, indent=2)
         except Exception as e:
             self.logger.error(f"Failed to write metrics JSON: {e}")
     

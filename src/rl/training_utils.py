@@ -13,7 +13,10 @@ View TensorBoard during/after training:
 The wrapper in env_wrapper.py handles all Mesa interaction.
 """
 import json
+import os
 import time
+from collections import deque
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Optional, Callable
 from datetime import datetime
@@ -28,6 +31,13 @@ try:
 except ImportError:
     HAS_TQDM = False
 
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:  # pragma: no cover - optional dependency
+    HAS_PSUTIL = False
+    psutil = None  # type: ignore
+
 from .config_loader import CompleteConfig, load_config, save_config
 from .agent import RLAgent
 from .env_wrapper import PetriEnvWrapper
@@ -38,6 +48,35 @@ from .logger import TrainingLogger
 from .training_config import PPOConfig, set_global_seed
 from simulation.model import BacteriaModel
 from .env_wrapper import ACTION_DOSE, ACTION_COUNT_BACTERIA, ACTION_NOOP, ACTION_SEQUENCING
+
+DEFAULT_LOG_WINDOW = 2000
+
+
+def _collect_memory_metrics(device: str) -> Dict[str, float]:
+    """Grab lightweight memory telemetry for diagnostics."""
+    metrics: Dict[str, float] = {}
+
+    if HAS_PSUTIL:
+        try:
+            process = psutil.Process(os.getpid())
+            mem_info = process.memory_info()
+            metrics["memory/rss_mb"] = mem_info.rss / (1024 * 1024)
+            metrics["memory/vms_mb"] = mem_info.vms / (1024 * 1024)
+            shared = getattr(mem_info, "shared", 0)
+            if shared:
+                metrics["memory/shared_mb"] = shared / (1024 * 1024)
+        except Exception:
+            pass
+
+    device_lc = (device or "").lower()
+    if device_lc.startswith("cuda") and torch.cuda.is_available():
+        try:
+            metrics["memory/cuda_allocated_mb"] = torch.cuda.memory_allocated() / (1024 * 1024)
+            metrics["memory/cuda_reserved_mb"] = torch.cuda.memory_reserved() / (1024 * 1024)
+        except Exception:
+            pass
+
+    return metrics
 
 
 # ============================================================================
@@ -479,7 +518,19 @@ def _finalize_training(
     logger.close()
 
 
-def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: int, logger: TrainingLogger, checkpoint_interval: int = 50, starting_update: int = 0, agent: RLAgent = None):
+def train(
+    cfg: PPOConfig,
+    env: PetriEnvWrapper,
+    save_dir: Path,
+    total_updates: int,
+    logger: TrainingLogger,
+    checkpoint_interval: int = 50,
+    starting_update: int = 0,
+    agent: RLAgent = None,
+    log_window_size: Optional[int] = DEFAULT_LOG_WINDOW,
+    log_memory: bool = False,
+    memory_log_interval: int = 25,
+):
     """
     Main training loop with comprehensive logging and TensorBoard integration.
     
@@ -497,6 +548,8 @@ def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: i
         checkpoint_interval: Save checkpoint every N updates
         starting_update: Update number to start from (for resuming training)
         agent: Pre-initialized agent (for resuming from checkpoint)
+        log_memory: Whether to append system/GPU memory stats per interval
+        memory_log_interval: Interval (in updates) for memory telemetry
     """
     # ========================================================================
     # SETUP
@@ -509,10 +562,12 @@ def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: i
         logger.log_info(f"Resuming training from update {starting_update}")
     
     # Training state
-    log_data = []
-    reward_history = []
-    loss_history = []
+    window = log_window_size if log_window_size is None or log_window_size > 0 else None
+    log_data = deque(maxlen=window)
+    reward_history = deque(maxlen=window)
+    loss_history = deque(maxlen=window)
     start_time = time.time()
+    memory_interval = max(1, int(memory_log_interval)) if log_memory else None
     
     # Progress bar
     iterator = tqdm(range(total_updates), desc="Training") if HAS_TQDM else range(total_updates)
@@ -532,15 +587,21 @@ def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: i
         train_stats = agent.update_policy(buffer)
         
         # Log and track
+        memory_metrics: Dict[str, float] = {}
+        if log_memory and memory_interval is not None:
+            if ((update_idx - starting_update) % memory_interval) == 0:
+                memory_metrics = _collect_memory_metrics(cfg.device)
+
         log_entry = {
             "update": update_idx,
             **rollout_metrics,
             **train_stats,
+            **memory_metrics,
         }
         log_data.append(log_entry)
         reward_history.append(rollout_metrics['mean_episode_reward'])
         loss_history.append(train_stats['loss_actor'])
-        logger.log_metrics(update_idx, rollout_metrics, train_stats)
+        logger.log_metrics(update_idx, rollout_metrics, train_stats, extra_metrics=memory_metrics)
         
         # Periodic reporting
         if update_idx % 10 == 0 and update_idx > 0:
@@ -559,7 +620,7 @@ def train(cfg: PPOConfig, env: PetriEnvWrapper, save_dir: Path, total_updates: i
     # FINALIZE
     # ========================================================================
     total_time = time.time() - start_time
-    _finalize_training(log_data, reward_history, loss_history, total_updates, total_time, save_dir, logger)
+    _finalize_training(list(log_data), list(reward_history), list(loss_history), total_updates, total_time, save_dir, logger)
 
 
 def _setup_logger_and_log_startup(
@@ -576,7 +637,11 @@ def _setup_logger_and_log_startup(
     Returns:
         Initialized TrainingLogger
     """
-    logger = TrainingLogger(save_dir, experiment_name=config.training.experiment_name)
+    logger = TrainingLogger(
+        save_dir,
+        experiment_name=config.training.experiment_name,
+        max_metrics_entries=config.training.log_window_size,
+    )
     
     logger.log_info("="*70)
     logger.log_info("PPO Training Started")
@@ -867,8 +932,23 @@ def _create_environment(
             f"Initial bacteria per type range set to [{spawn_range[0]}, {spawn_range[1]}]"
         )
 
+    tracker_kwargs = {
+        "enable_individual_tracking": config.environment.enable_individual_tracking,
+        "max_individual_history": config.environment.max_individual_history,
+        "max_tracked_individuals": config.environment.max_tracked_individuals,
+        "max_history_steps": config.environment.max_history_steps,
+    }
+
+    model_factory = partial(
+        mesa_model_factory,
+        enable_individual_tracking=tracker_kwargs["enable_individual_tracking"],
+        max_individual_history=tracker_kwargs["max_individual_history"],
+        max_tracked_individuals=tracker_kwargs["max_tracked_individuals"],
+        max_history_steps=tracker_kwargs["max_history_steps"],
+    )
+
     env = PetriEnvWrapper(
-        mesa_model_factory=mesa_model_factory,
+        mesa_model_factory=model_factory,
         k_doses=config.environment.k_doses,
         max_steps=config.environment.max_steps,
         
@@ -885,7 +965,7 @@ def _create_environment(
         # Action costs and durations
         sequencing_cost=config.actions.sequencing_cost,
         sequencing_duration=config.actions.sequencing_duration,
-    noop_cost=config.actions.noop_cost,
+        noop_cost=config.actions.noop_cost,
         dose_cost=config.actions.dose_cost,
         dose_cost_per_unit=config.actions.dose_cost_per_unit,
         count_cost=config.actions.count_cost,
@@ -893,17 +973,17 @@ def _create_environment(
         
         # Pre-step reward scalars (informed dosing)
         penalty_informed_dosing_under=penalty_informed_dosing_under,
-    penalty_informed_dosing_under_dose_scale=penalty_informed_dosing_under_dose_scale,
-    penalty_informed_dosing_under_dose_exponent=penalty_informed_dosing_under_dose_exponent,
-    penalty_informed_dosing_under_deficit_scale=penalty_informed_dosing_under_deficit_scale,
-    penalty_informed_dosing_under_deficit_cap=penalty_informed_dosing_under_deficit_cap,
-    penalty_informed_dosing_under_max=penalty_informed_dosing_under_max,
+        penalty_informed_dosing_under_dose_scale=penalty_informed_dosing_under_dose_scale,
+        penalty_informed_dosing_under_dose_exponent=penalty_informed_dosing_under_dose_exponent,
+        penalty_informed_dosing_under_deficit_scale=penalty_informed_dosing_under_deficit_scale,
+        penalty_informed_dosing_under_deficit_cap=penalty_informed_dosing_under_deficit_cap,
+        penalty_informed_dosing_under_max=penalty_informed_dosing_under_max,
         reward_informed_dosing_above=reward_informed_dosing_above,
         reward_informed_dosing_above_without_seq=reward_informed_dosing_above_without_seq,
         penalty_blind_dose=penalty_blind_dose,
-    penalty_blind_dose_amount_scale=penalty_blind_dose_amount_scale,
-    penalty_blind_dose_amount_exponent=penalty_blind_dose_amount_exponent,
-    penalty_blind_dose_max=penalty_blind_dose_max,
+        penalty_blind_dose_amount_scale=penalty_blind_dose_amount_scale,
+        penalty_blind_dose_amount_exponent=penalty_blind_dose_amount_exponent,
+        penalty_blind_dose_max=penalty_blind_dose_max,
         
         # Pre-step rewards (sequencing)
         seq_already_pending_penalty=seq_already_pending_penalty,
@@ -937,10 +1017,10 @@ def _create_environment(
         
         # Prediction reward
         prediction_reward_enabled=prediction_cfg.enabled,
-    prediction_reward_alignment_weight=prediction_align_weight,
-    prediction_reward_target_weight=prediction_target_weight,
-    prediction_alignment_scale=prediction_cfg.align_scale,
-    prediction_target_scale=prediction_cfg.target_scale,
+        prediction_reward_alignment_weight=prediction_align_weight,
+        prediction_reward_target_weight=prediction_target_weight,
+        prediction_alignment_scale=prediction_cfg.align_scale,
+        prediction_target_scale=prediction_cfg.target_scale,
         
         # Early termination
         early_termination_enabled=early_term_cfg.enabled,
@@ -957,8 +1037,9 @@ def _create_environment(
         population_norm=rewards.population.population_norm,
         budget_init=budget_cfg.budget_init,
         budget_norm=budget_cfg.budget_norm,
-    initial_bacteria_per_type_range=spawn_range,
+        initial_bacteria_per_type_range=spawn_range,
         initial_skip_steps=config.environment.warmup_skip_steps,
+        max_recent_dose_events=config.environment.max_recent_dose_events,
         
         # Device config
         device=config.environment.device,
