@@ -8,6 +8,7 @@ from mesa import Model
 from mesa.space import ContinuousSpace
 import heapq
 from scipy.ndimage import gaussian_filter
+from typing import Optional
 
 
 from simulation.simulation_config import (
@@ -39,7 +40,17 @@ from simulation.biofilm_manager import BiofilmManager
 class BacteriaModel(Model):
     """Main simulation model for bacteria population dynamics."""
 
-    def __init__(self, N=None, width=WIDTH, height=HEIGHT):
+    def __init__(
+        self,
+        N=None,
+        width=WIDTH,
+        height=HEIGHT,
+        *,
+        enable_individual_tracking: bool = True,
+        max_individual_history: int = 1000,
+        max_tracked_individuals: Optional[int] = 2000,
+        max_history_steps: Optional[int] = 2000,
+    ):
         super().__init__()
         self.width = width
         self.height = height
@@ -87,8 +98,23 @@ class BacteriaModel(Model):
         self.running = True
         self.step_count = 0
 
-        # Tracking system
-        self.individual_tracker = IndividualTracker()
+        # Tracking configuration and system
+        self._tracker_enabled = bool(enable_individual_tracking)
+        self._tracker_history_len = max(1, int(max_individual_history))
+        if max_tracked_individuals is not None and max_tracked_individuals > 0:
+            self._max_tracked_individuals = int(max_tracked_individuals)
+        else:
+            self._max_tracked_individuals = None
+        if max_history_steps is not None and max_history_steps > 0:
+            self.max_history_steps = int(max_history_steps)
+        else:
+            self.max_history_steps = None
+
+        self.individual_tracker = IndividualTracker(
+            max_history=self._tracker_history_len,
+            max_individuals=self._max_tracked_individuals,
+            enabled=self._tracker_enabled,
+        )
         
         # Biofilm management system
         self.biofilm_manager = BiofilmManager(self, BIOFILM_PARAMS)
@@ -97,23 +123,7 @@ class BacteriaModel(Model):
         self._next_biofilm_id = 0  # Counter for unique biofilm IDs
 
         # History for plotting
-        self.history = {
-            "steps": [],
-            "population": [],
-            "total_food": [],
-            "avg_energy": [],
-            "avg_energy_top": [],
-            "avg_energy_worst": [],
-        }
-
-        # Add antibiotic concentration history for each antibiotic type
-        for ab_type in ANTIBIOTIC_TYPES.keys():
-            self.history[f"antibiotic_{ab_type}"] = []
-
-        # Initialize per-type trait tracking in history
-        for btype in BACTERIAL_TYPES.keys():
-            for trait in ["enzyme", "efflux", "membrane", "repair"]:
-                self.history[f"{btype}_avg_{trait}"] = []
+        self.history = self._init_history()
 
     def _initialize_food_patches(self):
         """Initialize food field with Gaussian patches"""
@@ -280,6 +290,18 @@ class BacteriaModel(Model):
                 # No bacteria of this type, append 0
                 for trait in ["enzyme", "efflux", "membrane", "repair"]:
                     self.history[f"{btype}_avg_{trait}"].append(0.0)
+
+        self._trim_history()
+
+    def _trim_history(self) -> None:
+        if self.max_history_steps is None:
+            return
+
+        max_len = self.max_history_steps
+        for key, series in self.history.items():
+            excess = len(series) - max_len
+            if excess > 0:
+                del series[:excess]
 
     # Field utilities
     def add_gaussian_patch(self, field, cx, cy, sigma, amplitude):
@@ -610,8 +632,16 @@ class BacteriaModel(Model):
         # Record history every step
         self._record_history()
 
-    def reset(self):
-        """Reset simulation to initial conditions"""
+    def reset(self, N: Optional[int] = None):
+        """Reset simulation to initial conditions.
+
+        Args:
+            N: Optional override for the total bacteria count. When None, the
+               constructor-provided count is reused.
+        """
+        if N is not None:
+            self._initial_bacteria_count = N
+
         # Clear all agents
         for agent in list(self.agent_set):
             try:
@@ -632,6 +662,9 @@ class BacteriaModel(Model):
             for ab_type in ANTIBIOTIC_TYPES.keys()
         }
 
+        # Reset quorum sensing signal field
+        self.qs_signal_field = np.zeros((self.field_w, self.field_h), dtype=float)
+
         self._initialize_food_patches()
         # Recompute initial food total after reinitializing patches
         self.initial_food_total = float(np.sum(self.food_field))
@@ -640,11 +673,29 @@ class BacteriaModel(Model):
         self.to_remove.clear()
         self.new_agents.clear()
 
-        # Reset step counter
+        # Reset step counter and runtime flags
         self.step_count = 0
+        self.running = True
 
         # Reset history
-        self.history = {
+        self.history = self._init_history()
+
+        # Reset tracking system
+        self.individual_tracker = IndividualTracker(
+            max_history=self._tracker_history_len,
+            max_individuals=self._max_tracked_individuals,
+            enabled=self._tracker_enabled,
+        )
+        self.biofilm_manager = BiofilmManager(self, BIOFILM_PARAMS)
+        self._next_biofilm_id = 0
+
+        # Recreate initial population
+        self._create_initial_population(self._initial_bacteria_count)
+
+        # Avoid spamming stdout during RL training
+
+    def _init_history(self):
+        history = {
             "steps": [],
             "population": [],
             "total_food": [],
@@ -653,19 +704,11 @@ class BacteriaModel(Model):
             "avg_energy_worst": [],
         }
 
-        # Add antibiotic concentration history for each antibiotic type
         for ab_type in ANTIBIOTIC_TYPES.keys():
-            self.history[f"antibiotic_{ab_type}"] = []
+            history[f"antibiotic_{ab_type}"] = []
 
-        # Initialize per-type trait tracking in history
         for btype in BACTERIAL_TYPES.keys():
             for trait in ["enzyme", "efflux", "membrane", "repair"]:
-                self.history[f"{btype}_avg_{trait}"] = []
+                history[f"{btype}_avg_{trait}"] = []
 
-        # Reset tracking system
-        self.individual_tracker = IndividualTracker()
-
-        # Recreate initial population
-        self._create_initial_population(self._initial_bacteria_count)
-
-        print("Simulation reset to initial conditions")
+        return history

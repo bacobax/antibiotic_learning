@@ -9,6 +9,18 @@ environment:
   initial_bacteria_per_type_range: [30, 90]
   warmup_skip_steps: 10
 
+  # Memory safety controls for tracking-heavy runs
+  tracking:
+    enabled: false                  # Disable entirely for visualization-heavy sweeps
+    max_tracked_individuals: 2000  # Cap unique individuals kept in memory
+    max_individual_history: 100   # Per-individual history window
+
+  history:
+    max_steps: 2000                # Trim global per-step history buffers
+
+  reward_buffers:
+    max_recent_dose_events: 256    # Controls PetriEnvWrapper recent-dose deque size
+
   # Timing and freshness thresholds
   timing:
     t_count_freshness: 8              # Steps for count to remain "fresh"
@@ -149,7 +161,7 @@ ppo:
   ent_coef: 0.03
   max_grad_norm: 0.5
   rollout_steps: 768
-  epochs: 6
+  epochs: 5
   seq_len: 128
   batch_seq_len: 128
   lr: 0.0001
@@ -158,8 +170,11 @@ ppo:
 training:
   total_updates: 2000
   seed: 42
-  checkpoint_interval: 50
+  checkpoint_interval: 25
   log_interval: 2
   save_dir: "./checkpoints"
   experiment_name: "new_reward_system"
   save_checkpoints_per_run: true
+  log_window_size: 200            # Rolling window for in-memory training metrics
+  log_memory: true                # Enable periodic RSS/CUDA memory telemetry
+  memory_log_interval: 1          # Log memory every update (increase for fewer samples)

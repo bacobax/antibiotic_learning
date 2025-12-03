@@ -145,6 +145,9 @@ View TensorBoard:
         checkpoint_interval=config.training.checkpoint_interval,
         starting_update=starting_update,
         agent=agent,
+        log_window_size=config.training.log_window_size,
+        log_memory=config.training.log_memory,
+        memory_log_interval=config.training.memory_log_interval,
     )
     
     logger.log_info("="*70)
