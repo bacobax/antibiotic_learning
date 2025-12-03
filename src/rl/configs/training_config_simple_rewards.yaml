@@ -4,7 +4,7 @@
 environment:
   max_steps: 384
   k_doses: 3
-  device: "cuda"
+  device: "mps"
   dtype: "float32"
   initial_bacteria_per_type_range: [30, 90]
   warmup_skip_steps: 10

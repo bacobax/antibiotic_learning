@@ -183,6 +183,26 @@ class SequencingRewardConfig:
 
 
 @dataclass
+class CountingRewardConfig:
+    """Configuration for counting-related rewards."""
+    cost_penalty: float = 0.5  # Cost penalty for COUNT action
+    informative_count_reward: float = 1.0  # Reward for informative counting within timing window
+
+
+@dataclass
+class NoopRewardConfig:
+    """Configuration for NOOP-related rewards."""
+    strategic_noop_reward: float = 0.5  # Reward for strategic waiting when below target
+
+
+@dataclass
+class CriticalPenaltiesConfig:
+    """Configuration for critical situation penalties."""
+    penalty_critical_no_dose: float = 5.0  # Penalty for not dosing when critical
+    penalty_critical_no_count: float = 2.0  # Penalty for stale count data
+
+
+@dataclass
 class PredictionRewardConfig:
     """Configuration for prediction accuracy rewards."""
     enabled: bool = True
@@ -213,6 +233,9 @@ class RewardConfig:
     regular_monitoring: RegularMonitoringConfig
     critical_inaction: CriticalInactionConfig
     sequencing: SequencingRewardConfig
+    counting: CountingRewardConfig
+    noop: NoopRewardConfig
+    critical_penalties: CriticalPenaltiesConfig
     prediction: PredictionRewardConfig
     early_termination: EarlyTerminationConfig
     population_maintenance: Optional[PopulationMaintenanceConfig] = None
@@ -687,6 +710,20 @@ def _merge_with_defaults(config: Dict[str, Any]) -> Dict[str, Any]:
         else:
             rewards_config.setdefault(subsection, subsection_defaults)
     
+    # Also merge environment.population and environment.budget if they exist as separate sections
+    # These get merged into rewards.population and rewards.budget for config construction
+    if "population" in config["environment"] and isinstance(config["environment"]["population"], dict):
+        pop_defaults = rewards_defaults.get("population", {})
+        for key, default_val in pop_defaults.items():
+            if key not in rewards_config["population"] and key not in config["environment"]["population"]:
+                rewards_config["population"][key] = default_val
+    
+    if "budget" in config["environment"] and isinstance(config["environment"]["budget"], dict):
+        budget_defaults = rewards_defaults.get("budget", {})
+        for key, default_val in budget_defaults.items():
+            if key not in rewards_config["budget"] and key not in config["environment"]["budget"]:
+                rewards_config["budget"][key] = default_val
+    
     return config
 
 
@@ -788,7 +825,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
             _strict_require(["seq_already_pending_penalty", "informative_seq_reward"], sequencing, "environment.rewards.sequencing")
 
             counting = rewards.get("counting", {})
-            _strict_require(["informative_count_reward"], counting, "environment.rewards.counting")
+            _strict_require(["cost_penalty", "informative_count_reward"], counting, "environment.rewards.counting")
 
             noop = rewards.get("noop", {})
             _strict_require(["strategic_noop_reward"], noop, "environment.rewards.noop")
@@ -899,13 +936,30 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
             **_filter_keys_for(PopulationMaintenanceConfig, rewards_dict["population_maintenance"])
         )
     dose_reward_cfg = DoseRewardConfig(**_filter_keys_for(DoseRewardConfig, rewards_dict["dose"]))
-    budget_cfg = BudgetConfig(**_filter_keys_for(BudgetConfig, rewards_dict["budget"]))
+    
+    # For budget config, merge data from both rewards.budget and environment.budget if present
+    budget_data = rewards_dict.get("budget", {}).copy()
+    if "budget" in env_dict:
+        budget_data.update(env_dict["budget"])
+    budget_cfg = BudgetConfig(**_filter_keys_for(BudgetConfig, budget_data))
+    
     survival_bonus_cfg = SurvivalBonusConfig(**_filter_keys_for(SurvivalBonusConfig, rewards_dict["survival_bonus"]))
     budget_conservation_cfg = BudgetConservationConfig(**_filter_keys_for(BudgetConservationConfig, rewards_dict["budget_conservation"]))
     informed_dosing_cfg = InformedDosingConfig(**_filter_keys_for(InformedDosingConfig, rewards_dict["informed_dosing"]))
     regular_monitoring_cfg = RegularMonitoringConfig(**_filter_keys_for(RegularMonitoringConfig, rewards_dict["regular_monitoring"]))
     critical_inaction_cfg = CriticalInactionConfig(**_filter_keys_for(CriticalInactionConfig, rewards_dict["critical_inaction"]))
     sequencing_cfg = SequencingRewardConfig(**_filter_keys_for(SequencingRewardConfig, rewards_dict["sequencing"]))
+    
+    # New simple reward system configs (with defaults for backward compatibility)
+    counting_cfg = CountingRewardConfig(**_filter_keys_for(CountingRewardConfig, rewards_dict.get("counting", {})))
+    noop_cfg = NoopRewardConfig(**_filter_keys_for(NoopRewardConfig, rewards_dict.get("noop", {})))
+    critical_penalties_cfg = CriticalPenaltiesConfig(**_filter_keys_for(CriticalPenaltiesConfig, rewards_dict.get("critical_penalties", {})))
+    
+    # For population_maintenance, merge with population data and population_maintenance section
+    pop_maint_data = population_data.copy()
+    pop_maint_data.update(rewards_dict.get("population_maintenance", {}))
+    population_maintenance_cfg = PopulationRewardConfig(**_filter_keys_for(PopulationRewardConfig, pop_maint_data))
+    
     prediction_cfg = PredictionRewardConfig(**_filter_keys_for(PredictionRewardConfig, rewards_dict["prediction"]))
     early_termination_cfg = EarlyTerminationConfig(**_filter_keys_for(EarlyTerminationConfig, rewards_dict["early_termination"]))
     
@@ -920,6 +974,9 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         regular_monitoring=regular_monitoring_cfg,
         critical_inaction=critical_inaction_cfg,
         sequencing=sequencing_cfg,
+        counting=counting_cfg,
+        noop=noop_cfg,
+        critical_penalties=critical_penalties_cfg,
         prediction=prediction_cfg,
         early_termination=early_termination_cfg,
     )
