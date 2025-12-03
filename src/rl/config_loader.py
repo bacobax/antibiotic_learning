@@ -65,16 +65,6 @@ class SurvivalBonusConfig:
 
 
 @dataclass
-class BudgetConservationConfig:
-    """Configuration for budget conservation reward."""
-    enabled: bool
-    weight: float
-    spending_penalty_factor: float
-    reserve_bonus_threshold: float
-    reserve_bonus_magnitude: float
-
-
-@dataclass
 class PopulationRewardConfig:
     """Configuration for population-based rewards."""
     target_population: float
@@ -208,7 +198,6 @@ class RewardConfig:
     dose: DoseRewardConfig
     budget: BudgetConfig
     survival_bonus: SurvivalBonusConfig
-    budget_conservation: BudgetConservationConfig
     informed_dosing: InformedDosingConfig
     regular_monitoring: RegularMonitoringConfig
     critical_inaction: CriticalInactionConfig
@@ -233,6 +222,10 @@ class EnvironmentConfig:
     max_tracked_individuals: Optional[int] = 2000
     max_history_steps: Optional[int] = 2000
     max_recent_dose_events: int = 256
+    population_target: Optional[float] = None
+    population_norm: Optional[float] = None
+    budget_init: Optional[float] = None
+    budget_norm: Optional[float] = None
 
 
 @dataclass
@@ -323,10 +316,16 @@ def _get_default_config() -> Dict[str, Any]:
             "max_tracked_individuals": 2000,
             "max_history_steps": 2000,
             "max_recent_dose_events": 256,
+            "population": {
+                "target_population": 500,
+                "population_norm": 1000.0,
+            },
+            "budget": {
+                "budget_init": 100.0,
+                "budget_norm": 100.0,
+            },
             "rewards": {
                 "population": {
-                    "target_population": 500,
-                    "population_norm": 1000.0,
                     "population_norm_reward": 500.0,
                     "w_population_maintenance": 0.01,
                     "count_population_reward": 0.0,
@@ -361,13 +360,6 @@ def _get_default_config() -> Dict[str, Any]:
                     "scaling_type": "constant",
                     "scaling_factor": 0.1,
                     "max_bonus": 0.1,
-                },
-                "budget_conservation": {
-                    "enabled": True,
-                    "weight": 0.01,
-                    "spending_penalty_factor": 1.0,
-                    "reserve_bonus_threshold": 0.5,
-                    "reserve_bonus_magnitude": 0.005,
                 },
                 "informed_dosing": {
                     "reward_window_steps": 5,
@@ -497,6 +489,7 @@ def _validate_config(config: Dict[str, Any]) -> None:
     training = config.get("training", {})
     rewards = env.get("rewards", {})
     population_cfg = rewards.get("population", {})
+    env_population_cfg = env.get("population", {})
     population_maintenance_cfg = rewards.get("population_maintenance", None)
     
     # Environment validation
@@ -596,7 +589,10 @@ def _validate_config(config: Dict[str, Any]) -> None:
         raise ValueError("informed_dosing.penalty_blind_dose_max must be >= base penalty")
     alpha = population_cfg.get("count_population_reward_alpha", 1.0)
     beta = population_cfg.get("count_population_reward_beta", 0.5)
-    norm_reward = population_cfg.get("population_norm_reward", population_cfg.get("target_population", 1.0))
+    norm_reward = population_cfg.get(
+        "population_norm_reward",
+        population_cfg.get("target_population", env_population_cfg.get("target_population", 1.0))
+    )
     if norm_reward <= 0.0:
         raise ValueError("population.population_norm_reward must be > 0")
     if alpha <= 0.0:
@@ -892,16 +888,32 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
             return dct
 
     # Create nested reward config dataclasses (filter unknown keys for backward-compat)
-    population_reward_cfg = PopulationRewardConfig(**_filter_keys_for(PopulationRewardConfig, rewards_dict["population"]))
+    population_rewards_section = dict(rewards_dict.get("population", {}))
+    env_population_section = env_dict.get("population") or {}
+    for key in ("target_population", "population_norm"):
+        if key not in population_rewards_section and key in env_population_section:
+            population_rewards_section[key] = env_population_section[key]
+    population_reward_cfg = PopulationRewardConfig(
+        **_filter_keys_for(PopulationRewardConfig, population_rewards_section)
+    )
     population_maintenance_cfg = None
     if "population_maintenance" in rewards_dict and rewards_dict["population_maintenance"] is not None:
+        population_maintenance_section = dict(rewards_dict["population_maintenance"])
+        if "target_population" not in population_maintenance_section:
+            population_maintenance_section["target_population"] = population_reward_cfg.target_population
         population_maintenance_cfg = PopulationMaintenanceConfig(
-            **_filter_keys_for(PopulationMaintenanceConfig, rewards_dict["population_maintenance"])
+            **_filter_keys_for(PopulationMaintenanceConfig, population_maintenance_section)
         )
     dose_reward_cfg = DoseRewardConfig(**_filter_keys_for(DoseRewardConfig, rewards_dict["dose"]))
-    budget_cfg = BudgetConfig(**_filter_keys_for(BudgetConfig, rewards_dict["budget"]))
+    budget_rewards_section = dict(rewards_dict.get("budget", {}))
+    env_budget_section = env_dict.get("budget") or {}
+    for key in ("budget_init", "budget_norm"):
+        if key not in budget_rewards_section and key in env_budget_section:
+            budget_rewards_section[key] = env_budget_section[key]
+    budget_cfg = BudgetConfig(
+        **_filter_keys_for(BudgetConfig, budget_rewards_section)
+    )
     survival_bonus_cfg = SurvivalBonusConfig(**_filter_keys_for(SurvivalBonusConfig, rewards_dict["survival_bonus"]))
-    budget_conservation_cfg = BudgetConservationConfig(**_filter_keys_for(BudgetConservationConfig, rewards_dict["budget_conservation"]))
     informed_dosing_cfg = InformedDosingConfig(**_filter_keys_for(InformedDosingConfig, rewards_dict["informed_dosing"]))
     regular_monitoring_cfg = RegularMonitoringConfig(**_filter_keys_for(RegularMonitoringConfig, rewards_dict["regular_monitoring"]))
     critical_inaction_cfg = CriticalInactionConfig(**_filter_keys_for(CriticalInactionConfig, rewards_dict["critical_inaction"]))
@@ -915,7 +927,6 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         dose=dose_reward_cfg,
         budget=budget_cfg,
         survival_bonus=survival_bonus_cfg,
-        budget_conservation=budget_conservation_cfg,
         informed_dosing=informed_dosing_cfg,
         regular_monitoring=regular_monitoring_cfg,
         critical_inaction=critical_inaction_cfg,
@@ -923,6 +934,19 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         prediction=prediction_cfg,
         early_termination=early_termination_cfg,
     )
+
+    # Optional environment-level overrides for commonly tweaked scalars
+    population_override_cfg = env_dict.get("population") or {}
+    if "target_population" in population_override_cfg:
+        reward_cfg.population.target_population = float(population_override_cfg["target_population"])
+    if "population_norm" in population_override_cfg:
+        reward_cfg.population.population_norm = float(population_override_cfg["population_norm"])
+
+    budget_override_cfg = env_dict.get("budget") or {}
+    if "budget_init" in budget_override_cfg:
+        reward_cfg.budget.budget_init = float(budget_override_cfg["budget_init"])
+    if "budget_norm" in budget_override_cfg:
+        reward_cfg.budget.budget_norm = float(budget_override_cfg["budget_norm"])
     
     spawn_range_cfg = env_dict.get("initial_bacteria_per_type_range")
     parsed_spawn_range: Optional[Tuple[int, int]] = None
@@ -958,6 +982,11 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         )
     )
 
+    population_target_value = float(reward_cfg.population.target_population)
+    population_norm_value = float(reward_cfg.population.population_norm)
+    budget_init_value = float(reward_cfg.budget.budget_init)
+    budget_norm_value = float(reward_cfg.budget.budget_norm)
+
     # Create environment config with nested structures
     env_cfg = EnvironmentConfig(
         max_steps=env_dict["max_steps"],
@@ -972,6 +1001,10 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         max_tracked_individuals=max_tracked_individuals,
         max_history_steps=max_history_steps,
         max_recent_dose_events=max_recent_dose_events,
+        population_target=population_target_value,
+        population_norm=population_norm_value,
+        budget_init=budget_init_value,
+        budget_norm=budget_norm_value,
     )
     
     actions_cfg = ActionConfig(
@@ -1009,6 +1042,27 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
         raise RuntimeError("PyYAML is required to save configs. Install with: pip install pyyaml")
     
     if isinstance(config, CompleteConfig):
+        population_target = (
+            config.environment.population_target
+            if config.environment.population_target is not None
+            else config.environment.rewards.population.target_population
+        )
+        population_norm = (
+            config.environment.population_norm
+            if config.environment.population_norm is not None
+            else config.environment.rewards.population.population_norm
+        )
+        budget_init = (
+            config.environment.budget_init
+            if config.environment.budget_init is not None
+            else config.environment.rewards.budget.budget_init
+        )
+        budget_norm = (
+            config.environment.budget_norm
+            if config.environment.budget_norm is not None
+            else config.environment.rewards.budget.budget_norm
+        )
+
         # Convert dataclasses to dicts
         config_dict = {
             "environment": {
@@ -1023,9 +1077,19 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                 "max_tracked_individuals": config.environment.max_tracked_individuals,
                 "max_history_steps": config.environment.max_history_steps,
                 "max_recent_dose_events": config.environment.max_recent_dose_events,
+                "population": {
+                    "target_population": population_target,
+                    "population_norm": population_norm,
+                },
+                "budget": {
+                    "budget_init": budget_init,
+                    "budget_norm": budget_norm,
+                },
                 "rewards": {
                     "population": {
-                        k: v for k, v in config.environment.rewards.population.__dict__.items()
+                        k: v
+                        for k, v in config.environment.rewards.population.__dict__.items()
+                        if k not in {"target_population", "population_norm"}
                     },
                     "population_maintenance": (
                         {
@@ -1039,13 +1103,12 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                         k: v for k, v in config.environment.rewards.dose.__dict__.items()
                     },
                     "budget": {
-                        k: v for k, v in config.environment.rewards.budget.__dict__.items()
+                        k: v
+                        for k, v in config.environment.rewards.budget.__dict__.items()
+                        if k not in {"budget_init", "budget_norm"}
                     },
                     "survival_bonus": {
                         k: v for k, v in config.environment.rewards.survival_bonus.__dict__.items()
-                    },
-                    "budget_conservation": {
-                        k: v for k, v in config.environment.rewards.budget_conservation.__dict__.items()
                     },
                     "informed_dosing": {
                         k: v for k, v in config.environment.rewards.informed_dosing.__dict__.items()

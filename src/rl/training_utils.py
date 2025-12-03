@@ -651,10 +651,33 @@ def _setup_logger_and_log_startup(
     # Extract rewards config for cleaner access
     rewards = config.environment.rewards
     
+    env_population_target = (
+        config.environment.population_target
+        if config.environment.population_target is not None
+        else rewards.population.target_population
+    )
+    env_population_norm = (
+        config.environment.population_norm
+        if config.environment.population_norm is not None
+        else rewards.population.population_norm
+    )
+    env_budget_init = (
+        config.environment.budget_init
+        if config.environment.budget_init is not None
+        else rewards.budget.budget_init
+    )
+    env_budget_norm = (
+        config.environment.budget_norm
+        if config.environment.budget_norm is not None
+        else rewards.budget.budget_norm
+    )
+
     logger.log_info(f"Environment Settings:")
     logger.log_info(f"  - Max steps: {config.environment.max_steps}")
-    logger.log_info(f"  - Target population: {rewards.population.target_population}")
-    logger.log_info(f"  - Budget: {rewards.budget.budget_init}")
+    logger.log_info(f"  - Target population: {env_population_target}")
+    logger.log_info(f"  - Population normalization: {env_population_norm}")
+    logger.log_info(f"  - Budget init: {env_budget_init}")
+    logger.log_info(f"  - Budget normalization: {env_budget_norm}")
     logger.log_info(f"  - K doses (antibiotic types): {config.environment.k_doses}")
     # Report device with CUDA details when relevant
     try:
@@ -695,21 +718,11 @@ def _setup_logger_and_log_startup(
     logger.log_info(f"  - Total updates: {config.training.total_updates}")
     logger.log_info(f"  - Seed: {config.training.seed}")
     
-    logger.log_info(f"Reward Weights:")
-    logger.log_info(f"  - Population: {rewards.dose.w_pop}")
-    logger.log_info(f"  - Genome: {rewards.dose.w_genome}")
-    logger.log_info(f"  - Cost: {rewards.dose.w_cost}")
-    logger.log_info(f"  - Population maintenance: {rewards.population.w_population_maintenance}")
-    
     logger.log_info(f"Reward Modules:")
     logger.log_info(f"  - Survival bonus: {'enabled' if rewards.survival_bonus.enabled else 'disabled'}")
     if rewards.survival_bonus.enabled:
         logger.log_info(f"    - Base bonus: {rewards.survival_bonus.base_bonus}")
         logger.log_info(f"    - Scaling type: {rewards.survival_bonus.scaling_type}")
-    logger.log_info(f"  - Budget conservation: {'enabled' if rewards.budget_conservation.enabled else 'disabled'}")
-    if rewards.budget_conservation.enabled:
-        logger.log_info(f"    - Weight: {rewards.budget_conservation.weight}")
-        logger.log_info(f"    - Reserve threshold: {rewards.budget_conservation.reserve_bonus_threshold}")
     logger.log_info(f"  - Prediction reward: {'enabled' if rewards.prediction.enabled else 'disabled'}")
     if rewards.prediction.enabled:
         pred_cfg = rewards.prediction

@@ -76,7 +76,6 @@ environment:
     # Population maintenance (kernel-based)
     population_maintenance:
       enabled: true
-      target_population: 100
       kernel_type: "laplace"                 # "gaussian" or "laplace"
       kernel_peak_reward: 30.0                 # R: peak reward at target
       kernel_max_penalty: 10.0                 # M: maximum penalty (min value -M)
