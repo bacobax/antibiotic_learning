@@ -4,7 +4,7 @@
 environment:
   max_steps: 384
   k_doses: 3
-  device: "mps"
+  device: "cuda"
   dtype: "float32"
   initial_bacteria_per_type_range: [30, 90]
   warmup_skip_steps: 10
@@ -53,43 +53,29 @@ environment:
       penalty_blind_dose_amount_scale: 1.5    # Scales blind penalty with antibiotic amount
       penalty_blind_dose_amount_exponent: 1.1 # Non-linear scaling for blind high doses
       penalty_blind_dose_max: null            # Hard ceiling for blind penalty (null = disabled)
-    
-    # Pre-step rewards (sequencing)
     sequencing:
       seq_already_pending_penalty: 0.0        # Penalty for redundant sequencing
       informative_seq_reward: 0.0             # Reward for informative sequencing
-    
-    # Pre-step rewards (counting)
     counting:
       informative_count_reward: 2.0           # Reward for informative counting
-    
-    # Pre-step rewards (strategic NOOP)
+      cost_penalty: 0.15
     noop:
       strategic_noop_reward: 0.5              # Reward for waiting when below target
-    
-    # Post-step penalties
     critical_penalties:
       penalty_critical_no_dose: 0.0           # Penalty for not dosing when critical
       penalty_critical_no_count: 0.0          # Penalty for stale count data
-    
-    
-    # Population maintenance (kernel-based)
     population_maintenance:
       enabled: true
-      kernel_type: "laplace"                 # "gaussian" or "laplace"
+      kernel_type: "gaussian"                 # "gaussian" or "laplace"
       kernel_peak_reward: 30.0                 # R: peak reward at target
-      kernel_max_penalty: 10.0                 # M: maximum penalty (min value -M)
-      kernel_zero_distance: 30.0              # distance where kernel equals 0
-    
-    # Survival bonus (per-step reward for staying alive)
+      kernel_max_penalty: 5.0                 # M: maximum penalty (min value -M)
+      kernel_zero_distance: 45.0              # distance where kernel equals 0
     survival_bonus:
       enabled: true
       base_bonus: 2.0
       scaling_type: "linear"                  # "constant", "linear", "exponential"
       scaling_factor: 0.005
       max_bonus: 10.0
-    
-    # Prediction accuracy reward (COUNT-only)
     prediction:
       enabled: false
       weight: 1.0
@@ -97,8 +83,6 @@ environment:
       target_weight: 1.0
       align_scale: 6.0
       target_scale: 3.0
-    
-    # Early termination on unrecoverable states
     early_termination:
       enabled: true
       penalty: 10.0                           # Penalty applied on early termination
@@ -108,14 +92,12 @@ environment:
       population_threshold: 1.5               # Unrecoverable if pop > target × this
       extinction_penalty: 15.0                # Additional penalty for extinction
       require_budget_depleted: false          # If true, also require budget == 0
-
-  # Other environment parameters
   budget:
-    budget_init: 30.0
-    budget_norm: 100.0
+    budget_init: 300.0
+    budget_norm: 300.0
   
   population:
-    target_population: 150
+    target_population: 100
     population_norm: 300.0                    # For observation normalization only
 
 # Action costs and durations
@@ -149,7 +131,7 @@ model:
   n_discrete: 4
   dose_action_index: 3
   k_doses: 3
-  sigmoid_scale_factor: 2.0
+  sigmoid_scale_factor: 0.5
 
 # PPO hyperparameters
 ppo:
@@ -167,12 +149,12 @@ ppo:
 
 # Training configuration
 training:
-  total_updates: 2000
+  total_updates: 500
   seed: 42
   checkpoint_interval: 25
   log_interval: 2
   save_dir: "./checkpoints"
-  experiment_name: "new_reward_system"
+  experiment_name: "gaussian"
   save_checkpoints_per_run: true
   log_window_size: 200            # Rolling window for in-memory training metrics
   log_memory: true                # Enable periodic RSS/CUDA memory telemetry

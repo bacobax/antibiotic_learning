@@ -18,7 +18,7 @@ View TensorBoard during/after training:
 import argparse
 import sys
 from pathlib import Path
-
+from pprint import pprint
 from rl.config_loader import load_config
 from rl.training_config import set_global_seed
 from rl.training_utils import (
@@ -77,6 +77,11 @@ View TensorBoard:
     except Exception as e:
         print(f"❌ Error loading configuration: {e}")
         return 1
+    # print("=" * 70)
+    # pprint(config)
+    # print("=" * 70)
+
+
     
     # Setup
     base_save_dir = Path(config.training.save_dir)

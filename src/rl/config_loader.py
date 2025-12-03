@@ -43,20 +43,102 @@ except ImportError:
 
 
 @dataclass
-class ActionConfig:
-    """Configuration for discrete actions."""
-    noop_cost: float
-    count_cost: float
-    sequencing_cost: float
-    sequencing_duration: int
-    dose_cost: float  # Fixed cost per dose action
-    dose_cost_per_unit: float  # Variable cost per unit of antibiotic
-    cost_weight: float
+class TrackingConfig:
+    """Memory safety controls for tracking-heavy runs."""
+    enabled: bool
+    max_tracked_individuals: int
+    max_individual_history: int
+
+
+@dataclass
+class RewardBuffersConfig:
+    """Reward buffer configuration."""
+    max_recent_dose_events: int
+
+
+@dataclass
+class CountWindowConfig:
+    """Timing window for counting."""
+    min_elapsed: int
+    max_elapsed: int
+
+
+@dataclass
+class SeqWindowConfig:
+    """Timing window for sequencing."""
+    min_elapsed: int
+    max_elapsed: int
+
+
+@dataclass
+class TimingConfig:
+    """Timing and freshness thresholds."""
+    t_count_freshness: int
+    t_seq_freshness: int
+    max_count_window: int
+    critical_ratio: float
+    count_window: CountWindowConfig
+    seq_window: SeqWindowConfig
+
+
+@dataclass
+class InformedDosingConfig:
+    """Pre-step rewards for informed dosing."""
+    penalty_dosing_under_target: float
+    penalty_dosing_under_target_dose_scale: float
+    penalty_dosing_under_target_dose_exponent: float
+    penalty_dosing_under_target_deficit_scale: float
+    penalty_dosing_under_target_deficit_cap: float
+    penalty_dosing_under_target_max: Optional[float]
+    reward_dosing_above_with_seq: float
+    reward_dosing_above_no_seq: float
+    penalty_blind_dose: float
+    penalty_blind_dose_amount_scale: float
+    penalty_blind_dose_amount_exponent: float
+    penalty_blind_dose_max: Optional[float]
+
+
+@dataclass
+class SequencingRewardConfig:
+    """Pre-step rewards for sequencing."""
+    seq_already_pending_penalty: float
+    informative_seq_reward: float
+
+
+@dataclass
+class CountingRewardConfig:
+    """Pre-step rewards for counting."""
+    informative_count_reward: float
+    cost_penalty: float
+
+
+@dataclass
+class NoopRewardConfig:
+    """Pre-step rewards for strategic NOOP."""
+    strategic_noop_reward: float
+
+
+@dataclass
+class CriticalPenaltiesConfig:
+    """Post-step penalties."""
+    penalty_critical_no_dose: float
+    penalty_critical_no_count: float
+
+
+@dataclass
+class PopulationMaintenanceConfig:
+    """Population maintenance (kernel-based)."""
+    enabled: bool
+    kernel_type: str
+    kernel_peak_reward: float
+    kernel_max_penalty: float
+    kernel_zero_distance: float
+    target_population: int = 0
 
 
 @dataclass
 class SurvivalBonusConfig:
-    """Configuration for survival bonus reward."""
+    """Survival bonus (per-step reward for staying alive)."""
     enabled: bool
     base_bonus: float
     scaling_type: str
@@ -65,169 +147,68 @@ class SurvivalBonusConfig:
 
 
 @dataclass
-class PopulationRewardConfig:
-    """Configuration for population-based rewards."""
-    target_population: float
-    population_norm: float
-    population_norm_reward: float
-    w_population_maintenance: float  # Weight for maintenance penalty
-    count_population_reward: float  # Immediate reward after COUNT based on distance to target
-    count_population_reward_alpha: float  # Exponential shaping steepness
-    count_population_reward_beta: float  # Exponential shaping shift term
-    noop_band_factor: float  # Deadband around target for NOOP reward
-    noop_reward_magnitude: float  # NOOP shaping magnitude
-
-
-@dataclass
-class PopulationMaintenanceConfig:
-    """Configuration for simplified kernel-based maintenance reward."""
-    enabled: bool = True
-    target_population: float = 100.0
-    kernel_type: str = "gaussian"
-    kernel_peak_reward: float = 1.0
-    kernel_max_penalty: float = 0.0
-    kernel_zero_distance: float = 100.0
-
-
-@dataclass
-class DoseRewardConfig:
-    """Configuration for dose efficacy rewards."""
-    w_pop: float  # Weight for population term
-    w_genome: float  # Weight for resistance/genome term
-    w_cost: float  # Weight for cost penalty
-    missing_feedback_penalty: float = 0.5  # Penalty magnitude when dose efficacy cannot be evaluated
-
-
-@dataclass
-class BudgetConfig:
-    """Configuration for budget management."""
-    budget_init: float
-    budget_norm: float
-    budget_penalty: float  # Penalty when budget reaches 0
-    unaffordable_action_penalty: float = 0.0  # Penalty for attempting unaffordable action
-
-
-@dataclass
-class InformedDosingConfig:
-    """Configuration for informed dosing rewards and penalties.
-    Defaults provided to allow ignoring this section when not used by the simplified reward system.
-    """
-    reward_window_steps: int = 0  # Max steps after COUNT where doses remain eligible
-    reward_weight: float = 0.0  # Multiplier applied to population drop × dose magnitude
-    max_reward_per_dose: float = 0.0  # Hard cap per individual dose reward
-    time_decay: bool = False  # Whether to apply time-based decay
-    decay_type: str = "linear"  # "linear" or "exponential"
-    decay_rate: float = 0.0  # Rate parameter for the chosen decay function
-    min_reward_fraction: float = 0.0  # Floor for decay factor
-    penalty_dosing_under_target: float = 5.0  # Base penalty when dosing below target
-    penalty_dosing_under_target_dose_scale: float = 0.0  # Weight for dose magnitude term
-    penalty_dosing_under_target_dose_exponent: float = 1.0  # Exponent applied to dose magnitude
-    penalty_dosing_under_target_deficit_scale: float = 0.0  # Weight for normalized population deficit
-    penalty_dosing_under_target_deficit_cap: float = 1.0  # Clamp for normalized deficit contribution
-    penalty_dosing_under_target_max: Optional[float] = None  # Optional ceiling for total penalty
-    reward_dosing_above_with_seq: float = 0.0  # Reward multiplier when dosing above target with fresh seq
-    reward_dosing_above_no_seq: float = 0.0  # Reward multiplier when dosing above target without seq
-    penalty_blind_dose: float = 3.0  # Base penalty when dosing without a fresh count
-    penalty_blind_dose_amount_scale: float = 0.0  # Weight for blind penalty dose magnitude scaling
-    penalty_blind_dose_amount_exponent: float = 1.0  # Exponent applied to blind dose magnitude term
-    penalty_blind_dose_max: Optional[float] = None  # Optional ceiling for blind penalty
-
-
-@dataclass
-class RegularMonitoringConfig:
-    """Configuration for regular monitoring rewards."""
-    count_reward: float  # Reward for counting at regular intervals
-    count_interval: int  # Maximum interval for regular counting (upper bound)
-    count_min_interval: int  # Minimum interval to avoid spam-counting (lower bound)
-    safe_nondosing_reward: float  # Reward for NOT dosing when pop is low
-
-
-@dataclass
-class CriticalInactionConfig:
-    """Configuration for critical inaction penalties."""
-    high_population_threshold: float  # Multiplier of target for critical level (e.g., 3.0 = 3x target)
-    no_action_penalty: float  # Penalty for not taking seq/dose when count shows critical population
-    no_dose_penalty: float  # Penalty for not dosing when count+seq fresh and population critical
-    freshness_window: int  # Steps to consider data "fresh"
-    noop_penalty: float = 0.0  # Penalty for skipping counts when no fresh data is available
-    noop_threshold: int = 15  # Max steps allowed without a count before penalty triggers
+class PredictionRewardConfig:
+    """Prediction accuracy reward (COUNT-only)."""
+    enabled: bool
+    weight: float
+    align_weight: float
+    target_weight: float
+    align_scale: float
+    target_scale: float
+    
+    def resolved_align_weight(self) -> float:
+        """Return align_weight, or weight if align_weight is None."""
+        return self.align_weight if self.align_weight is not None else self.weight
+    
+    def resolved_target_weight(self) -> float:
+        """Return target_weight, or weight if target_weight is None."""
+        return self.target_weight if self.target_weight is not None else self.weight
 
 
 @dataclass
 class EarlyTerminationConfig:
-    """Configuration for early termination on unrecoverable NOOP-only states."""
-    enabled: bool = False  # Whether to enable early termination
-    penalty: float = 0.0  # Maximum penalty applied when termination happens very early
-    min_penalty: Optional[float] = None  # Penalty applied at/near max_steps (defaults to penalty)
-    penalty_decay_power: float = 1.0  # Curve exponent controlling how fast the penalty decays with time
-    population_threshold: float = 5.0  # Multiplier of target for high-population cutoff
-    population_low_threshold: float = 0.2  # Multiplier of target for low-population cutoff
-    require_budget_depleted: bool = True  # If True, only trigger when budget is also depleted
-    extinction_penalty: float = 0.0  # Penalty applied when population collapses to zero
+    """Early termination on unrecoverable states."""
+    enabled: bool
+    penalty: float
+    min_penalty: float
+    penalty_decay_power: float
+    population_low_threshold: float
+    population_threshold: float
+    extinction_penalty: float
+    require_budget_depleted: bool
 
 
 @dataclass
-class SequencingRewardConfig:
-    """Configuration for sequencing-related rewards."""
-    redundant_penalty: float = 0.001  # Penalty magnitude for triggering sequencing while one is pending
+class BudgetConfig:
+    """Budget configuration."""
+    budget_init: float
+    budget_norm: float
 
 
 @dataclass
-class CountingRewardConfig:
-    """Configuration for counting-related rewards."""
-    cost_penalty: float = 0.5  # Cost penalty for COUNT action
-    informative_count_reward: float = 1.0  # Reward for informative counting within timing window
-
-
-@dataclass
-class NoopRewardConfig:
-    """Configuration for NOOP-related rewards."""
-    strategic_noop_reward: float = 0.5  # Reward for strategic waiting when below target
-
-
-@dataclass
-class CriticalPenaltiesConfig:
-    """Configuration for critical situation penalties."""
-    penalty_critical_no_dose: float = 5.0  # Penalty for not dosing when critical
-    penalty_critical_no_count: float = 2.0  # Penalty for stale count data
-
-
-@dataclass
-class PredictionRewardConfig:
-    """Configuration for prediction accuracy rewards."""
-    enabled: bool = True
-    weight: float = 1.0  # Legacy global weight (used as fallback)
-    align_weight: Optional[float] = None  # Weight for aligning prediction to true population
-    target_weight: Optional[float] = None  # Weight for aligning prediction to target population
-    align_scale: float = 5.0  # Sharpness for true-population potential
-    target_scale: float = 2.5  # Sharpness for target-population potential
-
-    def resolved_align_weight(self) -> float:
-        """Return the effective alignment weight, honoring legacy configs."""
-        return float(self.align_weight if self.align_weight is not None else self.weight)
-
-    def resolved_target_weight(self) -> float:
-        """Return the effective target weight, honoring legacy configs."""
-        return float(self.target_weight if self.target_weight is not None else self.weight)
+class PopulationConfig:
+    """Population configuration."""
+    target_population: int = 0
+    population_norm: float = 1.0
 
 
 @dataclass
 class RewardConfig:
     """Unified reward configuration."""
-    population: PopulationRewardConfig
-    dose: DoseRewardConfig
-    budget: BudgetConfig
-    survival_bonus: SurvivalBonusConfig
-    informed_dosing: InformedDosingConfig
-    regular_monitoring: RegularMonitoringConfig
-    critical_inaction: CriticalInactionConfig
-    sequencing: SequencingRewardConfig
-    counting: CountingRewardConfig
-    noop: NoopRewardConfig
-    critical_penalties: CriticalPenaltiesConfig
-    prediction: PredictionRewardConfig
-    early_termination: EarlyTerminationConfig
+    informed_dosing: Optional[InformedDosingConfig] = None
+    sequencing: Optional[SequencingRewardConfig] = None
+    counting: Optional[CountingRewardConfig] = None
+    noop: Optional[NoopRewardConfig] = None
+    critical_penalties: Optional[CriticalPenaltiesConfig] = None
     population_maintenance: Optional[PopulationMaintenanceConfig] = None
+    survival_bonus: Optional[SurvivalBonusConfig] = None
+    prediction: Optional[PredictionRewardConfig] = None
+    early_termination: Optional[EarlyTerminationConfig] = None
+    budget: Optional[BudgetConfig] = None
+    population: Optional[PopulationConfig] = None
+    tracking: Optional[TrackingConfig] = None
+    history: Optional['HistoryConfig'] = None
+    reward_buffers: Optional[RewardBuffersConfig] = None
 
 
 @dataclass
@@ -238,6 +219,7 @@ class EnvironmentConfig:
     device: str
     dtype: str
     rewards: RewardConfig
+    timing: TimingConfig
     initial_bacteria_per_type_range: Optional[Tuple[int, int]] = None
     warmup_skip_steps: int = 0
     enable_individual_tracking: bool = True
@@ -249,6 +231,7 @@ class EnvironmentConfig:
     population_norm: Optional[float] = None
     budget_init: Optional[float] = None
     budget_norm: Optional[float] = None
+    
 
 
 @dataclass
@@ -259,12 +242,12 @@ class ModelConfig:
     n_discrete: int
     dose_action_index: int
     k_doses: int
-    sigmoid_scale_factor: float = 1.0
+    sigmoid_scale_factor: float
 
 
 @dataclass
 class PPOConfig:
-    """PPO algorithm configuration."""
+    """PPO hyperparameters."""
     gamma: float
     gae_lambda: float
     clip_eps: float
@@ -280,17 +263,27 @@ class PPOConfig:
 
 @dataclass
 class TrainingConfig:
-    """Training execution configuration."""
+    """Training configuration."""
     total_updates: int
     seed: int
     checkpoint_interval: int
     log_interval: int
     save_dir: str
     experiment_name: str
-    save_checkpoints_per_run: bool = False  # Whether to save checkpoints in timestamped run directories
-    log_window_size: Optional[int] = 2000
-    log_memory: bool = False
-    memory_log_interval: int = 25
+    save_checkpoints_per_run: bool
+    log_window_size: int
+    log_memory: bool
+    memory_log_interval: int
+
+@dataclass
+class ActionConfig:
+    cost_weight: float
+    noop_cost: float
+    count_cost: float
+    sequencing_cost: float
+    sequencing_duration: int
+    dose_cost: float
+    dose_cost_per_unit: float
 
 
 @dataclass
@@ -328,8 +321,8 @@ def _get_default_config() -> Dict[str, Any]:
     """Get default complete configuration."""
     return {
         "environment": {
-            "max_steps": 1000,
-            "k_doses": 3,
+            "max_steps": None,
+            "k_doses": None,
             "device": "cpu",
             "dtype": "float32",
             "initial_bacteria_per_type_range": None,
@@ -500,7 +493,10 @@ def _validate_config(config: Dict[str, Any]) -> None:
     Validate configuration values.
     
     Args:
-        config: Configuration dictionary
+        config_path: Path to YAML configuration file
+    
+    Returns:
+        CompleteConfig object with all validated parameters
     
     Raises:
         ValueError: If configuration is invalid
@@ -623,8 +619,13 @@ def _validate_config(config: Dict[str, Any]) -> None:
     if not (0.0 <= beta <= 1.0):
         raise ValueError("population.count_population_reward_beta must be in [0, 1]")
     if population_maintenance_cfg is not None:
-        if population_maintenance_cfg.get("target_population", 0) <= 0:
-            raise ValueError("population_maintenance.target_population must be > 0")
+        # Validate kernel params only; target population comes from environment.population
+        if population_maintenance_cfg.get("kernel_peak_reward", 0.0) < 0.0:
+            raise ValueError("population_maintenance.kernel_peak_reward must be >= 0")
+        if population_maintenance_cfg.get("kernel_max_penalty", 0.0) < 0.0:
+            raise ValueError("population_maintenance.kernel_max_penalty must be >= 0")
+        if population_maintenance_cfg.get("kernel_zero_distance", 0.0) <= 0.0:
+            raise ValueError("population_maintenance.kernel_zero_distance must be > 0")
         if population_maintenance_cfg.get("kernel_peak_reward", 0.0) < 0.0:
             raise ValueError("population_maintenance.kernel_peak_reward must be >= 0")
         if population_maintenance_cfg.get("kernel_max_penalty", 0.0) < 0.0:
@@ -725,359 +726,323 @@ def _merge_with_defaults(config: Dict[str, Any]) -> Dict[str, Any]:
 
 def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfig:
     """
-    Load configuration from YAML file or use defaults.
-    
-    Looks for config in rl/configs/ directory if relative path provided.
+    Validate that configuration has all required sections and fields.
+    Throws errors instead of silently using defaults.
     
     Args:
-        config_path: Path to YAML configuration file, or None for defaults
-                     Can be relative or absolute path
-    
-    Returns:
-        CompleteConfig object with all validated parameters
+        config: Configuration dictionary to validate
     
     Raises:
-        FileNotFoundError: If config file doesn't exist
-        ValueError: If configuration is invalid
+        ValueError: If required fields are missing
     """
+    def _require_field(keys: list[str], root: Dict[str, Any], context: str) -> None:
+        """Check that all keys exist in root dict."""
+        for k in keys:
+            if k not in root:
+                raise ValueError(f"Missing required field '{k}' in {context}")
+    
+    # Top-level sections
+    _require_field(["environment", "actions", "model", "ppo", "training"], config, "config")
+    
+    env = config["environment"]
+    actions = config["actions"]
+    model = config["model"]
+    ppo = config["ppo"]
+    training = config["training"]
+    
+    # Environment section
+    _require_field(["max_steps", "k_doses", "device", "dtype"], env, "environment")
+    
+    # Environment.timing (if present, validate structure)
+    if "timing" in env:
+        timing = env["timing"]
+        _require_field(["t_count_freshness", "t_seq_freshness", "max_count_window", "critical_ratio"], 
+                      timing, "environment.timing")
+        if "count_window" in timing:
+            _require_field(["min_elapsed", "max_elapsed"], timing["count_window"], "environment.timing.count_window")
+        if "seq_window" in timing:
+            _require_field(["min_elapsed", "max_elapsed"], timing["seq_window"], "environment.timing.seq_window")
+    
+    # Environment.budget
+    if "budget" in env:
+        _require_field(["budget_init", "budget_norm"], env["budget"], "environment.budget")
+    
+    # Environment.population
+    if "population" in env:
+        _require_field(["target_population", "population_norm"], env["population"], "environment.population")
+    
+    # Environment.rewards section
+    if "rewards" not in env:
+        raise ValueError("Missing required section 'environment.rewards'")
+    
+    rewards = env["rewards"]
+    
+    # Required reward subsections
+    _require_field(["informed_dosing", "sequencing", "counting", "noop", "critical_penalties",
+                   "population_maintenance", "survival_bonus", "prediction", "early_termination"], 
+                  rewards, "environment.rewards")
+    
+    # Informed dosing
+    informed = rewards["informed_dosing"]
+    _require_field([
+        "penalty_dosing_under_target",
+        "penalty_dosing_under_target_dose_scale",
+        "penalty_dosing_under_target_dose_exponent",
+        "penalty_dosing_under_target_deficit_scale",
+        "penalty_dosing_under_target_deficit_cap",
+        "penalty_dosing_under_target_max",
+        "reward_dosing_above_with_seq",
+        "reward_dosing_above_no_seq",
+        "penalty_blind_dose",
+        "penalty_blind_dose_amount_scale",
+        "penalty_blind_dose_amount_exponent",
+        "penalty_blind_dose_max",
+    ], informed, "environment.rewards.informed_dosing")
+    
+    # Sequencing
+    sequencing = rewards["sequencing"]
+    _require_field(["seq_already_pending_penalty", "informative_seq_reward"], 
+                  sequencing, "environment.rewards.sequencing")
+    
+    # Counting
+    counting = rewards["counting"]
+    _require_field(["informative_count_reward", "cost_penalty"], 
+                  counting, "environment.rewards.counting")
+    
+    # NOOP
+    noop_rewards = rewards["noop"]
+    _require_field(["strategic_noop_reward"], noop_rewards, "environment.rewards.noop")
+    
+    # Critical penalties
+    critical = rewards["critical_penalties"]
+    _require_field(["penalty_critical_no_dose", "penalty_critical_no_count"], 
+                  critical, "environment.rewards.critical_penalties")
+    
+    # Population maintenance (no target_population here; target is in environment.population)
+    pop_maint = rewards["population_maintenance"]
+    _require_field([
+        "enabled",
+        "kernel_type",
+        "kernel_peak_reward",
+        "kernel_max_penalty",
+        "kernel_zero_distance",
+    ], pop_maint, "environment.rewards.population_maintenance")
+    
+    # Survival bonus
+    surv = rewards["survival_bonus"]
+    _require_field(["enabled", "base_bonus", "scaling_type", "scaling_factor", "max_bonus"], 
+                  surv, "environment.rewards.survival_bonus")
+    
+    # Prediction
+    pred = rewards["prediction"]
+    _require_field([
+        "enabled",
+        "weight",
+        "align_weight",
+        "target_weight",
+        "align_scale",
+        "target_scale",
+    ], pred, "environment.rewards.prediction")
+    
+    # Early termination
+    early = rewards["early_termination"]
+    _require_field([
+        "enabled",
+        "penalty",
+        "min_penalty",
+        "penalty_decay_power",
+        "population_low_threshold",
+        "population_threshold",
+        "extinction_penalty",
+        "require_budget_depleted",
+    ], early, "environment.rewards.early_termination")
+    
+    # Actions section
+    _require_field(["weight_cost"], actions, "actions")
+    for act_name in ["noop", "count_bacteria", "sequencing", "dose"]:
+        if act_name not in actions:
+            raise ValueError(f"Missing required section 'actions.{act_name}'")
+        act = actions[act_name]
+        _require_field(["id", "cost", "duration"], act, f"actions.{act_name}")
+        if act_name == "dose":
+            _require_field(["cost_per_unit"], act, "actions.dose")
+    
+    # Model section
+    _require_field(["hidden_dim", "rnn_layers", "n_discrete", "dose_action_index", "k_doses", "sigmoid_scale_factor"], 
+                  model, "model")
+    
+    # PPO section
+    _require_field([
+        "gamma", "gae_lambda", "clip_eps", "vf_coef", "ent_coef", "max_grad_norm",
+        "rollout_steps", "epochs", "seq_len", "batch_seq_len", "lr"
+    ], ppo, "ppo")
+    
+    # Training section
+    _require_field([
+        "total_updates", "seed", "checkpoint_interval", "log_interval", 
+        "save_dir", "experiment_name", "save_checkpoints_per_run"
+    ], training, "training")
+
+
+def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfig:
+    """
+    Load configuration from YAML file or use defaults, validate and
+    construct typed dataclasses matching the YAML structure used in
+    `rl/configs/training_config_simple_rewards.yaml`.
+
+    Args:
+        config_path: Path to YAML configuration file, or None to use defaults
+
+    Returns:
+        CompleteConfig object with all validated parameters
+    """
+    # Load raw dict (either defaults or YAML file)
     if config_path is None:
         config_dict = _get_default_config()
         print("ℹ Using default configuration")
     else:
         if not HAS_YAML:
             raise RuntimeError(
-                "PyYAML is required to load config files. "
-                "Install it with: pip install pyyaml"
+                "PyYAML is required to load config files. Install it with: pip install pyyaml"
             )
-        
         config_file = Path(config_path)
-        
-        # If path is relative and doesn't exist, try rl/configs directory
         if not config_file.exists() and not config_file.is_absolute():
             alt_path = Path(__file__).parent / "configs" / config_path
             if alt_path.exists():
                 config_file = alt_path
-        
         if not config_file.exists():
             raise FileNotFoundError(f"Configuration file not found: {config_file}")
-        
         try:
             with open(config_file, 'r') as f:
                 loader_cls = _TupleSafeLoader if _TupleSafeLoader is not None else yaml.SafeLoader
                 config_dict = yaml.load(f, Loader=loader_cls) or {}
         except Exception as e:
             raise ValueError(f"Failed to load YAML config {config_file}: {e}")
-        
         print(f"✓ Loaded configuration from: {config_file}")
-    
-    # Merge with defaults to fill missing values
-    config_dict = _merge_with_defaults(config_dict)
 
-    # Strict validation for the simple rewards config: require all hparams defined
-    def _strict_require(keys: list[str], root: Dict[str, Any], context: str) -> None:
-        for k in keys:
-            if k not in root:
-                raise ValueError(f"Missing required hparam '{k}' in {context}")
+    # Validate semantics/constraints without applying defaults
+    _validate_config(config_dict)
 
-    if config_path is not None:
-        try:
-            cfg_name = Path(config_path).name
-        except Exception:
-            cfg_name = str(config_path)
-        if cfg_name == "training_config_simple_rewards.yaml":
-            env = config_dict.get("environment", {})
-            rewards = env.get("rewards", {})
-            actions = config_dict.get("actions", {})
-            model = config_dict.get("model", {})
-            ppo = config_dict.get("ppo", {})
-            training = config_dict.get("training", {})
+    # Build nested dataclasses directly from YAML (no defaults)
+    env = config_dict["environment"]
 
-            # Timing (always under environment.timing in simple rewards config)
-            timing = env.get("timing", {})
-            _strict_require(["t_count_freshness", "t_seq_freshness", "max_count_window", "critical_ratio"], timing, "environment.timing")
-            count_window = timing.get("count_window", {})
-            _strict_require(["min_elapsed", "max_elapsed"], count_window, "environment.timing.count_window")
-            seq_window = timing.get("seq_window", {})
-            _strict_require(["min_elapsed", "max_elapsed"], seq_window, "environment.timing.seq_window")
+    # Tracking, reward_buffers and timing
+    tracking_cfg = TrackingConfig(**env.get("tracking", {}))
+    reward_buffers_cfg = RewardBuffersConfig(**env.get("reward_buffers", {}))
 
-            # Rewards subsections used by env
-            informed = rewards.get("informed_dosing", {})
-            _strict_require([
-                "penalty_dosing_under_target",
-                "penalty_dosing_under_target_dose_scale",
-                "penalty_dosing_under_target_dose_exponent",
-                "penalty_dosing_under_target_deficit_scale",
-                "penalty_dosing_under_target_deficit_cap",
-                "penalty_dosing_under_target_max",
-                "reward_dosing_above_with_seq",
-                "reward_dosing_above_no_seq",
-                "penalty_blind_dose",
-                "penalty_blind_dose_amount_scale",
-                "penalty_blind_dose_amount_exponent",
-                "penalty_blind_dose_max",
-            ], informed, "environment.rewards.informed_dosing")
+    timing_raw = env.get("timing", {})
+    count_window = CountWindowConfig(**timing_raw.get("count_window", {"min_elapsed": 0, "max_elapsed": 0}))
+    seq_window = SeqWindowConfig(**timing_raw.get("seq_window", {"min_elapsed": 0, "max_elapsed": 0}))
+    timing_cfg = TimingConfig(
+        t_count_freshness=timing_raw.get("t_count_freshness", 0),
+        t_seq_freshness=timing_raw.get("t_seq_freshness", 0),
+        max_count_window=timing_raw.get("max_count_window", 0),
+        critical_ratio=timing_raw.get("critical_ratio", 1.0),
+        count_window=count_window,
+        seq_window=seq_window,
+    )
 
-            sequencing = rewards.get("sequencing", {})
-            _strict_require(["seq_already_pending_penalty", "informative_seq_reward"], sequencing, "environment.rewards.sequencing")
-
-            counting = rewards.get("counting", {})
-            _strict_require(["cost_penalty", "informative_count_reward"], counting, "environment.rewards.counting")
-
-            noop = rewards.get("noop", {})
-            _strict_require(["strategic_noop_reward"], noop, "environment.rewards.noop")
-
-            critical = rewards.get("critical_penalties", {})
-            _strict_require(["penalty_critical_no_dose", "penalty_critical_no_count"], critical, "environment.rewards.critical_penalties")
-
-            # Kernel-based population maintenance
-            pop_maint = rewards.get("population_maintenance", {})
-            _strict_require([
-                "enabled",
-                "target_population",
-                "kernel_type",
-                "kernel_peak_reward",
-                "kernel_max_penalty",
-                "kernel_zero_distance",
-            ], pop_maint, "environment.rewards.population_maintenance")
-
-            # Survival bonus
-            surv = rewards.get("survival_bonus", {})
-            _strict_require(["enabled", "base_bonus", "scaling_type", "scaling_factor", "max_bonus"], surv, "environment.rewards.survival_bonus")
-
-            # Prediction
-            pred = rewards.get("prediction", {})
-            _strict_require([
-                "enabled",
-                "weight",
-                "align_weight",
-                "target_weight",
-                "align_scale",
-                "target_scale",
-            ], pred, "environment.rewards.prediction")
-
-            # Early termination
-            early = rewards.get("early_termination", {})
-            _strict_require([
-                "enabled",
-                "penalty",
-                "min_penalty",
-                "penalty_decay_power",
-                "population_low_threshold",
-                "population_threshold",
-                "extinction_penalty",
-                "require_budget_depleted",
-            ], early, "environment.rewards.early_termination")
-
-            # Budget
-            budget = env.get("budget", {})
-            _strict_require(["budget_init", "budget_norm"], budget, "environment.budget")
-
-            # Population
-            population = env.get("population", {})
-            _strict_require(["target_population", "population_norm"], population, "environment.population")
-
-            # Actions
-            for act_name in ("noop", "count_bacteria", "sequencing", "dose"):
-                act = actions.get(act_name, {})
-                _strict_require(["id", "cost", "duration"], act, f"actions.{act_name}")
-                if act_name == "dose":
-                    if "cost_per_unit" not in act:
-                        raise ValueError("Missing required hparam 'cost_per_unit' in actions.dose")
-            if "weight_cost" not in actions:
-                raise ValueError("Missing required hparam 'weight_cost' in actions")
-
-            # Model
-            _strict_require(["hidden_dim", "rnn_layers", "n_discrete", "dose_action_index", "k_doses", "sigmoid_scale_factor"], model, "model")
-
-            # PPO
-            _strict_require([
-                "gamma","gae_lambda","clip_eps","vf_coef","ent_coef","max_grad_norm",
-                "rollout_steps","epochs","seq_len","batch_seq_len","lr"
-            ], ppo, "ppo")
-
-            # Training
-            _strict_require(["total_updates","seed","checkpoint_interval","log_interval","save_dir","experiment_name","save_checkpoints_per_run"], training, "training")
-    
-    # Validate configuration
-    try:
-        _validate_config(config_dict)
-    except ValueError as e:
-        raise ValueError(f"Configuration validation failed: {e}")
-    
-    # Extract action configuration
-    actions_dict = config_dict.get("actions", {})
-    seq = actions_dict.get("sequencing", {})
-    dose = actions_dict.get("dose", {})
-    noop = actions_dict.get("noop", {})
-    count = actions_dict.get("count_bacteria", {})
-    
-    # Extract environment configuration with nested reward configs
-    env_dict = config_dict["environment"]
-    rewards_dict = env_dict["rewards"]
-    
-    # Helper: filter dict keys to match dataclass constructor
+    # Rewards: filter keys to match dataclasses to avoid unexpected fields
     def _filter_keys_for(cls, dct: Dict[str, Any]) -> Dict[str, Any]:
-        try:
-            params = signature(cls).parameters
-            allowed = set(params.keys())
-            return {k: v for k, v in dct.items() if k in allowed}
-        except Exception:
-            return dct
+        params = signature(cls).parameters
+        allowed = set(params.keys())
+        return {k: v for k, v in dct.items() if k in allowed}
 
-    # Create nested reward config dataclasses (filter unknown keys for backward-compat)
-    population_rewards_section = dict(rewards_dict.get("population", {}))
-    env_population_section = env_dict.get("population") or {}
-    for key in ("target_population", "population_norm"):
-        if key not in population_rewards_section and key in env_population_section:
-            population_rewards_section[key] = env_population_section[key]
-    population_reward_cfg = PopulationRewardConfig(
-        **_filter_keys_for(PopulationRewardConfig, population_rewards_section)
-    )
-    population_maintenance_cfg = None
-    if "population_maintenance" in rewards_dict and rewards_dict["population_maintenance"] is not None:
-        population_maintenance_section = dict(rewards_dict["population_maintenance"])
-        if "target_population" not in population_maintenance_section:
-            population_maintenance_section["target_population"] = population_reward_cfg.target_population
-        population_maintenance_cfg = PopulationMaintenanceConfig(
-            **_filter_keys_for(PopulationMaintenanceConfig, population_maintenance_section)
-        )
-    dose_reward_cfg = DoseRewardConfig(**_filter_keys_for(DoseRewardConfig, rewards_dict["dose"]))
-    budget_rewards_section = dict(rewards_dict.get("budget", {}))
-    env_budget_section = env_dict.get("budget") or {}
-    for key in ("budget_init", "budget_norm"):
-        if key not in budget_rewards_section and key in env_budget_section:
-            budget_rewards_section[key] = env_budget_section[key]
-    budget_cfg = BudgetConfig(
-        **_filter_keys_for(BudgetConfig, budget_rewards_section)
-    )
-    survival_bonus_cfg = SurvivalBonusConfig(**_filter_keys_for(SurvivalBonusConfig, rewards_dict["survival_bonus"]))
-    informed_dosing_cfg = InformedDosingConfig(**_filter_keys_for(InformedDosingConfig, rewards_dict["informed_dosing"]))
-    regular_monitoring_cfg = RegularMonitoringConfig(**_filter_keys_for(RegularMonitoringConfig, rewards_dict["regular_monitoring"]))
-    critical_inaction_cfg = CriticalInactionConfig(**_filter_keys_for(CriticalInactionConfig, rewards_dict["critical_inaction"]))
-    sequencing_cfg = SequencingRewardConfig(**_filter_keys_for(SequencingRewardConfig, rewards_dict["sequencing"]))
+    rewards = env.get("rewards", {})
+    informed = InformedDosingConfig(**_filter_keys_for(InformedDosingConfig, rewards.get("informed_dosing", {})))
+    sequencing = SequencingRewardConfig(**_filter_keys_for(SequencingRewardConfig, rewards.get("sequencing", {})))
+    counting = CountingRewardConfig(**_filter_keys_for(CountingRewardConfig, rewards.get("counting", {})))
+    noop = NoopRewardConfig(**_filter_keys_for(NoopRewardConfig, rewards.get("noop", {})))
+    critical_penalties = CriticalPenaltiesConfig(**_filter_keys_for(CriticalPenaltiesConfig, rewards.get("critical_penalties", {})))
+    pop_maint_dict = dict(rewards.get("population_maintenance", {}))
+    pop_maint_dict["target_population"] = int(env.get("population", {}).get("target_population", 0))
+    population_maintenance = PopulationMaintenanceConfig(**_filter_keys_for(PopulationMaintenanceConfig, pop_maint_dict))
+    survival_bonus = SurvivalBonusConfig(**_filter_keys_for(SurvivalBonusConfig, rewards.get("survival_bonus", {})))
+    prediction = PredictionRewardConfig(**_filter_keys_for(PredictionRewardConfig, rewards.get("prediction", {})))
+    early_termination = EarlyTerminationConfig(**_filter_keys_for(EarlyTerminationConfig, rewards.get("early_termination", {})))
     
-    # New simple reward system configs (with defaults for backward compatibility)
-    counting_cfg = CountingRewardConfig(**_filter_keys_for(CountingRewardConfig, rewards_dict.get("counting", {})))
-    noop_cfg = NoopRewardConfig(**_filter_keys_for(NoopRewardConfig, rewards_dict.get("noop", {})))
-    critical_penalties_cfg = CriticalPenaltiesConfig(**_filter_keys_for(CriticalPenaltiesConfig, rewards_dict.get("critical_penalties", {})))
-    
-    # For population_maintenance, merge with population data and population_maintenance section
-    pop_maint_data = rewards_dict.get("population", {}).copy()
-    pop_maint_data.update(rewards_dict.get("population_maintenance", {}))
-    population_maintenance_cfg = PopulationRewardConfig(**_filter_keys_for(PopulationRewardConfig, pop_maint_data))
-    
-    prediction_cfg = PredictionRewardConfig(**_filter_keys_for(PredictionRewardConfig, rewards_dict["prediction"]))
-    early_termination_cfg = EarlyTerminationConfig(**_filter_keys_for(EarlyTerminationConfig, rewards_dict["early_termination"]))
-    
+    # Budget, tracking, history, reward_buffers, population
+    budget_cfg = BudgetConfig(**env.get("budget", {}))
+    population_cfg = PopulationConfig(**env.get("population", {}))
+    tracking_cfg = TrackingConfig(**env.get("tracking", {}))
+    reward_buffers_cfg = RewardBuffersConfig(**env.get("reward_buffers", {}))
+
     reward_cfg = RewardConfig(
-        population=population_reward_cfg,
-        population_maintenance=population_maintenance_cfg,
-        dose=dose_reward_cfg,
+        informed_dosing=informed,
+        sequencing=sequencing,
+        counting=counting,
+        noop=noop,
+        critical_penalties=critical_penalties,
+        population_maintenance=population_maintenance,
+        survival_bonus=survival_bonus,
+        prediction=prediction,
+        early_termination=early_termination,
         budget=budget_cfg,
-        survival_bonus=survival_bonus_cfg,
-        informed_dosing=informed_dosing_cfg,
-        regular_monitoring=regular_monitoring_cfg,
-        critical_inaction=critical_inaction_cfg,
-        sequencing=sequencing_cfg,
-        counting=counting_cfg,
-        noop=noop_cfg,
-        critical_penalties=critical_penalties_cfg,
-        prediction=prediction_cfg,
-        early_termination=early_termination_cfg,
+        population=population_cfg,
+        tracking=tracking_cfg,
+        reward_buffers=reward_buffers_cfg,
     )
 
-    # Optional environment-level overrides for commonly tweaked scalars
-    population_override_cfg = env_dict.get("population") or {}
-    if "target_population" in population_override_cfg:
-        reward_cfg.population.target_population = float(population_override_cfg["target_population"])
-    if "population_norm" in population_override_cfg:
-        reward_cfg.population.population_norm = float(population_override_cfg["population_norm"])
+    # Budget and population
+    budget_cfg = BudgetConfig(**env.get("budget", {}))
+    population_cfg = PopulationConfig(**env.get("population", {}))
 
-    budget_override_cfg = env_dict.get("budget") or {}
-    if "budget_init" in budget_override_cfg:
-        reward_cfg.budget.budget_init = float(budget_override_cfg["budget_init"])
-    if "budget_norm" in budget_override_cfg:
-        reward_cfg.budget.budget_norm = float(budget_override_cfg["budget_norm"])
-    
-    spawn_range_cfg = env_dict.get("initial_bacteria_per_type_range")
-    parsed_spawn_range: Optional[Tuple[int, int]] = None
-    if spawn_range_cfg is not None:
-        if isinstance(spawn_range_cfg, dict):
-            spawn_min = spawn_range_cfg.get("min")
-            spawn_max = spawn_range_cfg.get("max")
+    # initial spawn range
+    spawn = env.get("initial_bacteria_per_type_range")
+    parsed_spawn = None
+    if spawn is not None:
+        if isinstance(spawn, dict):
+            parsed_spawn = (int(spawn.get("0") or spawn.get("min")), int(spawn.get("1") or spawn.get("max")))
         else:
-            spawn_min, spawn_max = spawn_range_cfg
-        parsed_spawn_range = (int(spawn_min), int(spawn_max))
+            parsed_spawn = (int(spawn[0]), int(spawn[1]))
 
-    tracking_defaults = {
-        "enabled": env_dict.get("enable_individual_tracking", True),
-        "max_individual_history": env_dict.get("max_individual_history", 1000),
-        "max_tracked_individuals": env_dict.get("max_tracked_individuals", 2000),
-    }
-    tracking_cfg = env_dict.get("tracking") or {}
-    enable_tracking = bool(tracking_cfg.get("enabled", tracking_defaults["enabled"]))
-    max_individual_history = int(tracking_cfg.get("max_individual_history", tracking_defaults["max_individual_history"]))
-    max_tracked_individuals_val = tracking_cfg.get("max_tracked_individuals", tracking_defaults["max_tracked_individuals"])
-    max_tracked_individuals = None if max_tracked_individuals_val is None else int(max_tracked_individuals_val)
-
-    history_defaults = env_dict.get("max_history_steps", 2000)
-    history_cfg = env_dict.get("history") or env_dict.get("history_limits") or {}
-    max_history_steps_val = history_cfg.get("max_steps", history_defaults)
-    max_history_steps = None if max_history_steps_val is None else int(max_history_steps_val)
-
-    reward_buffer_cfg = env_dict.get("reward_buffers") or {}
-    max_recent_dose_events = int(
-        reward_buffer_cfg.get(
-            "max_recent_dose_events",
-            env_dict.get("max_recent_dose_events", 256),
-        )
-    )
-
-    population_target_value = float(reward_cfg.population.target_population)
-    population_norm_value = float(reward_cfg.population.population_norm)
-    budget_init_value = float(reward_cfg.budget.budget_init)
-    budget_norm_value = float(reward_cfg.budget.budget_norm)
-
-    # Create environment config with nested structures
     env_cfg = EnvironmentConfig(
-        max_steps=env_dict["max_steps"],
-        k_doses=env_dict["k_doses"],
-        device=env_dict["device"],
-        dtype=env_dict["dtype"],
+        max_steps=int(env.get("max_steps", 0)),
+        k_doses=int(env.get("k_doses", 0)),
+        device=str(env.get("device", "cpu")),
+        dtype=str(env.get("dtype", "float32")),
         rewards=reward_cfg,
-        initial_bacteria_per_type_range=parsed_spawn_range,
-        warmup_skip_steps=int(env_dict.get("warmup_skip_steps", 0) or 0),
-        enable_individual_tracking=enable_tracking,
-        max_individual_history=max_individual_history,
-        max_tracked_individuals=max_tracked_individuals,
-        max_history_steps=max_history_steps,
-        max_recent_dose_events=max_recent_dose_events,
-        population_target=population_target_value,
-        population_norm=population_norm_value,
-        budget_init=budget_init_value,
-        budget_norm=budget_norm_value,
+        timing=timing_cfg,
+        initial_bacteria_per_type_range=parsed_spawn,
+        warmup_skip_steps=int(env.get("warmup_skip_steps", 0)),
+        enable_individual_tracking=bool(env.get("tracking", {}).get("enabled", True)),
+        max_individual_history=int(env.get("tracking", {}).get("max_individual_history", 100)),
+        max_tracked_individuals=env.get("tracking", {}).get("max_tracked_individuals", 2000),
+        max_history_steps=int(env.get("history", {}).get("max_steps", 2000)),
+        max_recent_dose_events=int(env.get("reward_buffers", {}).get("max_recent_dose_events", 256)),
+        population_target=float(env.get("population", {}).get("target_population", population_cfg.target_population)),
+        population_norm=float(env.get("population", {}).get("population_norm", population_cfg.population_norm)),
+        budget_init=float(env.get("budget", {}).get("budget_init", budget_cfg.budget_init)),
+        budget_norm=float(env.get("budget", {}).get("budget_norm", budget_cfg.budget_norm)),
     )
-    
+
+    # Actions (keep raw dicts for action details)
+    actions_raw = config_dict.get("actions", {})
+    weight = float(actions_raw.get("weight_cost", 0.0))
+    noop = actions_raw.get("noop", {})
+    count = actions_raw.get("count_bacteria", {})
+    seq = actions_raw.get("sequencing", {})
+    dose = actions_raw.get("dose", {})
     actions_cfg = ActionConfig(
-        noop_cost=noop.get("cost", 0.0),
-        count_cost=count.get("cost", 0.0),
-        sequencing_cost=seq.get("cost", 1.0),
-        sequencing_duration=seq.get("duration", 5),
-        dose_cost=dose.get("cost", 2.0),
-        dose_cost_per_unit=dose.get("cost_per_unit", 0.2),
-        cost_weight=actions_dict.get("weight_cost", 0.0),
+        cost_weight=weight,
+        noop_cost=float(noop.get("cost", 0.0)),
+        count_cost=float(count.get("cost", 0.0)),
+        sequencing_cost=float(seq.get("cost", 0.0)),
+        sequencing_duration=int(seq.get("duration", 0)),
+        dose_cost=float(dose.get("cost", 0.0)),
+        dose_cost_per_unit=float(dose.get("cost_per_unit", 0.0)),
     )
-    
-    model_cfg = ModelConfig(**config_dict["model"])
-    ppo_cfg = PPOConfig(**config_dict["ppo"])
-    train_cfg = TrainingConfig(**config_dict["training"])
-    
+
+    model_cfg = ModelConfig(**config_dict.get("model", {}))
+    ppo_cfg = PPOConfig(**config_dict.get("ppo", {}))
+    training_cfg = TrainingConfig(**config_dict.get("training", {}))
+
     return CompleteConfig(
         environment=env_cfg,
         actions=actions_cfg,
         model=model_cfg,
         ppo=ppo_cfg,
-        training=train_cfg,
+        training=training_cfg,
     )
 
 

@@ -58,7 +58,7 @@ environment:
       target_population: 100
       kernel_type: "laplace"                 # "gaussian" or "laplace"
       kernel_peak_reward: 45.0                 # R: peak reward at target
-      kernel_max_penalty: 0.5                 # M: maximum penalty (min value -M)
+      kernel_max_penalty: 1                 # M: maximum penalty (min value -M)
       kernel_zero_distance: 80.0              # distance where kernel equals 0
     
     # Survival bonus (per-step reward for staying alive)

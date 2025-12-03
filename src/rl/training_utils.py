@@ -20,7 +20,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Optional, Callable
 from datetime import datetime
-
+from pprint import pprint
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -814,7 +814,8 @@ def _create_environment(
     # Otherwise, provide sensible defaults
     
     # Check if we have new timing config
-    timing = getattr(rewards, 'timing', None)
+    # pprint(config.environment)
+    timing = getattr(config.environment, 'timing', None)
     if timing is not None:
         # New config format
         t_count_freshness = timing.t_count_freshness
