@@ -502,39 +502,17 @@ class PetriEnvWrapper:
         self._dose_update_buffer = None
 
         if self.initial_skip_steps > 0:
-            return self._fast_forward_without_agent(self.initial_skip_steps)
+            self._fast_forward_without_agent(self.initial_skip_steps)
         return self._build_observation()
 
-    def _fast_forward_without_agent(self, steps: int) -> np.ndarray:
-        """Advance the biological simulation without agent actions."""
+    def _fast_forward_without_agent(self, steps: int) -> None:
+        """Advance the biological simulation without touching episode timers."""
         steps_to_skip = int(max(0, steps))
         if steps_to_skip <= 0 or self.model is None:
-            return self._build_observation()
+            return
 
         for _ in range(steps_to_skip):
-            if self.max_steps is not None and self.t >= self.max_steps:
-                break
-
             self.model.step()
-            self.t += 1
-
-            # No agent actions occurred, so timers simply advance
-            self.t_since_last_count += 1.0
-            self.t_since_last_dose += 1.0
-            self.t_since_last_seq += 1.0
-
-            if self.seq_pending:
-                self.seq_eta -= 1
-                if self.seq_eta <= 0:
-                    seq_result = self._read_true_sequencing()
-                    self._cache_sequencing_obs(seq_result)
-                    self.seq_pending = False
-                    self.seq_eta = 0
-
-            if self.has_ever_sequenced and self.t_since_last_seq > self.t_seq_freshness:
-                self.recent_sequencing = False
-
-        return self._build_observation()
 
     # -------------------------
     # Freshness helpers (following pseudo-code)
