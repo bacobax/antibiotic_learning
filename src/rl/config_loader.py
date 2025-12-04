@@ -20,6 +20,7 @@ All configurations are loaded from a single YAML file including:
 from pathlib import Path
 from typing import Any, Dict, Optional, Union, Tuple
 from dataclasses import dataclass
+import copy
 from inspect import signature
 
 try:
@@ -785,6 +786,9 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         
         print(f"✓ Loaded configuration from: {config_file}")
     
+    # Preserve raw user-provided configuration for detecting explicitly-set fields
+    raw_config_dict = copy.deepcopy(config_dict)
+
     # Merge with defaults to fill missing values
     config_dict = _merge_with_defaults(config_dict)
 
@@ -929,6 +933,8 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     # Extract environment configuration with nested reward configs
     env_dict = config_dict["environment"]
     rewards_dict = env_dict["rewards"]
+    raw_env_dict = raw_config_dict.get("environment", {}) if isinstance(raw_config_dict, dict) else {}
+    raw_rewards_dict = raw_env_dict.get("rewards", {}) if isinstance(raw_env_dict, dict) else {}
     
     # Helper: filter dict keys to match dataclass constructor
     def _filter_keys_for(cls, dct: Dict[str, Any]) -> Dict[str, Any]:
@@ -943,7 +949,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     population_rewards_section = dict(rewards_dict.get("population", {}))
     env_population_section = env_dict.get("population") or {}
     for key in ("target_population", "population_norm"):
-        if key not in population_rewards_section and key in env_population_section:
+        if key in env_population_section:
             population_rewards_section[key] = env_population_section[key]
     population_reward_cfg = PopulationRewardConfig(
         **_filter_keys_for(PopulationRewardConfig, population_rewards_section)
@@ -951,7 +957,16 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     population_maintenance_cfg = None
     if "population_maintenance" in rewards_dict and rewards_dict["population_maintenance"] is not None:
         population_maintenance_section = dict(rewards_dict["population_maintenance"])
-        if "target_population" not in population_maintenance_section:
+        raw_pop_maintenance_section = (
+            raw_rewards_dict.get("population_maintenance")
+            if isinstance(raw_rewards_dict, dict)
+            else None
+        )
+        user_defined_pop_maint_target = (
+            isinstance(raw_pop_maintenance_section, dict)
+            and raw_pop_maintenance_section.get("target_population") is not None
+        )
+        if not user_defined_pop_maint_target:
             population_maintenance_section["target_population"] = population_reward_cfg.target_population
         population_maintenance_cfg = PopulationMaintenanceConfig(
             **_filter_keys_for(PopulationMaintenanceConfig, population_maintenance_section)
@@ -960,7 +975,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     budget_rewards_section = dict(rewards_dict.get("budget", {}))
     env_budget_section = env_dict.get("budget") or {}
     for key in ("budget_init", "budget_norm"):
-        if key not in budget_rewards_section and key in env_budget_section:
+        if key in env_budget_section:
             budget_rewards_section[key] = env_budget_section[key]
     budget_cfg = BudgetConfig(
         **_filter_keys_for(BudgetConfig, budget_rewards_section)

@@ -12,7 +12,7 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 from PyQt5 import QtWidgets
 
 from simulation.model import BacteriaModel
@@ -28,12 +28,23 @@ EMBEDDED_CONFIG_NAME = "complete_config.yaml"
 def _make_shared_model_factory(model: BacteriaModel):
     """Return a factory that reuses and resets the provided model instance."""
 
-    def _factory(initial_total_bacteria: Optional[int] = None):
-        # Allow the environment to request a specific starting population size
+    def _factory(*factory_args: Any, **factory_kwargs: Any):
+        # Support both positional and keyword-based population overrides (N keyword)
+        initial_total_bacteria: Optional[int] = None
+        if factory_args:
+            initial_total_bacteria = factory_args[0]
+
+        keyword_override = factory_kwargs.pop("N", None)
+        if keyword_override is not None:
+            initial_total_bacteria = keyword_override
+
+        # Other keyword arguments (tracking, field toggles, etc.) are already
+        # embedded in the shared model instance, so we intentionally ignore them.
+
         if initial_total_bacteria is not None:
             try:
                 model._initial_bacteria_count = int(initial_total_bacteria)
-            except AttributeError:
+            except (AttributeError, TypeError, ValueError):
                 pass
 
         model.reset()
@@ -164,9 +175,18 @@ def main():
     if app is None:
         app = QtWidgets.QApplication(sys.argv)
     
-    # Create model
+    # Create model aligned with the training configuration so that the shared
+    # factory can safely ignore reconfiguration kwargs passed by the environment.
     print("Initializing bacteria model...")
-    model = BacteriaModel()
+    model = BacteriaModel(
+        enable_individual_tracking=config.environment.enable_individual_tracking,
+        max_individual_history=config.environment.max_individual_history,
+        max_tracked_individuals=config.environment.max_tracked_individuals,
+        max_history_steps=config.environment.max_history_steps,
+        use_torch_fields=config.environment.use_torch_fields,
+        field_device=config.environment.field_device,
+        enable_food_diffusion=config.environment.enable_food_diffusion,
+    )
     
     if args.seed is not None:
         import random

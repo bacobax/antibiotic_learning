@@ -312,6 +312,8 @@ class PetriEnvWrapper:
         # Kernel-based population maintenance
         self.kernel_maintenance_enabled = bool(kernel_maintenance_enabled)
         if self.kernel_maintenance_enabled:
+            print(f"[env] Kernel-based population maintenance enabled ({kernel_type})")
+            print(f"[env]   Target population: {self.target_population}")
             self.kernel_maintenance_reward = KernelPopulationMaintenanceReward(
                 target_population=target_population,
                 kernel_type=kernel_type,
