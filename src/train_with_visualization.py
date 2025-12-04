@@ -425,7 +425,7 @@ DOSE:     {action_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_total', {}).g
         prediction_reward = current_rewards.get('prediction', 0.0)
         pre_reward = current_rewards.get('pre', 0.0)
         post_penalties = current_rewards.get('post_penalties', 0.0)
-    cost_penalty = current_rewards.get('cost_penalty', 0.0)
+        cost_penalty = current_rewards.get('cost_penalty', 0.0)
         
         text = f"""Step: {stats.get('step', 0)}
 Episode Return: {stats.get('episode_return', 0):.2f}

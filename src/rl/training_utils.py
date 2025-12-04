@@ -452,17 +452,29 @@ def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: Tr
     if "rl.config" not in sys.modules:
         sys.modules["rl.config"] = ConfigModule()
     
+    # Determine target device from agent's model
+    target_device = next(agent.model.parameters()).device
+    
+    # Map checkpoint to target device (handles CUDA -> CPU/MPS conversion)
+    def _map_location(storage, loc):
+        if loc.startswith('cuda'):
+            return storage.cpu()
+        return storage
+    
     try:
-        checkpoint = torch.load(checkpoint_path, weights_only=False)
+        checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=_map_location)
     except ModuleNotFoundError as e:
         if "rl.config" in str(e):
             sys.modules["rl.config"] = ConfigModule()
-            checkpoint = torch.load(checkpoint_path, weights_only=False)
+            checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=_map_location)
         else:
             raise
     
     # Load model state
     agent.model.load_state_dict(checkpoint["model_state_dict"])
+    
+    # Move model to target device
+    agent.model.to(target_device)
     
     # Load optimizer state if available
     if "optimizer_state_dict" in checkpoint and agent.trainer:

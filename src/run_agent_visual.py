@@ -26,9 +26,14 @@ EMBEDDED_CONFIG_NAME = "complete_config.yaml"
 
 
 def _make_shared_model_factory(model: BacteriaModel):
-    """Return a factory that reuses and resets the provided model instance."""
+    """Return a factory that reuses and resets the provided model instance.
 
-    def _factory(initial_total_bacteria: Optional[int] = None):
+    Accepts arbitrary keyword args so it is compatible with env wrappers
+    that pass tracking-related parameters. These are ignored here because
+    the shared model instance already exists and is configured elsewhere.
+    """
+
+    def _factory(initial_total_bacteria: Optional[int] = None, **kwargs):
         # Allow the environment to request a specific starting population size
         if initial_total_bacteria is not None:
             try:
@@ -177,6 +182,7 @@ def main():
 
     env_logger = _ConsoleLogger()
     shared_model_factory = _make_shared_model_factory(model)
+    config.environment.rewards.early_termination.enabled = False
     env = _create_environment(
         config,
         env_logger,

@@ -132,7 +132,7 @@ class RLAgent:
         }, filepath)
 
     @staticmethod
-    def load_agent_from_checkpoint(filepath: str, env=None, load_optimizer: bool = False):
+    def load_agent_from_checkpoint(filepath: str, env=None, load_optimizer: bool = False, device="cpu"):
         """
         Load agent from checkpoint.
         
@@ -159,12 +159,13 @@ class RLAgent:
         
         try:
             # Load with weights_only=False to handle pickled config objects
-            checkpoint = torch.load(filepath, weights_only=False)
+            # Map to CPU first to avoid backend-specific initialization issues, then move to target device
+            checkpoint = torch.load(filepath, weights_only=False, map_location="cpu")
         except ModuleNotFoundError as e:
             # If rl.config module not found, add it and try again
             if "rl.config" in str(e):
                 sys.modules["rl.config"] = ConfigModule()
-                checkpoint = torch.load(filepath, weights_only=False)
+                checkpoint = torch.load(filepath, weights_only=False, map_location=device)
             else:
                 raise
         
@@ -181,8 +182,7 @@ class RLAgent:
         )
         model.load_state_dict(model_state_dict, strict=False)
         
-        # Ensure model is on the correct device
-        device = cfg.device
+        # Ensure model is moved to the requested device (do not override with cfg.device)
         model = model.to(device)
         
         # Create agent with optional env (for action masking)
