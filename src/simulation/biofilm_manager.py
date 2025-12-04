@@ -20,9 +20,10 @@ Computational Complexity:
 """
 
 import numpy as np
-from scipy.ndimage import convolve
 from enum import Enum
 from typing import Set, Dict, Tuple, Optional
+
+from simulation.field_backend import FieldBackend
 
 
 class BiofilmState(Enum):
@@ -60,7 +61,7 @@ class BiofilmManager:
         params: Dictionary of biofilm parameters from config
     """
     
-    def __init__(self, model, params: dict):
+    def __init__(self, model, params: dict, field_backend: Optional[FieldBackend] = None):
         """Initialize biofilm manager.
         
         Args:
@@ -69,6 +70,7 @@ class BiofilmManager:
         """
         self.model = model
         self.params = params
+        self.field_backend = field_backend or FieldBackend(enabled=False)
         
         # Initialize EPS field (same resolution as nutrient/antibiotic fields)
         self.eps_field = np.zeros((model.field_w, model.field_h), dtype=float)
@@ -121,7 +123,7 @@ class BiofilmManager:
 
         # 3) Diffusion via explicit Laplacian
         if D > 0.0:
-            lap = convolve(self.eps_field, self._lap_kernel, mode="nearest")
+            lap = self.field_backend.convolve(self.eps_field, self._lap_kernel, mode="nearest")
             self.eps_field += D * dt * lap
 
         # 4) Clamp range and ensure non-negative

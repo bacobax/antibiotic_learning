@@ -143,14 +143,28 @@ class RegularMonitoringConfig:
 
 
 @dataclass
-class CriticalInactionConfig:
-    """Configuration for critical inaction penalties."""
-    high_population_threshold: float  # Multiplier of target for critical level (e.g., 3.0 = 3x target)
-    no_action_penalty: float  # Penalty for not taking seq/dose when count shows critical population
-    no_dose_penalty: float  # Penalty for not dosing when count+seq fresh and population critical
-    freshness_window: int  # Steps to consider data "fresh"
-    noop_penalty: float = 0.0  # Penalty for skipping counts when no fresh data is available
-    noop_threshold: int = 15  # Max steps allowed without a count before penalty triggers
+class TimingWindowConfig:
+    """Timing window configuration for specific actions (COUNT/SEQ)."""
+    min_elapsed: int
+    max_elapsed: int
+
+
+@dataclass
+class TimingConfig:
+    """Environment-level timing and freshness thresholds."""
+    t_count_freshness: int
+    t_seq_freshness: int
+    max_count_window: int
+    critical_ratio: float
+    count_window: TimingWindowConfig
+    seq_window: TimingWindowConfig
+
+
+@dataclass
+class CriticalPenaltiesConfig:
+    """Configuration for simplified critical penalties used in the reward wrapper."""
+    penalty_critical_no_dose: float = 5.0
+    penalty_critical_no_count: float = 0.3
 
 
 @dataclass
@@ -164,6 +178,7 @@ class EarlyTerminationConfig:
     population_low_threshold: float = 0.2  # Multiplier of target for low-population cutoff
     require_budget_depleted: bool = True  # If True, only trigger when budget is also depleted
     extinction_penalty: float = 0.0  # Penalty applied when population collapses to zero
+    noop_only_timeout_steps: Optional[int] = None  # Consecutive steps with only NOOP available before forcing termination
 
 
 @dataclass
@@ -200,10 +215,10 @@ class RewardConfig:
     survival_bonus: SurvivalBonusConfig
     informed_dosing: InformedDosingConfig
     regular_monitoring: RegularMonitoringConfig
-    critical_inaction: CriticalInactionConfig
     sequencing: SequencingRewardConfig
     prediction: PredictionRewardConfig
     early_termination: EarlyTerminationConfig
+    critical_penalties: CriticalPenaltiesConfig
     population_maintenance: Optional[PopulationMaintenanceConfig] = None
 
 
@@ -215,6 +230,7 @@ class EnvironmentConfig:
     device: str
     dtype: str
     rewards: RewardConfig
+    timing: Optional[TimingConfig] = None
     initial_bacteria_per_type_range: Optional[Tuple[int, int]] = None
     warmup_skip_steps: int = 0
     enable_individual_tracking: bool = True
@@ -226,6 +242,9 @@ class EnvironmentConfig:
     population_norm: Optional[float] = None
     budget_init: Optional[float] = None
     budget_norm: Optional[float] = None
+    use_torch_fields: bool = False
+    field_device: Optional[str] = None
+    enable_food_diffusion: Optional[bool] = None
 
 
 @dataclass
@@ -316,6 +335,23 @@ def _get_default_config() -> Dict[str, Any]:
             "max_tracked_individuals": 2000,
             "max_history_steps": 2000,
             "max_recent_dose_events": 256,
+            "use_torch_fields": False,
+            "field_device": None,
+            "enable_food_diffusion": None,
+            "timing": {
+                "t_count_freshness": 5,
+                "t_seq_freshness": 8,
+                "max_count_window": 30,
+                "critical_ratio": 3.0,
+                "count_window": {
+                    "min_elapsed": 5,
+                    "max_elapsed": 30,
+                },
+                "seq_window": {
+                    "min_elapsed": 8,
+                    "max_elapsed": 50,
+                },
+            },
             "population": {
                 "target_population": 500,
                 "population_norm": 1000.0,
@@ -388,13 +424,9 @@ def _get_default_config() -> Dict[str, Any]:
                     "count_min_interval": 3,
                     "safe_nondosing_reward": 0.0,
                 },
-                "critical_inaction": {
-                    "high_population_threshold": 3.0,
-                    "no_action_penalty": 0.0,
-                    "no_dose_penalty": 0.0,
-                    "freshness_window": 5,
-                    "noop_penalty": 0.0,
-                    "noop_threshold": 15,
+                "critical_penalties": {
+                    "penalty_critical_no_dose": 5.0,
+                    "penalty_critical_no_count": 2.0,
                 },
                 "sequencing": {
                     "redundant_penalty": 0.001,
@@ -416,6 +448,7 @@ def _get_default_config() -> Dict[str, Any]:
                     "population_low_threshold": 0.2,
                     "extinction_penalty": 0.0,
                     "require_budget_depleted": True,
+                    "noop_only_timeout_steps": None,
                 },
             },
         },
@@ -530,6 +563,7 @@ def _validate_config(config: Dict[str, Any]) -> None:
     high_thresh = early_term_cfg.get("population_threshold", 0.0)
     low_thresh = early_term_cfg.get("population_low_threshold", 0.0)
     extinction_penalty = early_term_cfg.get("extinction_penalty", 0.0)
+    noop_only_steps = early_term_cfg.get("noop_only_timeout_steps", None)
     if base_penalty < 0.0:
         raise ValueError("early_termination.penalty must be >= 0")
     if min_penalty is None:
@@ -548,6 +582,13 @@ def _validate_config(config: Dict[str, Any]) -> None:
         raise ValueError("early_termination.population_low_threshold must be < population_threshold")
     if extinction_penalty < 0.0:
         raise ValueError("early_termination.extinction_penalty must be >= 0")
+    if noop_only_steps is not None:
+        try:
+            noop_only_steps_int = int(noop_only_steps)
+        except (TypeError, ValueError):
+            raise ValueError("early_termination.noop_only_timeout_steps must be an integer or null")
+        if noop_only_steps_int < 0:
+            raise ValueError("early_termination.noop_only_timeout_steps must be >= 0 or null to disable")
 
     informed_cfg = rewards.get("informed_dosing", {})
     if informed_cfg.get("reward_window_steps", 0) < 0:
@@ -682,6 +723,17 @@ def _merge_with_defaults(config: Dict[str, Any]) -> Dict[str, Any]:
                     user_section[key] = default_val
         else:
             rewards_config.setdefault(subsection, subsection_defaults)
+
+    # Ensure timing section is populated with defaults (including nested windows)
+    timing_defaults = defaults["environment"].get("timing", {})
+    timing_config = config["environment"].setdefault("timing", {})
+    for key, default_val in timing_defaults.items():
+        if isinstance(default_val, dict):
+            user_section = timing_config.setdefault(key, {})
+            for inner_key, inner_default in default_val.items():
+                user_section.setdefault(inner_key, inner_default)
+        else:
+            timing_config.setdefault(key, default_val)
     
     return config
 
@@ -916,7 +968,13 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     survival_bonus_cfg = SurvivalBonusConfig(**_filter_keys_for(SurvivalBonusConfig, rewards_dict["survival_bonus"]))
     informed_dosing_cfg = InformedDosingConfig(**_filter_keys_for(InformedDosingConfig, rewards_dict["informed_dosing"]))
     regular_monitoring_cfg = RegularMonitoringConfig(**_filter_keys_for(RegularMonitoringConfig, rewards_dict["regular_monitoring"]))
-    critical_inaction_cfg = CriticalInactionConfig(**_filter_keys_for(CriticalInactionConfig, rewards_dict["critical_inaction"]))
+    critical_penalties_section = rewards_dict.get("critical_penalties")
+    if critical_penalties_section is not None:
+        critical_penalties_cfg = CriticalPenaltiesConfig(
+            **_filter_keys_for(CriticalPenaltiesConfig, critical_penalties_section)
+        )
+    else:
+        critical_penalties_cfg = CriticalPenaltiesConfig()
     sequencing_cfg = SequencingRewardConfig(**_filter_keys_for(SequencingRewardConfig, rewards_dict["sequencing"]))
     prediction_cfg = PredictionRewardConfig(**_filter_keys_for(PredictionRewardConfig, rewards_dict["prediction"]))
     early_termination_cfg = EarlyTerminationConfig(**_filter_keys_for(EarlyTerminationConfig, rewards_dict["early_termination"]))
@@ -929,7 +987,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         survival_bonus=survival_bonus_cfg,
         informed_dosing=informed_dosing_cfg,
         regular_monitoring=regular_monitoring_cfg,
-        critical_inaction=critical_inaction_cfg,
+        critical_penalties=critical_penalties_cfg,
         sequencing=sequencing_cfg,
         prediction=prediction_cfg,
         early_termination=early_termination_cfg,
@@ -987,6 +1045,35 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     budget_init_value = float(reward_cfg.budget.budget_init)
     budget_norm_value = float(reward_cfg.budget.budget_norm)
 
+    timing_section = env_dict.get("timing")
+    timing_cfg: Optional[TimingConfig] = None
+    if timing_section is not None:
+        count_window_section = timing_section.get("count_window", {})
+        seq_window_section = timing_section.get("seq_window", {})
+        count_window_cfg = TimingWindowConfig(
+            min_elapsed=int(count_window_section.get("min_elapsed", 5)),
+            max_elapsed=int(count_window_section.get("max_elapsed", 30)),
+        )
+        seq_window_cfg = TimingWindowConfig(
+            min_elapsed=int(seq_window_section.get("min_elapsed", 8)),
+            max_elapsed=int(seq_window_section.get("max_elapsed", 50)),
+        )
+        timing_cfg = TimingConfig(
+            t_count_freshness=int(timing_section.get("t_count_freshness", 5)),
+            t_seq_freshness=int(timing_section.get("t_seq_freshness", 8)),
+            max_count_window=int(timing_section.get("max_count_window", 30)),
+            critical_ratio=float(timing_section.get("critical_ratio", 3.0)),
+            count_window=count_window_cfg,
+            seq_window=seq_window_cfg,
+        )
+
+    # Optional field backend acceleration controls
+    use_torch_fields = bool(env_dict.get("use_torch_fields", False))
+    field_device = env_dict.get("field_device")
+    if field_device is None and use_torch_fields:
+        field_device = env_dict.get("device", "cpu")
+    enable_food_diffusion = env_dict.get("enable_food_diffusion")
+
     # Create environment config with nested structures
     env_cfg = EnvironmentConfig(
         max_steps=env_dict["max_steps"],
@@ -994,6 +1081,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         device=env_dict["device"],
         dtype=env_dict["dtype"],
         rewards=reward_cfg,
+        timing=timing_cfg,
         initial_bacteria_per_type_range=parsed_spawn_range,
         warmup_skip_steps=int(env_dict.get("warmup_skip_steps", 0) or 0),
         enable_individual_tracking=enable_tracking,
@@ -1005,6 +1093,9 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         population_norm=population_norm_value,
         budget_init=budget_init_value,
         budget_norm=budget_norm_value,
+        use_torch_fields=use_torch_fields,
+        field_device=field_device,
+        enable_food_diffusion=enable_food_diffusion,
     )
     
     actions_cfg = ActionConfig(
@@ -1077,6 +1168,24 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                 "max_tracked_individuals": config.environment.max_tracked_individuals,
                 "max_history_steps": config.environment.max_history_steps,
                 "max_recent_dose_events": config.environment.max_recent_dose_events,
+                "timing": (
+                    {
+                        "t_count_freshness": config.environment.timing.t_count_freshness,
+                        "t_seq_freshness": config.environment.timing.t_seq_freshness,
+                        "max_count_window": config.environment.timing.max_count_window,
+                        "critical_ratio": config.environment.timing.critical_ratio,
+                        "count_window": {
+                            "min_elapsed": config.environment.timing.count_window.min_elapsed,
+                            "max_elapsed": config.environment.timing.count_window.max_elapsed,
+                        },
+                        "seq_window": {
+                            "min_elapsed": config.environment.timing.seq_window.min_elapsed,
+                            "max_elapsed": config.environment.timing.seq_window.max_elapsed,
+                        },
+                    }
+                    if config.environment.timing is not None
+                    else None
+                ),
                 "population": {
                     "target_population": population_target,
                     "population_norm": population_norm,
@@ -1116,9 +1225,14 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                     "regular_monitoring": {
                         k: v for k, v in config.environment.rewards.regular_monitoring.__dict__.items()
                     },
-                    "critical_inaction": {
-                        k: v for k, v in config.environment.rewards.critical_inaction.__dict__.items()
-                    },
+                    "critical_penalties": (
+                        {
+                            k: v
+                            for k, v in config.environment.rewards.critical_penalties.__dict__.items()
+                        }
+                        if config.environment.rewards.critical_penalties is not None
+                        else None
+                    ),
                     "sequencing": {
                         k: v for k, v in config.environment.rewards.sequencing.__dict__.items()
                     },

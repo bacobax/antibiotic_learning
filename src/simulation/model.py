@@ -8,7 +8,6 @@ import numpy as np
 from mesa import Model
 from mesa.space import ContinuousSpace
 import heapq
-from scipy.ndimage import gaussian_filter
 from typing import Optional
 
 
@@ -31,10 +30,12 @@ from simulation.simulation_config import (
     BIOFILM_PARAMS,
     QUORUM_SENSING_PARAMS,
     FOOD_REPLENISHMENT,
+    FIELD_ACCELERATION,
 )
 from simulation.bacterium import Bacterium
 from simulation.tracking import IndividualTracker
 from simulation.biofilm_manager import BiofilmManager
+from simulation.field_backend import FieldBackend
 
 
 
@@ -51,12 +52,32 @@ class BacteriaModel(Model):
         max_individual_history: int = 1000,
         max_tracked_individuals: Optional[int] = 2000,
         max_history_steps: Optional[int] = 2000,
+        use_torch_fields: Optional[bool] = None,
+        field_device: Optional[str] = None,
+        enable_food_diffusion: Optional[bool] = None,
     ):
         super().__init__()
         self.width = width
         self.height = height
         self.space = ContinuousSpace(width, height, torus=False)
         self.random = random.Random()
+
+        if use_torch_fields is None:
+            use_torch_fields = FIELD_ACCELERATION.get("enabled", False)
+        if field_device is None:
+            field_device = FIELD_ACCELERATION.get("device", "cuda")
+        self.field_backend = FieldBackend(enabled=use_torch_fields, device=field_device)
+        backend_status = "ON" if self.field_backend.enabled else "OFF"
+        backend_device = getattr(self.field_backend, "device", None)
+        backend_device_str = str(backend_device) if backend_device is not None else "cpu"
+        print(f"[FieldBackend] acceleration {backend_status} (device={backend_device_str})")
+
+        self._food_diffusion_sigma = FOOD_DIFFUSION_SIGMA
+        if enable_food_diffusion is None:
+            enable_food_diffusion = self.field_backend.enabled
+        self._food_diffusion_enabled = bool(enable_food_diffusion) and self._food_diffusion_sigma > 0.0
+        if self._food_diffusion_enabled and not self.field_backend.enabled:
+            print("[FieldBackend] Food diffusion enabled without Torch acceleration; falling back to SciPy (slower).")
 
         # Agent management
         self.agent_set = set()
@@ -118,7 +139,11 @@ class BacteriaModel(Model):
         )
         
         # Biofilm management system
-        self.biofilm_manager = BiofilmManager(self, BIOFILM_PARAMS)
+        self.biofilm_manager = BiofilmManager(
+            self,
+            BIOFILM_PARAMS,
+            field_backend=self.field_backend,
+        )
         
         # Biofilm tracking (legacy - kept for compatibility)
         self._next_biofilm_id = 0  # Counter for unique biofilm IDs
@@ -524,11 +549,11 @@ class BacteriaModel(Model):
         
         # Apply diffusion using Gaussian filter
         if diffusion_coef > 0:
-            self.qs_signal_field = gaussian_filter(
-                self.qs_signal_field, 
-                sigma=diffusion_coef, 
-                mode='constant', 
-                cval=0.0
+            self.qs_signal_field = self.field_backend.gaussian_filter(
+                self.qs_signal_field,
+                sigma=diffusion_coef,
+                mode='constant',
+                cval=0.0,
             )
         
         # Apply decay
@@ -592,10 +617,16 @@ class BacteriaModel(Model):
             self.step_count > 0 and 
             self.step_count % FOOD_REPLENISHMENT["period"] == 0):
             self.replenish_food()
+
+        if self._food_diffusion_enabled:
+            self.food_field = self.field_backend.gaussian_filter(
+                self.food_field,
+                sigma=self._food_diffusion_sigma,
+                mode='constant',
+                cval=0.0,
+            )
         
         # Update fields - decay each antibiotic independently
-        # self.food_field = gaussian_filter(self.food_field, sigma=FOOD_DIFFUSION_SIGMA)
-
         for ab_type, ab_field in self.antibiotic_fields.items():
             decay_rate = ANTIBIOTIC_TYPES[ab_type].get("decay_rate", ANTIBIOTIC_DECAY)
             self.antibiotic_fields[ab_type] *= 1 - decay_rate
@@ -707,7 +738,11 @@ class BacteriaModel(Model):
             max_individuals=self._max_tracked_individuals,
             enabled=self._tracker_enabled,
         )
-        self.biofilm_manager = BiofilmManager(self, BIOFILM_PARAMS)
+        self.biofilm_manager = BiofilmManager(
+            self,
+            BIOFILM_PARAMS,
+            field_backend=self.field_backend,
+        )
         self._next_biofilm_id = 0
 
         # Recreate initial population

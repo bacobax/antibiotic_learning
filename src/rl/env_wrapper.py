@@ -163,6 +163,7 @@ class PetriEnvWrapper:
         early_termination_population_low_threshold: float = 0.2,
         early_termination_extinction_penalty: float = 12.0,
         early_termination_require_budget_depleted: bool = False,
+        early_termination_noop_only_steps: Optional[int] = None,
         
         # ===== Environment parameters =====
         target_population: int = 100,
@@ -240,6 +241,8 @@ class PetriEnvWrapper:
         self.last_prediction_target_error = 0.0
         self.last_prediction_alignment_potential = 0.0
         self.last_prediction_target_potential = 0.0
+        self.noop_only_step_counter = 0
+        self.noop_only_state = False
         
         # ===== Early termination parameters =====
         self.early_termination_enabled = bool(early_termination_enabled)
@@ -256,6 +259,12 @@ class PetriEnvWrapper:
         self.early_termination_population_low_threshold = float(max(0.0, early_termination_population_low_threshold))
         self.early_termination_extinction_penalty = float(max(0.0, early_termination_extinction_penalty))
         self.early_termination_require_budget_depleted = bool(early_termination_require_budget_depleted)
+        if early_termination_noop_only_steps is None or early_termination_noop_only_steps <= 0:
+            self.early_termination_noop_only_steps = None
+        else:
+            self.early_termination_noop_only_steps = int(early_termination_noop_only_steps)
+        self.noop_only_step_counter = 0
+        self.noop_only_state = False
         
         # ===== Reward modules =====
         # Pre-step rewards
@@ -688,6 +697,19 @@ class PetriEnvWrapper:
                 self.seq_eta = duration
                 # Timer reset happens after env_step() in _update_timers_after_env_step
 
+    def _update_noop_only_state(self, a_cont: np.ndarray) -> bool:
+        """Update consecutive NOOP-only tracker using current affordability mask."""
+        mask = self.get_action_mask(a_cont)
+        non_noop_available = bool(np.any(mask[1:]))
+        if non_noop_available:
+            self.noop_only_step_counter = 0
+            self.noop_only_state = False
+            return False
+
+        self.noop_only_step_counter += 1
+        self.noop_only_state = True
+        return True
+
     def step(self, a_discrete: int, a_cont: np.ndarray, pred_population: Optional[float] = None) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
         """
         Execute one step following the pseudo-code structure:
@@ -717,6 +739,7 @@ class PetriEnvWrapper:
         self.last_prediction_reward = 0.0
         self.last_early_termination_penalty = 0.0
         self.early_termination_triggered = False
+        noop_only_state = self._update_noop_only_state(a_cont)
         
         # ==============================================
         # STEP 1: PRE-STEP REWARD
@@ -896,6 +919,16 @@ class PetriEnvWrapper:
                     termination_reason = "unrecoverable_low_population"
                 else:
                     termination_reason = "unrecoverable_state"
+            elif (
+                self.early_termination_noop_only_steps is not None
+                and self.noop_only_step_counter >= self.early_termination_noop_only_steps
+                and not done
+                and noop_only_state
+            ):
+                done = True
+                early_termination_penalty = -self._compute_step_scaled_early_termination_penalty()
+                self.early_termination_triggered = True
+                termination_reason = "noop_only_timeout"
         
         self.last_early_termination_penalty = early_termination_penalty
 
@@ -964,6 +997,8 @@ class PetriEnvWrapper:
             # Early termination
             "early_termination_triggered": self.early_termination_triggered,
             "termination_reason": termination_reason,
+            "noop_only_state": noop_only_state,
+            "noop_only_step_count": self.noop_only_step_counter,
             
             # Prediction supervision signal
             "population_next_norm": population_counted_norm,

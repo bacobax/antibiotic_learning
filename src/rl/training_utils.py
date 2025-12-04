@@ -788,10 +788,9 @@ def _create_environment(
     # If using new config format (with 'timing' and new reward structure), use those
     # Otherwise, provide sensible defaults
     
-    # Check if we have new timing config
-    timing = getattr(rewards, 'timing', None)
+    # Check if we have timing config supplied at environment level
+    timing = getattr(config.environment, 'timing', None)
     if timing is not None:
-        # New config format
         t_count_freshness = timing.t_count_freshness
         t_seq_freshness = timing.t_seq_freshness
         max_count_window = timing.max_count_window
@@ -801,11 +800,11 @@ def _create_environment(
         t_min_elapsed_time_seq = timing.seq_window.min_elapsed
         t_max_elapsed_time_seq = timing.seq_window.max_elapsed
     else:
-        # Old config format - use defaults
+        # Fallback defaults for older configs
         t_count_freshness = 5
         t_seq_freshness = 8
         max_count_window = 30
-        critical_ratio = getattr(rewards.critical_inaction, 'high_population_threshold', 3.0)
+        critical_ratio = 3.0
         t_min_elapsed_time_count = getattr(rewards.regular_monitoring, 'count_min_interval', 5)
         t_max_elapsed_time_count = getattr(rewards.regular_monitoring, 'count_interval', 30)
         t_min_elapsed_time_seq = 8
@@ -883,7 +882,7 @@ def _create_environment(
         penalty_critical_no_dose = critical_penalties.penalty_critical_no_dose
         penalty_critical_no_count = critical_penalties.penalty_critical_no_count
     else:
-        penalty_critical_no_dose = getattr(rewards.critical_inaction, 'no_dose_penalty', 5.0) if hasattr(rewards, 'critical_inaction') else 5.0
+        penalty_critical_no_dose = 5.0
         penalty_critical_no_count = 2.0
     # Use extinction_penalty from early_termination config for extinction handling everywhere
     big_penalty = rewards.early_termination.extinction_penalty
@@ -958,6 +957,9 @@ def _create_environment(
         max_individual_history=tracker_kwargs["max_individual_history"],
         max_tracked_individuals=tracker_kwargs["max_tracked_individuals"],
         max_history_steps=tracker_kwargs["max_history_steps"],
+        use_torch_fields=config.environment.use_torch_fields,
+        field_device=config.environment.field_device,
+        enable_food_diffusion=config.environment.enable_food_diffusion,
     )
 
     env = PetriEnvWrapper(
@@ -1044,6 +1046,7 @@ def _create_environment(
         early_termination_population_low_threshold=early_term_cfg.population_low_threshold,
         early_termination_extinction_penalty=early_term_cfg.extinction_penalty,
         early_termination_require_budget_depleted=early_term_cfg.require_budget_depleted,
+        early_termination_noop_only_steps=early_term_cfg.noop_only_timeout_steps,
         
         # Environment parameters
         target_population=target_population,
@@ -1069,6 +1072,10 @@ def _create_environment(
         f"  - Prediction reward: enabled={prediction_cfg.enabled}, "
         f"align={prediction_align_weight}/{prediction_cfg.align_scale}, "
         f"target={prediction_target_weight}/{prediction_cfg.target_scale}"
+    )
+    field_device = config.environment.field_device or "auto"
+    logger.log_info(
+        f"  - Field acceleration: {'enabled' if config.environment.use_torch_fields else 'disabled'} (device={field_device})"
     )
     
     return env

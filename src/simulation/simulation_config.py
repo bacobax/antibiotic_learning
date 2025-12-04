@@ -14,6 +14,12 @@ WIDTH = 100.0                       # continuous width
 HEIGHT = 100.0
 GRID_RES = 200                      # resolution for nutrient & antibiotic fields (square grid)
 
+# Optional acceleration settings for grid-based computations
+FIELD_ACCELERATION = {
+    "enabled": False,             # Toggle Torch-based acceleration for grids
+    "device": "cuda",            # Torch device to use when enabled
+}
+
 # -----------------------
 # Simulation Parameters
 # -----------------------
