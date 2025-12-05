@@ -88,13 +88,16 @@ def init_weights_orthogonal(m: nn.Module, gain: float = 1.0) -> None:
 class ExpressionsPredictor(nn.Module):
     def __init__(self, bacteria_types, genome_dim):
         super().__init__()
+        input_dim = bacteria_types * genome_dim + 1  # +1 for age
+        hidden_dim = input_dim - 1
+        output_dim = bacteria_types * genome_dim
         self.net = nn.Sequential(
-            nn.Linear(bacteria_types * genome_dim + 1, bacteria_types * genome_dim),
-            nn.ReLU(),
-            nn.Linear(bacteria_types * genome_dim, bacteria_types * genome_dim),
-            nn.ReLU(),
-            nn.Linear(bacteria_types * genome_dim, bacteria_types * genome_dim),
-            nn.Tanh(),
+            nn.Linear(input_dim, hidden_dim),
+            nn.LeakyReLU(0.1),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU(0.1),
+            nn.Linear(hidden_dim, output_dim),
+            nn.Sigmoid(),
         )
         self.net.apply(self.init_weights_orthogonal)
 
