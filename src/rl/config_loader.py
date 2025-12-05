@@ -66,20 +66,6 @@ class SurvivalBonusConfig:
 
 
 @dataclass
-class PopulationRewardConfig:
-    """Configuration for population-based rewards."""
-    target_population: float
-    population_norm: float
-    population_norm_reward: float
-    w_population_maintenance: float  # Weight for maintenance penalty
-    count_population_reward: float  # Immediate reward after COUNT based on distance to target
-    count_population_reward_alpha: float  # Exponential shaping steepness
-    count_population_reward_beta: float  # Exponential shaping shift term
-    noop_band_factor: float  # Deadband around target for NOOP reward
-    noop_reward_magnitude: float  # NOOP shaping magnitude
-
-
-@dataclass
 class PopulationMaintenanceConfig:
     """Configuration for simplified kernel-based maintenance reward."""
     enabled: bool = True
@@ -88,24 +74,6 @@ class PopulationMaintenanceConfig:
     kernel_peak_reward: float = 1.0
     kernel_max_penalty: float = 0.0
     kernel_zero_distance: float = 100.0
-
-
-@dataclass
-class DoseRewardConfig:
-    """Configuration for dose efficacy rewards."""
-    w_pop: float  # Weight for population term
-    w_genome: float  # Weight for resistance/genome term
-    w_cost: float  # Weight for cost penalty
-    missing_feedback_penalty: float = 0.5  # Penalty magnitude when dose efficacy cannot be evaluated
-
-
-@dataclass
-class BudgetConfig:
-    """Configuration for budget management."""
-    budget_init: float
-    budget_norm: float
-    budget_penalty: float  # Penalty when budget reaches 0
-    unaffordable_action_penalty: float = 0.0  # Penalty for attempting unaffordable action
 
 
 @dataclass
@@ -135,12 +103,15 @@ class InformedDosingConfig:
 
 
 @dataclass
-class RegularMonitoringConfig:
-    """Configuration for regular monitoring rewards."""
-    count_reward: float  # Reward for counting at regular intervals
-    count_interval: int  # Maximum interval for regular counting (upper bound)
-    count_min_interval: int  # Minimum interval to avoid spam-counting (lower bound)
-    safe_nondosing_reward: float  # Reward for NOT dosing when pop is low
+class CountingRewardSimpleConfig:
+    """Simplified counting reward configuration for the new reward system."""
+    informative_count_reward: float = 1.0
+
+
+@dataclass
+class NoopRewardSimpleConfig:
+    """Simplified NOOP reward configuration for the new reward system."""
+    strategic_noop_reward: float = 0.5
 
 
 @dataclass
@@ -185,7 +156,9 @@ class EarlyTerminationConfig:
 @dataclass
 class SequencingRewardConfig:
     """Configuration for sequencing-related rewards."""
-    redundant_penalty: float = 0.001  # Penalty magnitude for triggering sequencing while one is pending
+    seq_already_pending_penalty: float = 2.0
+    informative_seq_reward: float = 1.0
+    redundant_penalty: float = 0.001  # Legacy compatibility
 
 
 @dataclass
@@ -210,12 +183,10 @@ class PredictionRewardConfig:
 @dataclass
 class RewardConfig:
     """Unified reward configuration."""
-    population: PopulationRewardConfig
-    dose: DoseRewardConfig
-    budget: BudgetConfig
     survival_bonus: SurvivalBonusConfig
     informed_dosing: InformedDosingConfig
-    regular_monitoring: RegularMonitoringConfig
+    counting: CountingRewardSimpleConfig
+    noop: NoopRewardSimpleConfig
     sequencing: SequencingRewardConfig
     prediction: PredictionRewardConfig
     early_termination: EarlyTerminationConfig
@@ -362,15 +333,6 @@ def _get_default_config() -> Dict[str, Any]:
                 "budget_norm": 100.0,
             },
             "rewards": {
-                "population": {
-                    "population_norm_reward": 500.0,
-                    "w_population_maintenance": 0.01,
-                    "count_population_reward": 0.0,
-                    "count_population_reward_alpha": 1.0,
-                    "count_population_reward_beta": 0.5,
-                    "noop_band_factor": 0.02,
-                    "noop_reward_magnitude": 0.01,
-                },
                 "population_maintenance": {
                     "enabled": True,
                     "target_population": 500,
@@ -378,18 +340,6 @@ def _get_default_config() -> Dict[str, Any]:
                     "kernel_peak_reward": 1.0,
                     "kernel_max_penalty": 0.0,
                     "kernel_zero_distance": 100.0,
-                },
-                "dose": {
-                    "w_pop": 1.0,
-                    "w_genome": 0.5,
-                    "w_cost": 0.05,
-                    "missing_feedback_penalty": 0.5,
-                },
-                "budget": {
-                    "budget_init": 100.0,
-                    "budget_norm": 100.0,
-                    "budget_penalty": 10.0,
-                    "unaffordable_action_penalty": 0.0,
                 },
                 "survival_bonus": {
                     "enabled": True,
@@ -419,17 +369,19 @@ def _get_default_config() -> Dict[str, Any]:
                     "penalty_blind_dose_amount_exponent": 1.0,
                     "penalty_blind_dose_max": None,
                 },
-                "regular_monitoring": {
-                    "count_reward": 0.0,
-                    "count_interval": 15,
-                    "count_min_interval": 3,
-                    "safe_nondosing_reward": 0.0,
+                "counting": {
+                    "informative_count_reward": 1.0,
+                },
+                "noop": {
+                    "strategic_noop_reward": 0.5,
                 },
                 "critical_penalties": {
                     "penalty_critical_no_dose": 5.0,
                     "penalty_critical_no_count": 2.0,
                 },
                 "sequencing": {
+                    "seq_already_pending_penalty": 2.0,
+                    "informative_seq_reward": 1.0,
                     "redundant_penalty": 0.001,
                 },
                 "prediction": {
@@ -522,7 +474,6 @@ def _validate_config(config: Dict[str, Any]) -> None:
     ppo = config.get("ppo", {})
     training = config.get("training", {})
     rewards = env.get("rewards", {})
-    population_cfg = rewards.get("population", {})
     env_population_cfg = env.get("population", {})
     population_maintenance_cfg = rewards.get("population_maintenance", None)
     
@@ -556,6 +507,31 @@ def _validate_config(config: Dict[str, Any]) -> None:
             raise ValueError("initial_bacteria_per_type_range values must be positive")
         if spawn_min > spawn_max:
             raise ValueError("initial_bacteria_per_type_range min must be <= max")
+
+    if not env_population_cfg:
+        raise ValueError("environment.population section is required")
+    try:
+        target_population = float(env_population_cfg.get("target_population", 0.0))
+        population_norm = float(env_population_cfg.get("population_norm", 0.0))
+    except (TypeError, ValueError):
+        raise ValueError("environment.population target_population and population_norm must be numeric")
+    if target_population <= 0:
+        raise ValueError("environment.population.target_population must be > 0")
+    if population_norm <= 0:
+        raise ValueError("environment.population.population_norm must be > 0")
+
+    env_budget_cfg = env.get("budget", {})
+    if not env_budget_cfg:
+        raise ValueError("environment.budget section is required")
+    try:
+        budget_init = float(env_budget_cfg.get("budget_init", 0.0))
+        budget_norm = float(env_budget_cfg.get("budget_norm", 0.0))
+    except (TypeError, ValueError):
+        raise ValueError("environment.budget budget_init and budget_norm must be numeric")
+    if budget_init <= 0:
+        raise ValueError("environment.budget.budget_init must be > 0")
+    if budget_norm <= 0:
+        raise ValueError("environment.budget.budget_norm must be > 0")
 
     early_term_cfg = rewards.get("early_termination", {})
     base_penalty = early_term_cfg.get("penalty", 0.0)
@@ -629,18 +605,6 @@ def _validate_config(config: Dict[str, Any]) -> None:
     blind_max = informed_cfg.get("penalty_blind_dose_max", None)
     if blind_max is not None and blind_max < blind_base:
         raise ValueError("informed_dosing.penalty_blind_dose_max must be >= base penalty")
-    alpha = population_cfg.get("count_population_reward_alpha", 1.0)
-    beta = population_cfg.get("count_population_reward_beta", 0.5)
-    norm_reward = population_cfg.get(
-        "population_norm_reward",
-        population_cfg.get("target_population", env_population_cfg.get("target_population", 1.0))
-    )
-    if norm_reward <= 0.0:
-        raise ValueError("population.population_norm_reward must be > 0")
-    if alpha <= 0.0:
-        raise ValueError("population.count_population_reward_alpha must be > 0")
-    if not (0.0 <= beta <= 1.0):
-        raise ValueError("population.count_population_reward_beta must be in [0, 1]")
     if population_maintenance_cfg is not None:
         if population_maintenance_cfg.get("target_population", 0) <= 0:
             raise ValueError("population_maintenance.target_population must be > 0")
@@ -946,14 +910,6 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
             return dct
 
     # Create nested reward config dataclasses (filter unknown keys for backward-compat)
-    population_rewards_section = dict(rewards_dict.get("population", {}))
-    env_population_section = env_dict.get("population") or {}
-    for key in ("target_population", "population_norm"):
-        if key in env_population_section:
-            population_rewards_section[key] = env_population_section[key]
-    population_reward_cfg = PopulationRewardConfig(
-        **_filter_keys_for(PopulationRewardConfig, population_rewards_section)
-    )
     population_maintenance_cfg = None
     if "population_maintenance" in rewards_dict and rewards_dict["population_maintenance"] is not None:
         population_maintenance_section = dict(rewards_dict["population_maintenance"])
@@ -967,22 +923,19 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
             and raw_pop_maintenance_section.get("target_population") is not None
         )
         if not user_defined_pop_maint_target:
-            population_maintenance_section["target_population"] = population_reward_cfg.target_population
+            env_population_section = env_dict.get("population") or {}
+            population_maintenance_section["target_population"] = env_population_section.get("target_population")
         population_maintenance_cfg = PopulationMaintenanceConfig(
             **_filter_keys_for(PopulationMaintenanceConfig, population_maintenance_section)
         )
-    dose_reward_cfg = DoseRewardConfig(**_filter_keys_for(DoseRewardConfig, rewards_dict["dose"]))
-    budget_rewards_section = dict(rewards_dict.get("budget", {}))
-    env_budget_section = env_dict.get("budget") or {}
-    for key in ("budget_init", "budget_norm"):
-        if key in env_budget_section:
-            budget_rewards_section[key] = env_budget_section[key]
-    budget_cfg = BudgetConfig(
-        **_filter_keys_for(BudgetConfig, budget_rewards_section)
-    )
     survival_bonus_cfg = SurvivalBonusConfig(**_filter_keys_for(SurvivalBonusConfig, rewards_dict["survival_bonus"]))
     informed_dosing_cfg = InformedDosingConfig(**_filter_keys_for(InformedDosingConfig, rewards_dict["informed_dosing"]))
-    regular_monitoring_cfg = RegularMonitoringConfig(**_filter_keys_for(RegularMonitoringConfig, rewards_dict["regular_monitoring"]))
+    counting_cfg = CountingRewardSimpleConfig(
+        **_filter_keys_for(CountingRewardSimpleConfig, rewards_dict.get("counting", {}))
+    )
+    noop_cfg = NoopRewardSimpleConfig(
+        **_filter_keys_for(NoopRewardSimpleConfig, rewards_dict.get("noop", {}))
+    )
     critical_penalties_section = rewards_dict.get("critical_penalties")
     if critical_penalties_section is not None:
         critical_penalties_cfg = CriticalPenaltiesConfig(
@@ -995,32 +948,17 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
     early_termination_cfg = EarlyTerminationConfig(**_filter_keys_for(EarlyTerminationConfig, rewards_dict["early_termination"]))
     
     reward_cfg = RewardConfig(
-        population=population_reward_cfg,
         population_maintenance=population_maintenance_cfg,
-        dose=dose_reward_cfg,
-        budget=budget_cfg,
         survival_bonus=survival_bonus_cfg,
         informed_dosing=informed_dosing_cfg,
-        regular_monitoring=regular_monitoring_cfg,
+        counting=counting_cfg,
+        noop=noop_cfg,
         critical_penalties=critical_penalties_cfg,
         sequencing=sequencing_cfg,
         prediction=prediction_cfg,
         early_termination=early_termination_cfg,
     )
 
-    # Optional environment-level overrides for commonly tweaked scalars
-    population_override_cfg = env_dict.get("population") or {}
-    if "target_population" in population_override_cfg:
-        reward_cfg.population.target_population = float(population_override_cfg["target_population"])
-    if "population_norm" in population_override_cfg:
-        reward_cfg.population.population_norm = float(population_override_cfg["population_norm"])
-
-    budget_override_cfg = env_dict.get("budget") or {}
-    if "budget_init" in budget_override_cfg:
-        reward_cfg.budget.budget_init = float(budget_override_cfg["budget_init"])
-    if "budget_norm" in budget_override_cfg:
-        reward_cfg.budget.budget_norm = float(budget_override_cfg["budget_norm"])
-    
     spawn_range_cfg = env_dict.get("initial_bacteria_per_type_range")
     parsed_spawn_range: Optional[Tuple[int, int]] = None
     if spawn_range_cfg is not None:
@@ -1055,10 +993,13 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         )
     )
 
-    population_target_value = float(reward_cfg.population.target_population)
-    population_norm_value = float(reward_cfg.population.population_norm)
-    budget_init_value = float(reward_cfg.budget.budget_init)
-    budget_norm_value = float(reward_cfg.budget.budget_norm)
+    env_population_section = env_dict.get("population") or {}
+    population_target_value = float(env_population_section.get("target_population"))
+    population_norm_value = float(env_population_section.get("population_norm"))
+
+    env_budget_section = env_dict.get("budget") or {}
+    budget_init_value = float(env_budget_section.get("budget_init"))
+    budget_norm_value = float(env_budget_section.get("budget_norm"))
 
     timing_section = env_dict.get("timing")
     timing_cfg: Optional[TimingConfig] = None
@@ -1148,26 +1089,10 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
         raise RuntimeError("PyYAML is required to save configs. Install with: pip install pyyaml")
     
     if isinstance(config, CompleteConfig):
-        population_target = (
-            config.environment.population_target
-            if config.environment.population_target is not None
-            else config.environment.rewards.population.target_population
-        )
-        population_norm = (
-            config.environment.population_norm
-            if config.environment.population_norm is not None
-            else config.environment.rewards.population.population_norm
-        )
-        budget_init = (
-            config.environment.budget_init
-            if config.environment.budget_init is not None
-            else config.environment.rewards.budget.budget_init
-        )
-        budget_norm = (
-            config.environment.budget_norm
-            if config.environment.budget_norm is not None
-            else config.environment.rewards.budget.budget_norm
-        )
+        population_target = config.environment.population_target
+        population_norm = config.environment.population_norm
+        budget_init = config.environment.budget_init
+        budget_norm = config.environment.budget_norm
 
         # Convert dataclasses to dicts
         config_dict = {
@@ -1210,11 +1135,6 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                     "budget_norm": budget_norm,
                 },
                 "rewards": {
-                    "population": {
-                        k: v
-                        for k, v in config.environment.rewards.population.__dict__.items()
-                        if k not in {"target_population", "population_norm"}
-                    },
                     "population_maintenance": (
                         {
                             k: v
@@ -1223,22 +1143,17 @@ def save_config(config: Union[CompleteConfig, Dict[str, Any]], output_path: Unio
                         if config.environment.rewards.population_maintenance is not None
                         else None
                     ),
-                    "dose": {
-                        k: v for k, v in config.environment.rewards.dose.__dict__.items()
-                    },
-                    "budget": {
-                        k: v
-                        for k, v in config.environment.rewards.budget.__dict__.items()
-                        if k not in {"budget_init", "budget_norm"}
-                    },
                     "survival_bonus": {
                         k: v for k, v in config.environment.rewards.survival_bonus.__dict__.items()
                     },
                     "informed_dosing": {
                         k: v for k, v in config.environment.rewards.informed_dosing.__dict__.items()
                     },
-                    "regular_monitoring": {
-                        k: v for k, v in config.environment.rewards.regular_monitoring.__dict__.items()
+                    "counting": {
+                        k: v for k, v in config.environment.rewards.counting.__dict__.items()
+                    },
+                    "noop": {
+                        k: v for k, v in config.environment.rewards.noop.__dict__.items()
                     },
                     "critical_penalties": (
                         {

@@ -74,6 +74,10 @@ class PopulationReward(nn.Module):
         self.target_population = float(target_population)
         self.population_norm = float(population_norm)
         self.age_normalizer = AgeNormalizer(aging_type)
+        print(
+            f"[env] PopulationReward initialized: target={self.target_population}, "
+            f"norm={self.population_norm}, aging={self.age_normalizer.norm_type}"
+        )
 
     def forward(
         self,
@@ -123,6 +127,10 @@ class GenomeReward(nn.Module):
         self.device = device
         self.dtype = dtype
         self.age_normalizer = AgeNormalizer(aging_type)
+        print(
+            f"[env] GenomeReward initialized: device={self.device}, dtype={self.dtype}, "
+            f"aging={self.age_normalizer.norm_type}"
+        )
 
     def forward(
         self,
@@ -195,6 +203,7 @@ class CostReward(nn.Module):
     def __init__(self, dose_cost_per_unit: float = 0.2):
         super(CostReward, self).__init__()
         self.dose_cost_per_unit = float(dose_cost_per_unit)
+        print(f"[env] CostReward initialized: dose_cost_per_unit={self.dose_cost_per_unit}")
 
     def dose_cost(self, dose_vector: Union[np.ndarray, torch.Tensor]) -> float:
         """
@@ -253,6 +262,10 @@ class SurvivalBonusReward(nn.Module):
         
         if scaling_type not in ["constant", "linear", "exponential"]:
             raise ValueError(f"Unknown scaling type: {scaling_type}")
+        print(
+            f"[env] SurvivalBonusReward initialized: base={self.base_bonus}, "
+            f"scaling={self.scaling_type}, factor={self.scaling_factor}, max={self.max_bonus}"
+        )
 
     def forward(self, timestep: int) -> float:
         """
@@ -306,6 +319,11 @@ class BudgetConservationReward(nn.Module):
         self.spending_penalty_factor = float(spending_penalty_factor)
         self.reserve_bonus_threshold = float(reserve_bonus_threshold)
         self.reserve_bonus_magnitude = float(reserve_bonus_magnitude)
+        print(
+            f"[env] BudgetConservationReward initialized: weight={self.weight}, "
+            f"spending_penalty={self.spending_penalty_factor}, reserve_threshold={self.reserve_bonus_threshold}, "
+            f"reserve_bonus={self.reserve_bonus_magnitude}"
+        )
 
     def forward(
         self,
@@ -397,6 +415,11 @@ class KernelPopulationMaintenanceReward(nn.Module):
             raise ValueError("max_penalty (M) must be >= 0")
         if (self.peak_reward + self.max_penalty) <= self.max_penalty:
             raise ValueError("peak_reward (R) must be > 0")
+        print(
+            "[env] KernelPopulationMaintenanceReward initialized: "
+            f"target={self.target_population}, kernel={self.kernel_type}, R={self.peak_reward}, "
+            f"M={self.max_penalty}, zero_distance={self.zero_distance}"
+        )
     
     def forward(self, population: Union[int, float]) -> float:
         """
@@ -489,6 +512,18 @@ class InformedDosingReward(nn.Module):
             else None
         )
         self.last_breakdown: Dict[str, Any] = {}
+        print(
+            "[env] InformedDosingReward initialized: "
+            f"penalty_under={self.penalty_dosing_under_target}, under_dose_scale={self.penalty_dosing_under_target_dose_scale}, "
+            f"under_dose_exp={self.penalty_dosing_under_target_dose_exponent}, under_deficit_scale={self.penalty_dosing_under_target_deficit_scale}, "
+            f"under_deficit_cap={self.penalty_dosing_under_target_deficit_cap}, under_max={self.penalty_dosing_under_target_max}"
+        )
+        print(
+            "[env]   Informed reward terms: "
+            f"reward_above_seq={self.reward_dosing_above_with_seq}, reward_above_no_seq={self.reward_dosing_above_no_seq}, "
+            f"blind_penalty={self.penalty_blind_dose}, blind_amount_scale={self.penalty_blind_dose_amount_scale}, "
+            f"blind_amount_exp={self.penalty_blind_dose_amount_exponent}, blind_max={self.penalty_blind_dose_max}"
+        )
 
     @staticmethod
     def _total_dose(dose_amounts: Optional[Union[np.ndarray, torch.Tensor]]) -> float:
@@ -609,6 +644,10 @@ class SequencingReward(nn.Module):
         super(SequencingReward, self).__init__()
         self.seq_already_pending_penalty = float(seq_already_pending_penalty)
         self.informative_seq_reward = float(informative_seq_reward)
+        print(
+            f"[env] SequencingReward initialized: pending_penalty={self.seq_already_pending_penalty}, "
+            f"informative_reward={self.informative_seq_reward}"
+        )
     
     def forward(
         self,
@@ -658,6 +697,9 @@ class CountReward(nn.Module):
         """
         super(CountReward, self).__init__()
         self.informative_count_reward = float(informative_count_reward)
+        print(
+            f"[env] CountReward initialized: informative_reward={self.informative_count_reward}"
+        )
     
     def forward(
         self,
@@ -702,6 +744,9 @@ class StrategicNoopReward(nn.Module):
         """
         super(StrategicNoopReward, self).__init__()
         self.strategic_noop_reward = float(strategic_noop_reward)
+        print(
+            f"[env] StrategicNoopReward initialized: reward={self.strategic_noop_reward}"
+        )
     
     def forward(
         self,
@@ -742,6 +787,9 @@ class CriticalNoDosePenalty(nn.Module):
         """
         super(CriticalNoDosePenalty, self).__init__()
         self.penalty_critical_no_dose = float(penalty_critical_no_dose)
+        print(
+            f"[env] CriticalNoDosePenalty initialized: penalty={self.penalty_critical_no_dose}"
+        )
     
     def forward(
         self,
@@ -787,6 +835,9 @@ class CriticalNoCountPenalty(nn.Module):
         """
         super(CriticalNoCountPenalty, self).__init__()
         self.penalty_critical_no_count = float(penalty_critical_no_count)
+        print(
+            f"[env] CriticalNoCountPenalty initialized: penalty={self.penalty_critical_no_count}"
+        )
     
     def forward(
         self,
@@ -824,6 +875,9 @@ class ExtinctionPenalty(nn.Module):
         """
         super(ExtinctionPenalty, self).__init__()
         self.big_penalty = float(big_penalty)
+        print(
+            f"[env] ExtinctionPenalty initialized: penalty={self.big_penalty}"
+        )
     
     def forward(self, population: Union[int, float]) -> float:
         """

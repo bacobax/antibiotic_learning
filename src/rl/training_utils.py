@@ -161,6 +161,8 @@ def rollout(
     current_episode_reward = 0.0
     current_episode_length = 0
     dose_action_count = 0  # Track number of DOSE actions
+    total_dose_amount = 0.0
+    total_dose_events = 0
     sequencing_action_count = 0  # Track number of SEQUENCING actions
     count_action_count = 0  # Track number of COUNT actions
     noop_action_count = 0  # Track number of NOOP actions
@@ -209,6 +211,9 @@ def rollout(
         # Track dose actions
         if pure_a_disc == ACTION_DOSE:
             dose_action_count += 1
+            dose_amount = float(np.sum(pure_a_cont))
+            total_dose_amount += dose_amount
+            total_dose_events += 1
         if pure_a_disc == ACTION_SEQUENCING:
             sequencing_action_count += 1
         if pure_a_disc == ACTION_COUNT_BACTERIA:
@@ -342,6 +347,8 @@ def rollout(
     mean_pred_error = float(np.mean(episode_pred_error)) if episode_pred_error else 0.0
     print(f"PREDICTION REWARD (AVG): {mean_pred_reward:.4f} | ERROR: {mean_pred_error:.4f}")
     
+    avg_dose_amount = (total_dose_amount / total_dose_events) if total_dose_events > 0 else 0.0
+
     metrics = {
         "mean_episode_reward": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
         "std_episode_reward": float(np.std(episode_rewards)) if episode_rewards else 0.0,
@@ -358,6 +365,7 @@ def rollout(
         "count_action_percentage": float(count_action_percentage),
         "sequencing_action_percentage": float(sequencing_action_percentage),
         "noop_action_percentage": float(noop_action_percentage),
+        "dose/avg_amount_per_event": float(avg_dose_amount),
         # Budget metrics
         "mean_budget_spent": float(np.mean(episode_budgets_spent)) if episode_budgets_spent else 0.0,
         "mean_budget_remaining": float(np.mean(episode_budgets_remaining)) if episode_budgets_remaining else 0.0,
@@ -650,26 +658,26 @@ def _setup_logger_and_log_startup(
     
     # Extract rewards config for cleaner access
     rewards = config.environment.rewards
-    
-    env_population_target = (
+
+    env_population_target = float(
         config.environment.population_target
         if config.environment.population_target is not None
-        else rewards.population.target_population
+        else 0.0
     )
-    env_population_norm = (
+    env_population_norm = float(
         config.environment.population_norm
         if config.environment.population_norm is not None
-        else rewards.population.population_norm
+        else 0.0
     )
-    env_budget_init = (
+    env_budget_init = float(
         config.environment.budget_init
         if config.environment.budget_init is not None
-        else rewards.budget.budget_init
+        else 0.0
     )
-    env_budget_norm = (
+    env_budget_norm = float(
         config.environment.budget_norm
         if config.environment.budget_norm is not None
-        else rewards.budget.budget_norm
+        else 0.0
     )
 
     logger.log_info(f"Environment Settings:")
@@ -783,6 +791,26 @@ def _create_environment(
     
     # Extract reward configs for cleaner access
     rewards = config.environment.rewards
+    env_population_target = float(
+        config.environment.population_target
+        if config.environment.population_target is not None
+        else 0.0
+    )
+    env_population_norm = float(
+        config.environment.population_norm
+        if config.environment.population_norm is not None
+        else 0.0
+    )
+    env_budget_init = float(
+        config.environment.budget_init
+        if config.environment.budget_init is not None
+        else 0.0
+    )
+    env_budget_norm = float(
+        config.environment.budget_norm
+        if config.environment.budget_norm is not None
+        else 0.0
+    )
     
     # Map old config structure to new parameter names
     # If using new config format (with 'timing' and new reward structure), use those
@@ -805,11 +833,12 @@ def _create_environment(
         t_seq_freshness = 8
         max_count_window = 30
         critical_ratio = 3.0
-        t_min_elapsed_time_count = getattr(rewards.regular_monitoring, 'count_min_interval', 5)
-        t_max_elapsed_time_count = getattr(rewards.regular_monitoring, 'count_interval', 30)
+        t_min_elapsed_time_count = 5
+        t_max_elapsed_time_count = 30
         t_min_elapsed_time_seq = 8
         t_max_elapsed_time_seq = 50
     
+
     # Extract reward scalars (new format)
     informed_dosing = getattr(rewards, 'informed_dosing', None)
     if hasattr(informed_dosing, 'penalty_dosing_under_target'):
@@ -891,7 +920,7 @@ def _create_environment(
     pop_maintenance = getattr(rewards, 'population_maintenance', None)
     if pop_maintenance is None:
         kernel_maintenance_enabled = True
-        target_population = rewards.population.target_population
+        target_population = env_population_target
         kernel_type = "gaussian"
         kernel_peak_reward = 1.0
         kernel_max_penalty = 0.0
@@ -915,9 +944,6 @@ def _create_environment(
     # Early termination
     early_term_cfg = rewards.early_termination
     
-    # Budget config
-    budget_cfg = rewards.budget
-    
     logger.log_info("Informed dosing configuration:")
     logger.log_info(f"  - Under-target base penalty: {penalty_informed_dosing_under}")
     logger.log_info(
@@ -937,6 +963,20 @@ def _create_environment(
         f"{penalty_blind_dose_amount_exponent}"
     )
     logger.log_info(f"    · Blind max penalty: {penalty_blind_dose_max}")
+
+    logger.log_info("Sequencing reward configuration:")
+    logger.log_info(f"  - Pending penalty: {seq_already_pending_penalty}")
+    logger.log_info(f"  - Informative reward: {informative_seq_reward}")
+
+    logger.log_info("Counting reward configuration:")
+    logger.log_info(f"  - Informative count reward: {informative_count_reward}")
+
+    logger.log_info("Strategic NOOP reward:")
+    logger.log_info(f"  - Reward value: {strategic_noop_reward}")
+
+    logger.log_info("Critical penalty configuration:")
+    logger.log_info(f"  - No-dose penalty: {penalty_critical_no_dose}")
+    logger.log_info(f"  - No-count penalty: {penalty_critical_no_count}")
 
     spawn_range = config.environment.initial_bacteria_per_type_range
     if spawn_range is not None:
@@ -1050,9 +1090,9 @@ def _create_environment(
         
         # Environment parameters
         target_population=target_population,
-        population_norm=rewards.population.population_norm,
-        budget_init=budget_cfg.budget_init,
-        budget_norm=budget_cfg.budget_norm,
+        population_norm=env_population_norm,
+        budget_init=env_budget_init,
+        budget_norm=env_budget_norm,
         initial_bacteria_per_type_range=spawn_range,
         initial_skip_steps=config.environment.warmup_skip_steps,
         max_recent_dose_events=config.environment.max_recent_dose_events,
