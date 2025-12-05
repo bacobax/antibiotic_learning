@@ -19,9 +19,9 @@ class BacterialControlAgent:
     It observes only the total population count and cannot see hidden states like persistors.
     """
     
-    def __init__(self, target_population, log_path="checkpoints/prog_agent_logs/agent_log.jsonl", 
+    def __init__(self, target_population, log_path="src/prog_agent/prog_agent_logs/agent_log.jsonl", 
                  kp=0.005, dose_cooldown=20, sequence_delay=10, tolerance=0.15,
-                 initial_budget=100.0, noop_cost=0.0, count_cost=0.5, sequence_cost=2.5,
+                 initial_budget=1000.0, noop_cost=0.0, count_cost=0.5, sequence_cost=2.5,
                  dose_cost=2.0, dose_cost_per_unit=2.0):
         """
         Initialize the agent.

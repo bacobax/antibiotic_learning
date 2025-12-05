@@ -19,8 +19,17 @@ from prog_agent.agent import BacterialControlAgent
 from prog_agent.simulator import ProgrammaticAgentSimulator
 from simulation.model import BacteriaModel
 from simulation.simulation_config import ANTIBIOTIC_TYPES
+# Optional live visualization
+try:
+    from simulation.visualization import SimulationVisualizer
+except Exception:
+    SimulationVisualizer = None  # type: ignore
+try:
+    from PyQt5 import QtWidgets
+except Exception:
+    QtWidgets = None  # type: ignore
 
-DEFAULT_LOG_PATH = Path("prog_agent/prog_agent_logs/agent_log.jsonl")
+DEFAULT_LOG_PATH = Path("src/prog_agent/prog_agent_logs/agent_log.jsonl")
 ANTIBIOTIC_CHOICES = ["auto"] + sorted(ANTIBIOTIC_TYPES.keys())
 
 
@@ -37,7 +46,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--target-population",
         type=int,
-        default=180,
+        default=200,
         help="Desired steady-state population size",
     )
     parser.add_argument(
@@ -62,7 +71,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--initial-budget",
         type=float,
-        default=100.0,
+        default=1000.0,
         help="Starting action budget (matches RL environment default of 100)",
     )
     parser.add_argument(
@@ -159,6 +168,20 @@ def _parse_args() -> argparse.Namespace:
         default=100,
         help="History length to keep when tracking individuals is enabled",
     )
+    show_group = parser.add_mutually_exclusive_group()
+    show_group.add_argument(
+        "--show",
+        dest="show",
+        action="store_true",
+        help="Enable live simulation plot",
+    )
+    show_group.add_argument(
+        "--no-show",
+        dest="show",
+        action="store_false",
+        help="Disable live simulation plot",
+    )
+    parser.set_defaults(show=False)
     return parser.parse_args()
 
 
@@ -236,8 +259,47 @@ def main() -> None:
         log_interval=args.log_interval,
         verbose=not args.quiet,
     )
-
-    simulator.run(args.steps)
+    
+    # Optional live visualization: run step-by-step and refresh plot
+    if args.show and SimulationVisualizer is not None:
+        viz = SimulationVisualizer(model, on_click_callback=lambda _bid: None)
+        # Create a simple PyQt window to display the figure if PyQt is available
+        app = None
+        window = None
+        canvas = None
+        if QtWidgets is not None:
+            try:
+                app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+                window = QtWidgets.QWidget()
+                window.setWindowTitle("Simulation Viewer")
+                layout = QtWidgets.QVBoxLayout(window)
+                from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+                canvas = FigureCanvas(viz.fig)
+                layout.addWidget(canvas)
+                window.resize(1200, 700)
+                window.show()
+            except Exception as exc:
+                print(f"[Viz] Failed to initialize PyQt window: {exc}")
+        for _ in range(args.steps):
+            try:
+                # Prefer a single-step API if available
+                if hasattr(simulator, "step"):
+                    simulator.step()
+                else:
+                    # Fallback to full run in chunks of 1 step
+                    simulator.run(1)
+            except Exception as exc:
+                print(f"[Simulator] Step failed: {exc}")
+                break
+            try:
+                viz.update_main_plot()
+                viz.draw()
+                if app is not None:
+                    app.processEvents()
+            except Exception as exc:
+                print(f"[Viz] Update failed: {exc}")
+    else:
+        simulator.run(args.steps)
     summary = simulator.get_summary()
     summary["log_path"] = agent.log_path
 
