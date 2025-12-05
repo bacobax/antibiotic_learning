@@ -4,7 +4,7 @@
 environment:
   max_steps: 384
   k_doses: 3
-  device: "mps"
+  device: "cuda"
   dtype: "float32"
   initial_bacteria_per_type_range: [30, 90]
   warmup_skip_steps: 10
@@ -47,7 +47,7 @@ environment:
       penalty_dosing_under_target_deficit_scale: 3.0 # Extra penalty per deficit fraction
       penalty_dosing_under_target_deficit_cap: 1.8   # Multiplier/cap for normalized deficit term
       penalty_dosing_under_target_max: null    # Hard ceiling for under-target penalty (null = disabled)
-      reward_dosing_above_with_seq: 1.0       # Reward for dosing above target with seq
+      reward_dosing_above_with_seq: 2.0       # Reward for dosing above target with seq
       reward_dosing_above_no_seq: 1.0         # Reward for dosing above target without seq
       penalty_blind_dose: 10.0                # Base penalty for dosing without fresh count
       penalty_blind_dose_amount_scale: 1.5    # Scales blind penalty with antibiotic amount
@@ -55,7 +55,7 @@ environment:
       penalty_blind_dose_max: null            # Hard ceiling for blind penalty (null = disabled)
     sequencing:
       seq_already_pending_penalty: 0.0        # Penalty for redundant sequencing
-      informative_seq_reward: 0.0             # Reward for informative sequencing
+      informative_seq_reward: 1.0             # Reward for informative sequencing
     counting:
       informative_count_reward: 2.0           # Reward for informative counting
       cost_penalty: 0.15
@@ -88,8 +88,8 @@ environment:
       penalty: 10.0                           # Penalty applied on early termination
       min_penalty: 2.0                       # Penalty when terminating near horizon
       penalty_decay_power: 1.2                # Decay rate exponent
-      population_low_threshold: 0.0           # Terminate if pop < target × this
-      population_threshold: 5               # Unrecoverable if pop > target × this
+      population_low_threshold: 0.1           # Terminate if pop < target × this
+      population_threshold: 6               # Unrecoverable if pop > target × this
       extinction_penalty: 15.0                # Additional penalty for extinction
       require_budget_depleted: false          # If true, also require budget == 0
   budget:
@@ -131,7 +131,8 @@ model:
   n_discrete: 4
   dose_action_index: 3
   k_doses: 3
-  sigmoid_scale_factor: 0.5
+  sigmoid_scale_factor: 0.2
+  override_sigmoid_scale_factor_from_checkpoint: true  # If true, use yaml value instead of checkpoint value
 
 # PPO hyperparameters
 ppo:
@@ -149,12 +150,12 @@ ppo:
 
 # Training configuration
 training:
-  total_updates: 550
+  total_updates: 500
   seed: 42
-  checkpoint_interval: 25
+  checkpoint_interval: 100
   log_interval: 2
   save_dir: "./checkpoints"
-  experiment_name: "gaussian"
+  experiment_name: "new_expression_computation"
   save_checkpoints_per_run: true
   log_window_size: 200            # Rolling window for in-memory training metrics
   log_memory: true                # Enable periodic RSS/CUDA memory telemetry

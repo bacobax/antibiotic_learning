@@ -125,6 +125,7 @@ model:
   dose_action_index: 3
   k_doses: 3
   sigmoid_scale_factor: 1.0
+  override_sigmoid_scale_factor_from_checkpoint: false  # If true, use yaml value instead of checkpoint value
 
 # PPO hyperparameters
 ppo:

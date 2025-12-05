@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional, Union
 import torch
 import torch.nn as nn
 import numpy as np
-from simulation.simulation_config import TOX_TIMES_DOSE_MAX, antibiotic_resistances
+from simulation.simulation_config import TOX_TIMES_DOSE_MAX
 
 
 class AgeNormalizer(nn.Module):
@@ -104,84 +104,6 @@ class PopulationReward(nn.Module):
         pop_term_tensor = torch.clamp(pop_term_tensor, min=-1.0, max=1.0)
         
         return float(pop_term_tensor.item())
-
-
-class GenomeReward(nn.Module):
-    """
-    Computes reward based on antibiotic efficacy against current population.
-    
-    Evaluates effectiveness of applied doses against observed population genome.
-    Combines resistance and toxicity metrics to guide dose selection.
-    """
-    def __init__(
-        self,
-        device: str = "cpu",
-        dtype: torch.dtype = torch.float32,
-        aging_type: str = "sqrt",
-    ):
-        super(GenomeReward, self).__init__()
-        self.device = device
-        self.dtype = dtype
-        self.age_normalizer = AgeNormalizer(aging_type)
-
-    def forward(
-        self,
-        avg_genome: Optional[torch.Tensor],
-        doses: torch.Tensor,
-        age: Union[int, float],
-    ) -> float:
-        """
-        Args:
-            avg_genome: Average genome matrix [K, M] or None if no sequencing data
-            doses: Applied dose vector [A] (tensor or numpy array)
-            age: Age of sequencing measurement in timesteps
-            
-        Returns:
-            Genome-based efficacy reward as Python float
-        """
-        # No sequencing data → neutral
-        if avg_genome is None:
-            return 0.0
-        
-        # Ensure tensors are on correct device/dtype
-        if isinstance(avg_genome, np.ndarray):
-            avg_genome = torch.from_numpy(avg_genome).to(self.device).to(self.dtype)
-        else:
-            avg_genome = avg_genome.to(self.device).to(self.dtype)
-        
-        if isinstance(doses, np.ndarray):
-            doses = torch.from_numpy(doses).to(self.device).to(self.dtype)
-        else:
-            doses = doses.to(self.device).to(self.dtype)
-        
-        # Compute resistances and toxicities
-        resistances, toxicities, _ = antibiotic_resistances(
-            avg_genome, device=self.device, dtype=self.dtype
-        )
-        
-        # Verify shapes
-        if doses.shape[0] != toxicities.shape[0]:
-            raise ValueError(
-                f"dose_vector ({doses.shape[0]}) must match #antibiotics ({toxicities.shape[0]})"
-            )
-        
-        # Compute reward: negative of (aggressiveness × susceptibility)
-        # Lower values encourage using susceptible populations with appropriate toxicity
-        aggressiveness = doses * toxicities  # [A]
-        avg_resistance_by_ab = resistances.mean(dim=0)  # [K, A] -> [A]
-        avg_susceptibility = 1.0 - avg_resistance_by_ab  # [A]
-        
-        # Reward is negative to penalize high toxicity × aggressiveness
-        reward_vec = -1.0 * ((aggressiveness * avg_susceptibility) / TOX_TIMES_DOSE_MAX)  # [A]
-        genome_term = torch.mean(reward_vec)  # scalar tensor
-        
-        # Apply age-based decay (older sequencing data is less valuable)
-        genome_term = self.age_normalizer(genome_term, age)
-        
-        # Clip to valid range
-        genome_term = torch.clamp(genome_term, min=-1.0, max=1.0)
-        
-        return float(genome_term.item())
 
 
 class CostReward(nn.Module):

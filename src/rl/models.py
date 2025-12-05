@@ -10,8 +10,67 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical, Normal
+from simulation.simulation_config import N_TRAITS, N_BACTERIA_TYPES, ANTIBIOTIC_TYPES, TRAIT_KEYS
 
-
+def antibiotic_vulnerabilities(expression, dtype, device) -> torch.Tensor:
+    """
+    Compute antibiotic vulnerabilities from bacterial expression profiles.
+    
+    Args:
+        expression: Tensor of shape [B, K*M] where B is batch size, K is bacteria types, M is traits
+                   or shape [K*M] for single sample (will be reshaped)
+        dtype: Data type for tensors
+        device: Device for tensors
+    
+    Returns:
+        vulnerability: Tensor of shape [B, A] where B is batch size, A is number of antibiotics
+                      or shape [A] if input was 1D
+    """
+    input_shape = expression.shape
+    is_batched = len(input_shape) > 1
+    
+    if is_batched:
+        # Batch mode: [B, K*M]
+        B = input_shape[0]
+        # Reshape to [B, K, M]
+        expression_reshaped = expression.reshape(B, N_BACTERIA_TYPES, N_TRAITS)
+    else:
+        # Single sample: [K*M]
+        expression_reshaped = expression.reshape(N_BACTERIA_TYPES, N_TRAITS)
+        expression_reshaped = expression_reshaped.unsqueeze(0)  # Add batch dimension: [1, K, M]
+        B = 1
+    
+    # Clamp for safety
+    expression_reshaped = torch.clamp(expression_reshaped, 0.0, 1.0)  # [B, K, M]
+    
+    # Build weight matrix W from antibiotic types
+    ab_names = list(ANTIBIOTIC_TYPES.keys())  # [A]
+    W_rows = []
+    tox_list = []
+    for name in ab_names:
+        ab = ANTIBIOTIC_TYPES[name]
+        w = torch.tensor([ab[k] for k in TRAIT_KEYS], dtype=dtype, device=device)
+        # normalize so sum=1 to keep dot products in [0,1]
+        w = w / (w.sum() + 1e-8)
+        W_rows.append(w)
+        tox_list.append(ab["toxicity_constant"])
+    W = torch.stack(W_rows, dim=0)  # [A, M]
+    
+    # Compute resistances: [B, K, M] @ [M, A] -> [B, K, A]
+    resistances = torch.clamp(expression_reshaped @ W.T, 0.0, 1.0)  # [B, K, A]
+    
+    # Average across bacteria types: [B, K, A] -> [B, A]
+    avg_resistance = torch.mean(resistances, dim=1)  # [B, A]
+    
+    # Compute vulnerabilities
+    toxicities = torch.tensor(tox_list, dtype=dtype, device=device)  # [A]
+    vulnerability = (1 - avg_resistance) * toxicities  # [B, A]
+    
+    # Remove batch dimension if input was unbatched
+    if not is_batched:
+        vulnerability = vulnerability.squeeze(0)  # [A]
+    
+    return vulnerability
 def init_weights_orthogonal(m: nn.Module, gain: float = 1.0) -> None:
     """
     Initialize module weights with orthogonal initialization.
@@ -25,6 +84,41 @@ def init_weights_orthogonal(m: nn.Module, gain: float = 1.0) -> None:
         if m.bias is not None:
             nn.init.constant_(m.bias, 0.0)
 
+
+class ExpressionsPredictor(nn.Module):
+    def __init__(self, bacteria_types, genome_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(bacteria_types * genome_dim + 1, bacteria_types * genome_dim),
+            nn.ReLU(),
+            nn.Linear(bacteria_types * genome_dim, bacteria_types * genome_dim),
+            nn.ReLU(),
+            nn.Linear(bacteria_types * genome_dim, bacteria_types * genome_dim),
+            nn.Tanh(),
+        )
+        self.net.apply(self.init_weights_orthogonal)
+
+    def init_weights_orthogonal(self, m: nn.Module, gain: float = 1.0) -> None:
+        if isinstance(m, nn.Linear):
+            nn.init.orthogonal_(m.weight, gain=gain)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0.0)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        expressions = self.net(x)
+        res = expressions + x[:, : -1]  # Residual connection
+
+        return res
+
+class VulnerabilityPredictor(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.expression_predictor = ExpressionsPredictor(N_BACTERIA_TYPES, N_TRAITS)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        expressions = self.expression_predictor(x)
+        vulnerability = antibiotic_vulnerabilities(expressions, dtype=x.dtype, device=x.device)
+        return vulnerability # [A]
 
 class RecurrentActorCritic(nn.Module):
     """
@@ -60,7 +154,7 @@ class RecurrentActorCritic(nn.Module):
         Initialize Recurrent Actor-Critic.
         
         Args:
-            obs_dim: Observation space dimension
+            obs_dim: Observation space dimension (as built by env, will be adjusted internally)
             n_discrete: Number of discrete actions
             k_doses: Continuous action dimension (number of antibiotic types)
             hidden_dim: Hidden dimension for GRU
@@ -78,19 +172,30 @@ class RecurrentActorCritic(nn.Module):
         self.sigmoid_scale_factor = sigmoid_scale_factor
         self.prev_action_dim = n_discrete + k_doses + 1
         
-        # GRU core
+        # Calculate adjusted input dimension for GRU:
+        # Remove genome slots (N_BACTERIA_TYPES * N_TRAITS) and related observation slots
+        # Removed: genome (N_BACTERIA_TYPES*N_TRAITS) + has_last_seq (1) + last_seq_age_norm (1) + measure_age_norm (1) = N_BACTERIA_TYPES*N_TRAITS+3
+        # Add vulnerability slots (number of antibiotic types)
+        n_antibiotics = len(ANTIBIOTIC_TYPES)
+        self.genome_age_removal = N_BACTERIA_TYPES * N_TRAITS + 3  # Slots to remove
+        self.vuln_dim = n_antibiotics  # Slots to add
+        self.adjusted_obs_dim = obs_dim - self.genome_age_removal + self.vuln_dim
+        
+        # GRU core with adjusted input size
         self.gru = nn.GRU(
-            input_size=self.obs_dim + self.prev_action_dim,
+            input_size=self.adjusted_obs_dim + self.prev_action_dim,
             hidden_size=hidden_dim,
             num_layers=rnn_layers,
             batch_first=False,  # Expect [T, B, obs_dim]
         )
+
+        self.vuln_predictor = VulnerabilityPredictor()
         
         # Discrete action head
         self.discrete_head = nn.Linear(hidden_dim, n_discrete)
         
         # Continuous action head (Gaussian policy with sigmoid scaling)
-        self.continuous_head = nn.Linear(hidden_dim, k_doses)
+        self.continuous_head = nn.Linear(hidden_dim + self.vuln_dim, k_doses)
         self.continuous_log_std = nn.Parameter(torch.zeros(k_doses))
         
         # Value head
@@ -118,8 +223,15 @@ class RecurrentActorCritic(nn.Module):
         """
         Single forward step through the network.
         
+        Modifies observation by:
+        1. Extracting genome and age from obs
+        2. Computing vulnerabilities via vuln_predictor
+        3. Replacing genome and age slots with vulnerabilities
+        4. Feeding modified obs to GRU
+        
         Args:
-            obs: Observations, shape [B, obs_dim]
+            obs: Observations, shape [B, obs_dim] (as built by env)
+            prev_action: Previous action encoding, shape [B, prev_action_dim]
             h_prev: Previous hidden state, shape [layers, B, hidden_dim]
         
         Returns:
@@ -131,8 +243,32 @@ class RecurrentActorCritic(nn.Module):
             features: Latent features for heads, shape [B, hidden_dim]
             h_next: Next hidden state, shape [layers, B, hidden_dim]
         """
-        # Concatenate previous action encoding to observation for GRU input
-        gru_input = torch.cat([obs, prev_action], dim=-1)  # [B, obs_dim + prev_action_dim]
+        # Extract genome and age from observation
+        # Genome is at indices [3:3+N_BACTERIA_TYPES*N_TRAITS]
+        # Age is at index [3+N_BACTERIA_TYPES*N_TRAITS+2]
+        avg_genome = obs[:, 3: 3 + N_BACTERIA_TYPES * N_TRAITS]
+        age = obs[:, 3 + N_BACTERIA_TYPES * N_TRAITS + 2]
+        avg_genome_with_age = torch.cat([avg_genome, age.unsqueeze(-1)], dim=-1)
+
+        # Compute vulnerabilities from genome and age
+        vulnerabilities = self.vuln_predictor(avg_genome_with_age)  # [B, n_antibiotics]
+
+        # Build modified observation tensor:
+        # Keep: obs[:, 0:3] (last_count_norm, has_last_count, last_count_age_norm)
+        # Remove: obs[:, 3:3+N_BACTERIA_TYPES*N_TRAITS+1] (genome + has_last_seq)
+        # Remove: obs[:, 3+N_BACTERIA_TYPES*N_TRAITS+2] (last_seq_age_norm, measure_age_norm already removed)
+        # Add: vulnerabilities at this position
+        # Keep: the rest (dose_features, t_norm)
+        
+        prefix = obs[:, :3]  # [B, 3] - last_count_norm, has_last_count, last_count_age_norm
+        suffix_start = 3 + N_BACTERIA_TYPES * N_TRAITS + 2 + 1  # Start of measure_age_norm
+        suffix = obs[:, suffix_start:]  # [B, remaining] - dose_features, t_norm
+        
+        # Concatenate: prefix + vulnerabilities + suffix
+        obs_modified = torch.cat([prefix, vulnerabilities, suffix], dim=-1)  # [B, adjusted_obs_dim]
+
+        # Concatenate previous action encoding to modified observation for GRU input
+        gru_input = torch.cat([obs_modified, prev_action], dim=-1)  # [B, adjusted_obs_dim + prev_action_dim]
         # gru_input: [B, ...] -> [1, B, ...] for GRU
         obs_seq = gru_input.unsqueeze(0)
         
@@ -147,7 +283,7 @@ class RecurrentActorCritic(nn.Module):
         logits_disc = self.discrete_head(features)  # [B, n_discrete]
         
         # Continuous action distribution (sigmoid-scaled)
-        mu_raw = self.continuous_head(features)  # [B, k_doses]
+        mu_raw = self.continuous_head(torch.cat([features, vulnerabilities], dim=-1))  # [B, k_doses]
         mu = torch.sigmoid(mu_raw) * self.sigmoid_scale_factor  # [B, k_doses] in [0, sigmoid_scale_factor]
         std = torch.exp(self.continuous_log_std).expand_as(mu)  # [B, k_doses]
 
@@ -270,12 +406,13 @@ class RecurrentActorCritic(nn.Module):
         """
         Evaluate log-probs and values for given actions over a sequence.
         
+        Modifies observations by replacing genome and age slots with vulnerabilities.
         Used during PPO update to recompute log-probs for old actions.
         Supports action masking for consistency with act() method.
         
         Args:
-        obs_seq: Observation sequence, shape [T, B, obs_dim]
-        prev_action_seq: Previous action encodings, shape [T, B, n_discrete + k_doses + 1]
+            obs_seq: Observation sequence, shape [T, B, obs_dim] (as built by env)
+            prev_action_seq: Previous action encodings, shape [T, B, n_discrete + k_doses + 1]
             h_init: Initial hidden state, shape [layers, B, hidden_dim]
             a_disc: Discrete actions, shape [T, B]
             a_cont: Continuous doses, shape [T, B, K] (in [0,1])
@@ -293,13 +430,34 @@ class RecurrentActorCritic(nn.Module):
         """
         T, B = obs_seq.shape[:2]
         
-        # Forward through GRU
-        gru_input = torch.cat([obs_seq, prev_action_seq], dim=-1)
+        # Transform observations: replace genome and age with vulnerabilities
+        # Extract genome and age from observation sequence
+        avg_genome_seq = obs_seq[:, :, 3: 3 + N_BACTERIA_TYPES * N_TRAITS]  # [T, B, genome_dim]
+        age_seq = obs_seq[:, :, 3 + N_BACTERIA_TYPES * N_TRAITS + 2]  # [T, B]
+        
+        # Reshape for vulnerability prediction: flatten batch and time dimensions
+        avg_genome_flat = avg_genome_seq.reshape(-1, N_BACTERIA_TYPES * N_TRAITS)  # [T*B, genome_dim]
+        age_flat = age_seq.reshape(-1)  # [T*B]
+        avg_genome_with_age_flat = torch.cat([avg_genome_flat, age_flat.unsqueeze(-1)], dim=-1)  # [T*B, genome_dim+1]
+        
+        # Compute vulnerabilities
+        vulnerabilities_flat = self.vuln_predictor(avg_genome_with_age_flat)  # [T*B, n_antibiotics]
+        vulnerabilities_seq = vulnerabilities_flat.reshape(T, B, -1)  # [T, B, n_antibiotics]
+        
+        # Build modified observation sequence
+        prefix = obs_seq[:, :, :3]  # [T, B, 3]
+        suffix_start = 3 + N_BACTERIA_TYPES * N_TRAITS + 2 + 1
+        suffix = obs_seq[:, :, suffix_start:]  # [T, B, remaining]
+        
+        obs_seq_modified = torch.cat([prefix, vulnerabilities_seq, suffix], dim=-1)  # [T, B, adjusted_obs_dim]
+        
+        # Forward through GRU with modified observations
+        gru_input = torch.cat([obs_seq_modified, prev_action_seq], dim=-1)
         gru_out, _ = self.gru(gru_input, h_init)  # [T, B, hidden_dim]
         
         # Compute heads
         logits_disc = self.discrete_head(gru_out)  # [T, B, n_discrete]
-        mu_raw = self.continuous_head(gru_out)  # [T, B, k_doses]
+        mu_raw = self.continuous_head(torch.cat([gru_out, vulnerabilities_seq], dim=-1))  # [T, B, k_doses]
         mu = torch.sigmoid(mu_raw) * self.sigmoid_scale_factor  # [T, B, k_doses] in [0, sigmoid_scale_factor]
         std = torch.exp(self.continuous_log_std).expand_as(mu)  # [T, B, k_doses]
         value = self.value_head(gru_out).squeeze(-1)  # [T, B]
