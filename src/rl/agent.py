@@ -10,14 +10,32 @@ import pickle
 import sys
 
 class RLAgent:
-    def __init__(self, model: RecurrentActorCritic, device = "cuda", env = None):
+    def __init__(self, model: RecurrentActorCritic, device = "cuda", env = None, h_state=None, prev_action_onehot=None, prev_action_cont=None, prev_pred_next_pop=None):
         self.model = model
         self.device = device
         self.env = env  # Need env reference for action masking
-        self.prev_h_state = model.init_hidden(device=device, batch_size=1)
-        self.prev_action_onehot = torch.zeros(1, model.n_discrete, device=device)
-        self.prev_action_cont = torch.zeros(1, model.k_doses, device=device)
-        self.prev_pred_next_pop = torch.zeros(1, 1, device=device)
+        
+        # Initialize or restore recurrent state
+        if h_state is not None:
+            self.prev_h_state = h_state.to(device)
+        else:
+            self.prev_h_state = model.init_hidden(device=device, batch_size=1)
+        
+        # Initialize or restore action encoding
+        if prev_action_onehot is not None:
+            self.prev_action_onehot = prev_action_onehot.to(device)
+        else:
+            self.prev_action_onehot = torch.zeros(1, model.n_discrete, device=device)
+        
+        if prev_action_cont is not None:
+            self.prev_action_cont = prev_action_cont.to(device)
+        else:
+            self.prev_action_cont = torch.zeros(1, model.k_doses, device=device)
+        
+        if prev_pred_next_pop is not None:
+            self.prev_pred_next_pop = prev_pred_next_pop.to(device)
+        else:
+            self.prev_pred_next_pop = torch.zeros(1, 1, device=device)
 
     def start_episode(self):
         self.prev_h_state = self.model.init_hidden(device=self.device, batch_size=1)
@@ -129,6 +147,10 @@ class RLAgent:
             "optimizer_state_dict" : self.trainer.optimizer.state_dict(),
             "config": self.trainer.cfg,
             "sigmoid_scale_factor": self.model.sigmoid_scale_factor,
+            "h_state": self.prev_h_state.cpu(),
+            "prev_action_onehot": self.prev_action_onehot.cpu(),
+            "prev_action_cont": self.prev_action_cont.cpu(),
+            "prev_pred_next_pop": self.prev_pred_next_pop.cpu(),
             **extra_info
         }, filepath)
 
@@ -189,8 +211,22 @@ class RLAgent:
         # Ensure model is moved to the requested device (do not override with cfg.device)
         model = model.to(device)
         
-        # Create agent with optional env (for action masking)
-        agent = RLAgent(model=model, device=device, env=env)
+        # Restore recurrent and action encoding state if available
+        h_state = checkpoint.get("h_state", None)
+        prev_action_onehot = checkpoint.get("prev_action_onehot", None)
+        prev_action_cont = checkpoint.get("prev_action_cont", None)
+        prev_pred_next_pop = checkpoint.get("prev_pred_next_pop", None)
+        
+        # Create agent with optional env (for action masking) and restored state
+        agent = RLAgent(
+            model=model,
+            device=device,
+            env=env,
+            h_state=h_state,
+            prev_action_onehot=prev_action_onehot,
+            prev_action_cont=prev_action_cont,
+            prev_pred_next_pop=prev_pred_next_pop,
+        )
         
         if load_optimizer:
             optimizer_state = checkpoint.get("optimizer_state_dict", None)

@@ -151,7 +151,7 @@ class RecurrentActorCritic(nn.Module):
         hidden_dim: int = 256,
         rnn_layers: int = 1,
         dose_action_index: int = 3,
-        sigmoid_scale_factor: float = 1.0,
+        sigmoid_scale_factor: float = 0.2,
     ):
         """
         Initialize Recurrent Actor-Critic.

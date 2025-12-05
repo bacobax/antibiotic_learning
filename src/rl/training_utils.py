@@ -499,6 +499,23 @@ def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: Tr
         agent.trainer.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         logger.log_debug("✓ Loaded optimizer state")
     
+    # Restore recurrent and action encoding state if available
+    if "h_state" in checkpoint:
+        agent.prev_h_state = checkpoint["h_state"].to(target_device)
+        logger.log_debug("✓ Restored recurrent hidden state")
+    
+    if "prev_action_onehot" in checkpoint:
+        agent.prev_action_onehot = checkpoint["prev_action_onehot"].to(target_device)
+        logger.log_debug("✓ Restored previous action (onehot)")
+    
+    if "prev_action_cont" in checkpoint:
+        agent.prev_action_cont = checkpoint["prev_action_cont"].to(target_device)
+        logger.log_debug("✓ Restored previous action (continuous)")
+    
+    if "prev_pred_next_pop" in checkpoint:
+        agent.prev_pred_next_pop = checkpoint["prev_pred_next_pop"].to(target_device)
+        logger.log_debug("✓ Restored previous predicted population")
+    
     update_number = checkpoint.get("update", 0)
     logger.log_info(f"✓ Loaded checkpoint from update {update_number}")
     

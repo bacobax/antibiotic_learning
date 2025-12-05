@@ -81,8 +81,6 @@ View TensorBoard:
     pprint(config.environment.rewards.informed_dosing)
     print("=" * 70)
 
-
-
     
     # Setup
     base_save_dir = Path(config.training.save_dir)
