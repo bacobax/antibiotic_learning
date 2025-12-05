@@ -648,7 +648,7 @@ class TrainingVisualizer:
             logger.log_info(f"Loading checkpoint from: {resume_from}")
             try:
                 from rl.training_utils import _load_checkpoint_into_agent
-                self.current_update = _load_checkpoint_into_agent(self.agent, resume_from, logger)
+                self.current_update = _load_checkpoint_into_agent(self.agent, resume_from, logger, self.config)
             except Exception as e:
                 logger.log_error(f"Failed to load checkpoint: {e}")
                 import traceback

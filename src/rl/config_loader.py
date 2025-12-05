@@ -243,6 +243,7 @@ class ModelConfig:
     dose_action_index: int
     k_doses: int
     sigmoid_scale_factor: float
+    override_sigmoid_scale_factor_from_checkpoint: bool = False
 
 
 @dataclass

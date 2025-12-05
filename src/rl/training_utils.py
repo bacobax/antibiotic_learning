@@ -431,7 +431,7 @@ def _initialize_agent(cfg: PPOConfig, env: PetriEnvWrapper) -> RLAgent:
     return agent
 
 
-def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: TrainingLogger) -> int:
+def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: TrainingLogger, config: CompleteConfig = None) -> int:
     """
     Load checkpoint state into an existing agent.
     
@@ -439,6 +439,7 @@ def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: Tr
         agent: Agent to load checkpoint into
         checkpoint_path: Path to checkpoint file
         logger: Training logger
+        config: Optional CompleteConfig to check override_sigmoid_scale_factor_from_checkpoint flag
         
     Returns:
         Update number from checkpoint
@@ -473,6 +474,23 @@ def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: Tr
     # Load model state
     agent.model.load_state_dict(checkpoint["model_state_dict"])
     
+    # Check if we should override sigmoid_scale_factor from checkpoint
+    should_override = config and getattr(config.model, "override_sigmoid_scale_factor_from_checkpoint", False)
+    
+    if should_override:
+        # Use the value from the YAML config, don't restore from checkpoint
+        agent.model.sigmoid_scale_factor = config.model.sigmoid_scale_factor
+        logger.log_info(f"✓ Overriding sigmoid_scale_factor from checkpoint with YAML value: {config.model.sigmoid_scale_factor}")
+    else:
+        # Restore sigmoid_scale_factor from checkpoint (if available)
+        if "sigmoid_scale_factor" in checkpoint:
+            agent.model.sigmoid_scale_factor = checkpoint["sigmoid_scale_factor"]
+            logger.log_debug(f"✓ Restored sigmoid_scale_factor: {checkpoint['sigmoid_scale_factor']}")
+        elif hasattr(checkpoint.get("config"), "sigmoid_scale_factor"):
+            agent.model.sigmoid_scale_factor = checkpoint["config"].sigmoid_scale_factor
+            logger.log_debug(f"✓ Restored sigmoid_scale_factor from config: {checkpoint['config'].sigmoid_scale_factor}")
+    
+    print(f"SIGMOID SCALE FACTOR AFTER LOADING CHECKPOINT: {agent.model.sigmoid_scale_factor}")
     # Move model to target device
     agent.model.to(target_device)
     

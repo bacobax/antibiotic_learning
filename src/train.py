@@ -113,7 +113,7 @@ View TensorBoard:
     if args.resume:
         logger.log_info(f"Loading checkpoint from: {args.resume}")
         try:
-            starting_update = _load_checkpoint_into_agent(agent, args.resume, logger)
+            starting_update = _load_checkpoint_into_agent(agent, args.resume, logger, config)
         except Exception as e:
             logger.log_error(f"Failed to load checkpoint: {e}")
             import traceback

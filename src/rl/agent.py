@@ -128,6 +128,7 @@ class RLAgent:
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict" : self.trainer.optimizer.state_dict(),
             "config": self.trainer.cfg,
+            "sigmoid_scale_factor": self.model.sigmoid_scale_factor,
             **extra_info
         }, filepath)
 
@@ -173,12 +174,15 @@ class RLAgent:
         
         # Initialize model architecture (assumes config is stored in checkpoint)
         cfg = checkpoint["config"]
+        # Use explicit sigmoid_scale_factor if available, otherwise get from config
+        sigmoid_scale_factor = checkpoint.get("sigmoid_scale_factor", getattr(cfg, "sigmoid_scale_factor", 1.0))
         model = RecurrentActorCritic(
             obs_dim=cfg.obs_dim,
             n_discrete=cfg.n_discrete,
             k_doses=cfg.k_doses,
             hidden_dim=cfg.hidden_dim,
             rnn_layers=cfg.rnn_layers,
+            sigmoid_scale_factor=sigmoid_scale_factor,
         )
         model.load_state_dict(model_state_dict, strict=False)
         
