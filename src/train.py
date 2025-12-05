@@ -77,11 +77,6 @@ View TensorBoard:
     except Exception as e:
         print(f"❌ Error loading configuration: {e}")
         return 1
-    print("=" * 70)
-    pprint(config.environment.rewards.informed_dosing)
-    print("=" * 70)
-
-
 
     
     # Setup
