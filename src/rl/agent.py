@@ -178,6 +178,8 @@ class RLAgent:
             k_doses=cfg.k_doses,
             hidden_dim=cfg.hidden_dim,
             rnn_layers=cfg.rnn_layers,
+            dose_action_index=cfg.dose_action_index,
+            sigmoid_scale_factor=getattr(cfg, "sigmoid_scale_factor", 1.0),
         )
         model.load_state_dict(model_state_dict, strict=False)
         

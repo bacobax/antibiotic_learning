@@ -368,7 +368,7 @@ class AgentSimulatorUI:
         
         # Load trained agent
         print(f"Loading agent from {checkpoint_path}...")
-        self.agent = RLAgent.load_agent_from_checkpoint(checkpoint_path)
+        self.agent = RLAgent.load_agent_from_checkpoint(checkpoint_path, env=self.env)
         print(f"Agent loaded successfully! Model device: {self.agent.device}")
         
         # Speed control
