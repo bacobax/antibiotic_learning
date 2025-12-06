@@ -227,8 +227,26 @@ def rollout(
         # Get prediction value for passing to environment
         pred_next_pop_value = pred_next_pop.cpu().item()
         
+        # Calculate k-step ahead predictions if enabled
+        pred_k_steps = None
+        if env.k_steps_ahead > 0:
+            
+            with torch.no_grad():
+                # predict_k_steps_ahead expects tensors: a_disc [B], a_cont [B, k_doses]
+                pred_k_steps = agent.model.predict_k_steps_ahead(
+                    obs=obs_tensor.to(cfg.device),  # [1, obs_dim]
+                    a_disc=a_disc,   # [1]
+                    a_cont=a_cont,   # [1, k_doses]
+                    h_current=h_prev,  # [layers, 1, hidden_dim]
+                    k_steps=env.k_steps_ahead,
+                    env_wrapper=env
+                )
+                # pred_k_steps shape: [k_steps_ahead, 1] - squeeze batch dim
+                pred_k_steps = pred_k_steps.squeeze(1).cpu().numpy()  # [k_steps_ahead]
+            
+        
         # Environment step (now includes prediction reward computation)
-        next_obs, reward, done, info = env.step(pure_a_disc, pure_a_cont, pred_population=pred_next_pop_value)
+        next_obs, reward, done, info = env.step(pure_a_disc, pure_a_cont, pred_population=pred_next_pop_value, pred_k_steps=pred_k_steps)
         
         # Extract prediction supervision and diagnostics
         population_counted_norm = info.get('population_next_norm', 0.0)
@@ -1104,6 +1122,7 @@ def _create_environment(
         # Device config
         device=config.environment.device,
         dtype=config.torch_dtype,
+        k_steps_ahead=config.environment.k_steps_ahead,
     )
     
     logger.log_info("✓ Environment created with simplified reward structure")

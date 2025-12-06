@@ -1,0 +1,791 @@
+======================================================================
+Test 1: K-step prediction WITH env wrapper (DOSE action)
+======================================================================
+Loading checkpoint from /Users/francescobassignana/Desktop/school/unitn/antibiotic_learning/src/checkpoints/new_expression_computation/checkpoint_1000.pt
+Model loaded successfully
+Config: obs_dim=28, hidden_dim=256
+
+Creating environment wrapper...
+Environment initialized. Observation shape: (28,), max_steps=110
+
+Running K-step prediction with k=100
+Initial action: DOSE with doses=[[0.1 0.1 0.1]]
+WITH env wrapper (observations evolve, collecting actual counts)
+
+Collecting actual population counts from environment...
+  Step 0 (before DOSE): actual population=400.0
+  Step 1 (DOSE): actual population=334.0
+  Step 2 (NOOP): actual population=289.0
+  Step 3 (NOOP): actual population=243.0
+  Step 4 (NOOP): actual population=208.0
+  Step 5 (NOOP): actual population=185.0
+  Step 6 (NOOP): actual population=157.0
+  Step 7 (NOOP): actual population=146.0
+  Step 8 (NOOP): actual population=129.0
+  Step 9 (NOOP): actual population=124.0
+  Step 10 (NOOP): actual population=112.0
+  Step 11 (NOOP): actual population=102.0
+  Step 12 (NOOP): actual population=96.0
+  Step 13 (NOOP): actual population=89.0
+  Step 14 (NOOP): actual population=86.0
+  Step 15 (NOOP): actual population=84.0
+  Step 16 (NOOP): actual population=80.0
+  Step 17 (NOOP): actual population=71.0
+  Step 18 (NOOP): actual population=70.0
+  Step 19 (NOOP): actual population=68.0
+  Step 20 (NOOP): actual population=68.0
+  Step 21 (NOOP): actual population=65.0
+  Step 22 (NOOP): actual population=65.0
+  Step 23 (NOOP): actual population=65.0
+  Step 24 (NOOP): actual population=66.0
+  Step 25 (NOOP): actual population=63.0
+  Step 26 (NOOP): actual population=61.0
+  Step 27 (NOOP): actual population=60.0
+  Step 28 (NOOP): actual population=59.0
+  Step 29 (NOOP): actual population=54.0
+  Step 30 (NOOP): actual population=55.0
+  Step 31 (NOOP): actual population=55.0
+  Step 32 (NOOP): actual population=53.0
+  Step 33 (NOOP): actual population=52.0
+  Step 34 (NOOP): actual population=51.0
+  Step 35 (NOOP): actual population=52.0
+  Step 36 (NOOP): actual population=52.0
+  Step 37 (NOOP): actual population=52.0
+  Step 38 (NOOP): actual population=53.0
+  Step 39 (NOOP): actual population=52.0
+  Step 40 (NOOP): actual population=50.0
+  Step 41 (NOOP): actual population=48.0
+  Step 42 (NOOP): actual population=51.0
+  Step 43 (NOOP): actual population=52.0
+  Step 44 (NOOP): actual population=52.0
+  Step 45 (NOOP): actual population=51.0
+  Step 46 (NOOP): actual population=50.0
+  Step 47 (NOOP): actual population=50.0
+  Step 48 (NOOP): actual population=49.0
+  Step 49 (NOOP): actual population=49.0
+  Step 50 (NOOP): actual population=47.0
+  Step 51 (NOOP): actual population=47.0
+  Step 52 (NOOP): actual population=47.0
+  Step 53 (NOOP): actual population=47.0
+  Step 54 (NOOP): actual population=44.0
+  Step 55 (NOOP): actual population=43.0
+  Step 56 (NOOP): actual population=43.0
+  Step 57 (NOOP): actual population=44.0
+  Step 58 (NOOP): actual population=44.0
+  Step 59 (NOOP): actual population=44.0
+  Step 60 (NOOP): actual population=45.0
+  Step 61 (NOOP): actual population=44.0
+  Step 62 (NOOP): actual population=45.0
+  Step 63 (NOOP): actual population=44.0
+  Step 64 (NOOP): actual population=43.0
+  Step 65 (NOOP): actual population=45.0
+  Step 66 (NOOP): actual population=44.0
+  Step 67 (NOOP): actual population=44.0
+  Step 68 (NOOP): actual population=44.0
+  Step 69 (NOOP): actual population=44.0
+  Step 70 (NOOP): actual population=42.0
+  Step 71 (NOOP): actual population=42.0
+  Step 72 (NOOP): actual population=44.0
+  Step 73 (NOOP): actual population=45.0
+  Step 74 (NOOP): actual population=44.0
+  Step 75 (NOOP): actual population=44.0
+  Step 76 (NOOP): actual population=47.0
+  Step 77 (NOOP): actual population=46.0
+  Step 78 (NOOP): actual population=46.0
+  Step 79 (NOOP): actual population=46.0
+  Step 80 (NOOP): actual population=46.0
+  Step 81 (NOOP): actual population=46.0
+  Step 82 (NOOP): actual population=48.0
+  Step 83 (NOOP): actual population=51.0
+  Step 84 (NOOP): actual population=50.0
+  Step 85 (NOOP): actual population=51.0
+  Step 86 (NOOP): actual population=52.0
+  Step 87 (NOOP): actual population=52.0
+  Step 88 (NOOP): actual population=53.0
+  Step 89 (NOOP): actual population=54.0
+  Step 90 (NOOP): actual population=52.0
+  Step 91 (NOOP): actual population=55.0
+  Step 92 (NOOP): actual population=57.0
+  Step 93 (NOOP): actual population=58.0
+  Step 94 (NOOP): actual population=58.0
+  Step 95 (NOOP): actual population=63.0
+  Step 96 (NOOP): actual population=65.0
+  Step 97 (NOOP): actual population=66.0
+  Step 98 (NOOP): actual population=66.0
+  Step 99 (NOOP): actual population=67.0
+  Step 100 (NOOP): actual population=67.0
+
+Predictions shape: torch.Size([100, 1])
+Predictions vs Actual Population:
+  Step 0 (before action): actual=400.0, model will predict from this
+  Step 1: predicted=98.1, actual=334.0, diff=-235.9 (70.6%)
+  Step 2: predicted=28.9, actual=289.0, diff=-260.1 (90.0%)
+  Step 3: predicted=54.4, actual=243.0, diff=-188.6 (77.6%)
+  Step 4: predicted=39.7, actual=208.0, diff=-168.3 (80.9%)
+  Step 5: predicted=31.3, actual=185.0, diff=-153.7 (83.1%)
+  Step 6: predicted=37.6, actual=157.0, diff=-119.4 (76.0%)
+  Step 7: predicted=39.6, actual=146.0, diff=-106.4 (72.9%)
+  Step 8: predicted=33.6, actual=129.0, diff=-95.4 (74.0%)
+  Step 9: predicted=28.3, actual=124.0, diff=-95.7 (77.2%)
+  Step 10: predicted=25.2, actual=112.0, diff=-86.8 (77.5%)
+  Step 11: predicted=22.8, actual=102.0, diff=-79.2 (77.7%)
+  Step 12: predicted=20.6, actual=96.0, diff=-75.4 (78.5%)
+  Step 13: predicted=19.9, actual=89.0, diff=-69.1 (77.6%)
+  Step 14: predicted=19.5, actual=86.0, diff=-66.5 (77.4%)
+  Step 15: predicted=18.8, actual=84.0, diff=-65.2 (77.6%)
+  Step 16: predicted=18.1, actual=80.0, diff=-61.9 (77.3%)
+  Step 17: predicted=17.5, actual=71.0, diff=-53.5 (75.3%)
+  Step 18: predicted=17.0, actual=70.0, diff=-53.0 (75.7%)
+  Step 19: predicted=16.4, actual=68.0, diff=-51.6 (75.8%)
+  Step 20: predicted=15.8, actual=68.0, diff=-52.2 (76.7%)
+  Step 21: predicted=15.1, actual=65.0, diff=-49.9 (76.8%)
+  Step 22: predicted=14.3, actual=65.0, diff=-50.7 (78.0%)
+  Step 23: predicted=13.3, actual=65.0, diff=-51.7 (79.5%)
+  Step 24: predicted=12.3, actual=66.0, diff=-53.7 (81.3%)
+  Step 25: predicted=11.7, actual=63.0, diff=-51.3 (81.4%)
+  Step 26: predicted=11.4, actual=61.0, diff=-49.6 (81.3%)
+  Step 27: predicted=11.3, actual=60.0, diff=-48.7 (81.1%)
+  Step 28: predicted=11.4, actual=59.0, diff=-47.6 (80.6%)
+  Step 29: predicted=11.6, actual=54.0, diff=-42.4 (78.4%)
+  Step 30: predicted=11.9, actual=55.0, diff=-43.1 (78.3%)
+  Step 31: predicted=12.2, actual=55.0, diff=-42.8 (77.8%)
+  Step 32: predicted=12.4, actual=53.0, diff=-40.6 (76.5%)
+  Step 33: predicted=12.7, actual=52.0, diff=-39.3 (75.6%)
+  Step 34: predicted=13.0, actual=51.0, diff=-38.0 (74.5%)
+  Step 35: predicted=13.3, actual=52.0, diff=-38.7 (74.4%)
+  Step 36: predicted=13.7, actual=52.0, diff=-38.3 (73.7%)
+  Step 37: predicted=13.9, actual=52.0, diff=-38.1 (73.3%)
+  Step 38: predicted=14.1, actual=53.0, diff=-38.9 (73.3%)
+  Step 39: predicted=14.4, actual=52.0, diff=-37.6 (72.4%)
+  Step 40: predicted=14.6, actual=50.0, diff=-35.4 (70.8%)
+  Step 41: predicted=14.8, actual=48.0, diff=-33.2 (69.1%)
+  Step 42: predicted=15.1, actual=51.0, diff=-35.9 (70.5%)
+  Step 43: predicted=15.3, actual=52.0, diff=-36.7 (70.6%)
+  Step 44: predicted=15.5, actual=52.0, diff=-36.5 (70.3%)
+  Step 45: predicted=15.6, actual=51.0, diff=-35.4 (69.3%)
+  Step 46: predicted=15.8, actual=50.0, diff=-34.2 (68.4%)
+  Step 47: predicted=15.9, actual=50.0, diff=-34.1 (68.2%)
+  Step 48: predicted=16.0, actual=49.0, diff=-33.0 (67.3%)
+  Step 49: predicted=16.1, actual=49.0, diff=-32.9 (67.1%)
+  Step 50: predicted=16.2, actual=47.0, diff=-30.8 (65.5%)
+  Step 51: predicted=16.3, actual=47.0, diff=-30.7 (65.4%)
+  Step 52: predicted=16.4, actual=47.0, diff=-30.6 (65.1%)
+  Step 53: predicted=16.5, actual=47.0, diff=-30.5 (64.9%)
+  Step 54: predicted=16.6, actual=44.0, diff=-27.4 (62.2%)/Users/francescobassignana/Desktop/school/unitn/antibiotic_learning/test_k_step_prediction_with_env.py:471: UserWarning: linestyle is redundantly defined by the 'linestyle' keyword argument and the fmt string "b--o" (-> linestyle='--'). The keyword argument will take precedence.
+  axes[0, 0].plot(steps_predicted, predictions_without_actual, 'b--o', linewidth=plot_params['line_width_thin'],
+
+  Step 55: predicted=16.7, actual=43.0, diff=-26.3 (61.1%)
+  Step 56: predicted=16.8, actual=43.0, diff=-26.2 (60.9%)
+  Step 57: predicted=16.9, actual=44.0, diff=-27.1 (61.6%)
+  Step 58: predicted=17.0, actual=44.0, diff=-27.0 (61.4%)
+  Step 59: predicted=17.1, actual=44.0, diff=-26.9 (61.2%)
+  Step 60: predicted=17.1, actual=45.0, diff=-27.9 (61.9%)
+  Step 61: predicted=17.2, actual=44.0, diff=-26.8 (60.9%)
+  Step 62: predicted=17.3, actual=45.0, diff=-27.7 (61.6%)
+  Step 63: predicted=17.3, actual=44.0, diff=-26.7 (60.6%)
+  Step 64: predicted=17.4, actual=43.0, diff=-25.6 (59.5%)
+  Step 65: predicted=17.5, actual=45.0, diff=-27.5 (61.2%)
+  Step 66: predicted=17.5, actual=44.0, diff=-26.5 (60.2%)
+  Step 67: predicted=17.6, actual=44.0, diff=-26.4 (60.1%)
+  Step 68: predicted=17.6, actual=44.0, diff=-26.4 (59.9%)
+  Step 69: predicted=17.7, actual=44.0, diff=-26.3 (59.8%)
+  Step 70: predicted=17.7, actual=42.0, diff=-24.3 (57.8%)
+  Step 71: predicted=17.8, actual=42.0, diff=-24.2 (57.7%)
+  Step 72: predicted=17.8, actual=44.0, diff=-26.2 (59.6%)
+  Step 73: predicted=17.8, actual=45.0, diff=-27.2 (60.4%)
+  Step 74: predicted=17.8, actual=44.0, diff=-26.2 (59.4%)
+  Step 75: predicted=17.9, actual=44.0, diff=-26.1 (59.4%)
+  Step 76: predicted=17.9, actual=47.0, diff=-29.1 (61.9%)
+  Step 77: predicted=17.9, actual=46.0, diff=-28.1 (61.0%)
+  Step 78: predicted=17.9, actual=46.0, diff=-28.1 (61.0%)
+  Step 79: predicted=18.0, actual=46.0, diff=-28.0 (61.0%)
+  Step 80: predicted=18.0, actual=46.0, diff=-28.0 (60.9%)
+  Step 81: predicted=18.0, actual=46.0, diff=-28.0 (60.9%)
+  Step 82: predicted=18.0, actual=48.0, diff=-30.0 (62.5%)
+  Step 83: predicted=18.0, actual=51.0, diff=-33.0 (64.6%)
+  Step 84: predicted=18.0, actual=50.0, diff=-32.0 (63.9%)
+  Step 85: predicted=18.1, actual=51.0, diff=-32.9 (64.6%)
+  Step 86: predicted=18.1, actual=52.0, diff=-33.9 (65.2%)
+  Step 87: predicted=18.1, actual=52.0, diff=-33.9 (65.2%)
+  Step 88: predicted=18.1, actual=53.0, diff=-34.9 (65.8%)
+  Step 89: predicted=18.1, actual=54.0, diff=-35.9 (66.5%)
+  Step 90: predicted=18.1, actual=52.0, diff=-33.9 (65.1%)
+  Step 91: predicted=18.1, actual=55.0, diff=-36.9 (67.0%)
+  Step 92: predicted=18.1, actual=57.0, diff=-38.9 (68.2%)
+  Step 93: predicted=18.1, actual=58.0, diff=-39.9 (68.7%)
+  Step 94: predicted=18.2, actual=58.0, diff=-39.8 (68.7%)
+  Step 95: predicted=18.2, actual=63.0, diff=-44.8 (71.2%)
+  Step 96: predicted=18.2, actual=65.0, diff=-46.8 (72.1%)
+  Step 97: predicted=18.2, actual=66.0, diff=-47.8 (72.5%)
+  Step 98: predicted=18.2, actual=66.0, diff=-47.8 (72.5%)
+  Step 99: predicted=18.2, actual=67.0, diff=-48.8 (72.9%)
+  Step 100: predicted=18.2, actual=67.0, diff=-48.8 (72.9%)
+
+Plot saved to /Users/francescobassignana/Desktop/school/unitn/antibiotic_learning/k_step_prediction_with_env_actual.png
+
+======================================================================
+Test 2: Comparison of WITH vs WITHOUT env wrapper (DOSE action)
+======================================================================
+
+======================================================================
+Comparing predictions WITH and WITHOUT env wrapper
+======================================================================
+
+Creating environment wrapper for comparison...
+Real observation from environment initialized. Observation shape: (28,)
+
+Test 1: WITHOUT env wrapper (fixed observation)
+Predictions (fixed observation): [0.32695454 0.09634923 0.18087699 0.13152419 0.10355233]...
+
+Test 2: WITH env wrapper (evolving observation)
+Predictions (evolving observation): [0.32695454 0.09644112 0.18155086 0.13232888 0.10448384]...
+
+Collecting actual environment counts for WITH env wrapper...
+  Step 0 (before action): actual=400.0
+  Step 1 (DOSE): actual=330.0
+  Step 2 (NOOP): actual=280.0
+  Step 3 (NOOP): actual=240.0
+  Step 4 (NOOP): actual=204.0
+  Step 5 (NOOP): actual=176.0
+  Step 6 (NOOP): actual=149.0
+  Step 7 (NOOP): actual=128.0
+  Step 8 (NOOP): actual=112.0
+  Step 9 (NOOP): actual=100.0
+  Step 10 (NOOP): actual=84.0
+  Step 11 (NOOP): actual=77.0
+  Step 12 (NOOP): actual=70.0
+  Step 13 (NOOP): actual=64.0
+  Step 14 (NOOP): actual=62.0
+  Step 15 (NOOP): actual=56.0
+  Step 16 (NOOP): actual=53.0
+  Step 17 (NOOP): actual=50.0
+  Step 18 (NOOP): actual=47.0
+  Step 19 (NOOP): actual=43.0
+  Step 20 (NOOP): actual=39.0
+  Step 21 (NOOP): actual=39.0
+  Step 22 (NOOP): actual=38.0
+  Step 23 (NOOP): actual=38.0
+  Step 24 (NOOP): actual=39.0
+  Step 25 (NOOP): actual=36.0
+  Step 26 (NOOP): actual=36.0
+  Step 27 (NOOP): actual=35.0
+  Step 28 (NOOP): actual=33.0
+  Step 29 (NOOP): actual=33.0
+  Step 30 (NOOP): actual=32.0
+  Step 31 (NOOP): actual=31.0
+  Step 32 (NOOP): actual=30.0
+  Step 33 (NOOP): actual=28.0
+  Step 34 (NOOP): actual=28.0
+  Step 35 (NOOP): actual=28.0
+  Step 36 (NOOP): actual=28.0
+  Step 37 (NOOP): actual=28.0
+  Step 38 (NOOP): actual=26.0
+  Step 39 (NOOP): actual=26.0
+  Step 40 (NOOP): actual=26.0
+  Step 41 (NOOP): actual=27.0
+  Step 42 (NOOP): actual=26.0
+  Step 43 (NOOP): actual=29.0
+  Step 44 (NOOP): actual=29.0
+  Step 45 (NOOP): actual=30.0
+  Step 46 (NOOP): actual=30.0
+  Step 47 (NOOP): actual=31.0
+  Step 48 (NOOP): actual=33.0
+  Step 49 (NOOP): actual=32.0
+  Step 50 (NOOP): actual=31.0
+  Step 51 (NOOP): actual=32.0
+  Step 52 (NOOP): actual=32.0
+  Step 53 (NOOP): actual=32.0
+  Step 54 (NOOP): actual=33.0
+  Step 55 (NOOP): actual=33.0
+  Step 56 (NOOP): actual=33.0
+  Step 57 (NOOP): actual=33.0
+  Step 58 (NOOP): actual=33.0
+  Step 59 (NOOP): actual=31.0
+  Step 60 (NOOP): actual=31.0
+  Step 61 (NOOP): actual=30.0
+  Step 62 (NOOP): actual=32.0
+  Step 63 (NOOP): actual=34.0
+  Step 64 (NOOP): actual=36.0
+  Step 65 (NOOP): actual=37.0
+  Step 66 (NOOP): actual=38.0
+  Step 67 (NOOP): actual=35.0
+  Step 68 (NOOP): actual=34.0
+  Step 69 (NOOP): actual=36.0
+  Step 70 (NOOP): actual=37.0
+  Step 71 (NOOP): actual=36.0
+  Step 72 (NOOP): actual=37.0
+  Step 73 (NOOP): actual=40.0
+  Step 74 (NOOP): actual=41.0
+  Step 75 (NOOP): actual=41.0
+  Step 76 (NOOP): actual=40.0
+  Step 77 (NOOP): actual=41.0
+  Step 78 (NOOP): actual=42.0
+  Step 79 (NOOP): actual=42.0
+  Step 80 (NOOP): actual=44.0
+  Step 81 (NOOP): actual=42.0
+  Step 82 (NOOP): actual=44.0
+  Step 83 (NOOP): actual=42.0
+  Step 84 (NOOP): actual=45.0
+  Step 85 (NOOP): actual=47.0
+  Step 86 (NOOP): actual=47.0
+  Step 87 (NOOP): actual=46.0
+  Step 88 (NOOP): actual=46.0
+  Step 89 (NOOP): actual=47.0
+  Step 90 (NOOP): actual=51.0
+  Step 91 (NOOP): actual=50.0
+  Step 92 (NOOP): actual=49.0
+  Step 93 (NOOP): actual=52.0
+  Step 94 (NOOP): actual=53.0
+  Step 95 (NOOP): actual=56.0
+  Step 96 (NOOP): actual=55.0
+  Step 97 (NOOP): actual=55.0
+  Step 98 (NOOP): actual=56.0
+  Step 99 (NOOP): actual=56.0
+  Step 100 (NOOP): actual=61.0
+
+Comparison plot saved to /Users/francescobassignana/Desktop/school/unitn/antibiotic_learning/k_step_prediction_with_vs_without_env.png
+======================================================================
+Test 1: K-step prediction WITH env wrapper (DOSE action)
+======================================================================
+Loading checkpoint from /Users/francescobassignana/Desktop/school/unitn/antibiotic_learning/src/checkpoints/new_expression_computation/checkpoint_1000.pt
+Model loaded successfully
+Config: obs_dim=28, hidden_dim=256
+
+Creating environment wrapper...
+Environment initialized. Observation shape: (28,), max_steps=110
+
+Running K-step prediction with k=100
+Initial action: DOSE with doses=[[0.1 0.1 0.1]]
+WITH env wrapper (observations evolve, collecting actual counts)
+
+Collecting actual population counts from environment...
+  Step 0 (before DOSE): actual population=400.0
+  Step 1 (DOSE): actual population=336.0
+  Step 2 (NOOP): actual population=288.0
+  Step 3 (NOOP): actual population=248.0
+  Step 4 (NOOP): actual population=210.0
+  Step 5 (NOOP): actual population=181.0
+  Step 6 (NOOP): actual population=161.0
+  Step 7 (NOOP): actual population=145.0
+  Step 8 (NOOP): actual population=128.0
+  Step 9 (NOOP): actual population=114.0
+  Step 10 (NOOP): actual population=102.0
+  Step 11 (NOOP): actual population=93.0
+  Step 12 (NOOP): actual population=87.0
+  Step 13 (NOOP): actual population=77.0
+  Step 14 (NOOP): actual population=72.0
+  Step 15 (NOOP): actual population=66.0
+  Step 16 (NOOP): actual population=60.0
+  Step 17 (NOOP): actual population=58.0
+  Step 18 (NOOP): actual population=56.0
+  Step 19 (NOOP): actual population=56.0
+  Step 20 (NOOP): actual population=53.0
+  Step 21 (NOOP): actual population=51.0
+  Step 22 (NOOP): actual population=49.0
+  Step 23 (NOOP): actual population=48.0
+  Step 24 (NOOP): actual population=45.0
+  Step 25 (NOOP): actual population=48.0
+  Step 26 (NOOP): actual population=47.0
+  Step 27 (NOOP): actual population=47.0
+  Step 28 (NOOP): actual population=46.0
+  Step 29 (NOOP): actual population=45.0
+  Step 30 (NOOP): actual population=44.0
+  Step 31 (NOOP): actual population=42.0
+  Step 32 (NOOP): actual population=41.0
+  Step 33 (NOOP): actual population=39.0
+  Step 34 (NOOP): actual population=38.0
+  Step 35 (NOOP): actual population=34.0
+  Step 36 (NOOP): actual population=35.0
+  Step 37 (NOOP): actual population=34.0
+  Step 38 (NOOP): actual population=35.0
+  Step 39 (NOOP): actual population=34.0
+  Step 40 (NOOP): actual population=32.0
+  Step 41 (NOOP): actual population=31.0
+  Step 42 (NOOP): actual population=28.0
+  Step 43 (NOOP): actual population=28.0
+  Step 44 (NOOP): actual population=28.0
+  Step 45 (NOOP): actual population=29.0
+  Step 46 (NOOP): actual population=29.0
+  Step 47 (NOOP): actual population=28.0
+  Step 48 (NOOP): actual population=28.0
+  Step 49 (NOOP): actual population=29.0
+  Step 50 (NOOP): actual population=29.0
+  Step 51 (NOOP): actual population=30.0
+  Step 52 (NOOP): actual population=30.0
+  Step 53 (NOOP): actual population=29.0
+  Step 54 (NOOP): actual population=29.0
+  Step 55 (NOOP): actual population=30.0
+  Step 56 (NOOP): actual population=30.0
+  Step 57 (NOOP): actual population=29.0
+  Step 58 (NOOP): actual population=28.0
+  Step 59 (NOOP): actual population=29.0
+  Step 60 (NOOP): actual population=28.0
+  Step 61 (NOOP): actual population=28.0
+  Step 62 (NOOP): actual population=29.0
+  Step 63 (NOOP): actual population=30.0
+  Step 64 (NOOP): actual population=32.0
+  Step 65 (NOOP): actual population=31.0
+  Step 66 (NOOP): actual population=31.0
+  Step 67 (NOOP): actual population=32.0
+  Step 68 (NOOP): actual population=33.0
+  Step 69 (NOOP): actual population=34.0
+  Step 70 (NOOP): actual population=34.0
+  Step 71 (NOOP): actual population=34.0
+  Step 72 (NOOP): actual population=33.0
+  Step 73 (NOOP): actual population=33.0
+  Step 74 (NOOP): actual population=32.0
+  Step 75 (NOOP): actual population=36.0
+  Step 76 (NOOP): actual population=35.0
+  Step 77 (NOOP): actual population=35.0
+  Step 78 (NOOP): actual population=35.0
+  Step 79 (NOOP): actual population=35.0
+  Step 80 (NOOP): actual population=36.0
+  Step 81 (NOOP): actual population=33.0
+  Step 82 (NOOP): actual population=33.0
+  Step 83 (NOOP): actual population=36.0
+  Step 84 (NOOP): actual population=36.0
+  Step 85 (NOOP): actual population=38.0
+  Step 86 (NOOP): actual population=41.0
+  Step 87 (NOOP): actual population=41.0
+  Step 88 (NOOP): actual population=42.0
+  Step 89 (NOOP): actual population=41.0
+  Step 90 (NOOP): actual population=41.0
+  Step 91 (NOOP): actual population=41.0
+  Step 92 (NOOP): actual population=41.0
+  Step 93 (NOOP): actual population=41.0
+  Step 94 (NOOP): actual population=43.0
+  Step 95 (NOOP): actual population=43.0
+  Step 96 (NOOP): actual population=44.0
+  Step 97 (NOOP): actual population=46.0
+  Step 98 (NOOP): actual population=46.0
+  Step 99 (NOOP): actual population=46.0
+  Step 100 (NOOP): actual population=47.0
+
+Predictions shape: torch.Size([100, 1])
+Predictions vs Actual Population:
+  Step 0 (before action): actual=400.0, model will predict from this
+  Step 1: predicted=98.1, actual=336.0, diff=-237.9 (70.8%)
+  Step 2: predicted=28.9, actual=288.0, diff=-259.1 (90.0%)
+  Step 3: predicted=54.4, actual=248.0, diff=-193.6 (78.0%)
+  Step 4: predicted=39.7, actual=210.0, diff=-170.3 (81.1%)
+  Step 5: predicted=31.3, actual=181.0, diff=-149.7 (82.7%)
+  Step 6: predicted=37.6, actual=161.0, diff=-123.4 (76.6%)
+  Step 7: predicted=39.6, actual=145.0, diff=-105.4 (72.7%)
+  Step 8: predicted=33.6, actual=128.0, diff=-94.4 (73.8%)
+  Step 9: predicted=28.3, actual=114.0, diff=-85.7 (75.2%)
+  Step 10: predicted=25.2, actual=102.0, diff=-76.8 (75.3%)
+  Step 11: predicted=22.8, actual=93.0, diff=-70.2 (75.5%)
+  Step 12: predicted=20.6, actual=87.0, diff=-66.4 (76.3%)
+  Step 13: predicted=19.9, actual=77.0, diff=-57.1 (74.1%)
+  Step 14: predicted=19.5, actual=72.0, diff=-52.5 (73.0%)
+  Step 15: predicted=18.8, actual=66.0, diff=-47.2 (71.5%)
+  Step 16: predicted=18.1, actual=60.0, diff=-41.9 (69.8%)
+  Step 17: predicted=17.5, actual=58.0, diff=-40.5 (69.8%)
+  Step 18: predicted=17.0, actual=56.0, diff=-39.0 (69.7%)
+  Step 19: predicted=16.4, actual=56.0, diff=-39.6 (70.6%)
+  Step 20: predicted=15.8, actual=53.0, diff=-37.2 (70.1%)
+  Step 21: predicted=15.1, actual=51.0, diff=-35.9 (70.4%)
+  Step 22: predicted=14.3, actual=49.0, diff=-34.7 (70.9%)
+  Step 23: predicted=13.3, actual=48.0, diff=-34.7 (72.3%)
+  Step 24: predicted=12.3, actual=45.0, diff=-32.7 (72.6%)
+  Step 25: predicted=11.7, actual=48.0, diff=-36.3 (75.6%)
+  Step 26: predicted=11.4, actual=47.0, diff=-35.6 (75.8%)
+  Step 27: predicted=11.3, actual=47.0, diff=-35.7 (75.9%)
+  Step 28: predicted=11.4, actual=46.0, diff=-34.6 (75.1%)
+  Step 29: predicted=11.6, actual=45.0, diff=-33.4 (74.1%)
+  Step 30: predicted=11.9, actual=44.0, diff=-32.1 (72.9%)
+  Step 31: predicted=12.2, actual=42.0, diff=-29.8 (71.0%)
+  Step 32: predicted=12.4, actual=41.0, diff=-28.6 (69.7%)
+  Step 33: predicted=12.7, actual=39.0, diff=-26.3 (67.4%)
+  Step 34: predicted=13.0, actual=38.0, diff=-25.0 (65.7%)
+  Step 35: predicted=13.3, actual=34.0, diff=-20.7 (60.8%)
+  Step 36: predicted=13.7, actual=35.0, diff=-21.3 (61.0%)
+  Step 37: predicted=13.9, actual=34.0, diff=-20.1 (59.2%)
+  Step 38: predicted=14.1, actual=35.0, diff=-20.9 (59.6%)
+  Step 39: predicted=14.4, actual=34.0, diff=-19.6 (57.7%)
+  Step 40: predicted=14.6, actual=32.0, diff=-17.4 (54.3%)
+  Step 41: predicted=14.8, actual=31.0, diff=-16.2 (52.1%)
+  Step 42: predicted=15.1, actual=28.0, diff=-12.9 (46.2%)
+  Step 43: predicted=15.3, actual=28.0, diff=-12.7 (45.5%)
+  Step 44: predicted=15.5, actual=28.0, diff=-12.5 (44.8%)
+  Step 45: predicted=15.6, actual=29.0, diff=-13.4 (46.0%)
+  Step 46: predicted=15.8, actual=29.0, diff=-13.2 (45.6%)
+  Step 47: predicted=15.9, actual=28.0, diff=-12.1 (43.2%)
+  Step 48: predicted=16.0, actual=28.0, diff=-12.0 (42.9%)
+  Step 49: predicted=16.1, actual=29.0, diff=-12.9 (44.5%)
+  Step 50: predicted=16.2, actual=29.0, diff=-12.8 (44.2%)
+  Step 51: predicted=16.3, actual=30.0, diff=-13.7 (45.7%)
+  Step 52: predicted=16.4, actual=30.0, diff=-13.6 (45.4%)
+  Step 53: predicted=16.5, actual=29.0, diff=-12.5 (43.1%)
+  Step 54: predicted=16.6, actual=29.0, diff=-12.4 (42.7%)
+  Step 55: predicted=16.7, actual=30.0, diff=-13.3 (44.3%)
+  Step 56: predicted=16.8, actual=30.0, diff=-13.2 (43.9%)
+  Step 57: predicted=16.9, actual=29.0, diff=-12.1 (41.7%)
+  Step 58: predicted=17.0, actual=28.0, diff=-11.0 (39.3%)
+  Step 59: predicted=17.1, actual=29.0, diff=-11.9 (41.2%)
+  Step 60: predicted=17.1, actual=28.0, diff=-10.9 (38.8%)
+  Step 61: predicted=17.2, actual=28.0, diff=-10.8 (38.6%)
+  Step 62: predicted=17.3, actual=29.0, diff=-11.7 (40.4%)
+  Step 63: predicted=17.3, actual=30.0, diff=-12.7 (42.2%)
+  Step 64: predicted=17.4, actual=32.0, diff=-14.6 (45.6%)
+  Step 65: predicted=17.5, actual=31.0, diff=-13.5 (43.7%)
+  Step 66: predicted=17.5, actual=31.0, diff=-13.5 (43.5%)
+  Step 67: predicted=17.6, actual=32.0, diff=-14.4 (45.1%)
+  Step 68: predicted=17.6, actual=33.0, diff=-15.4 (46.6%)
+  Step 69: predicted=17.7, actual=34.0, diff=-16.3 (48.0%)
+  Step 70: predicted=17.7, actual=34.0, diff=-16.3 (47.9%)
+  Step 71: predicted=17.8, actual=34.0, diff=-16.2 (47.8%)
+  Step 72: predicted=17.8, actual=33.0, diff=-15.2 (46.1%)
+  Step 73: predicted=17.8, actual=33.0, diff=-15.2 (46.0%)
+  Step 74: predicted=17.8, actual=32.0, diff=-14.2 (44.2%)
+  Step 75: predicted=17.9, actual=36.0, diff=-18.1 (50.3%)
+  Step 76: predicted=17.9, actual=35.0, diff=-17.1 (48.9%)
+  Step 77: predicted=17.9, actual=35.0, diff=-17.1 (48.8%)
+  Step 78: predicted=17.9, actual=35.0, diff=-17.1 (48.7%)
+  Step 79: predicted=18.0, actual=35.0, diff=-17.0 (48.7%)
+  Step 80: predicted=18.0, actual=36.0, diff=-18.0 (50.1%)
+  Step 81: predicted=18.0, actual=33.0, diff=-15.0 (45.5%)
+  Step 82: predicted=18.0, actual=33.0, diff=-15.0 (45.4%)
+  Step 83: predicted=18.0, actual=36.0, diff=-18.0 (49.9%)
+  Step 84: predicted=18.0, actual=36.0, diff=-18.0 (49.9%)
+  Step 85: predicted=18.1, actual=38.0, diff=-19.9 (52.5%)
+  Step 86: predicted=18.1, actual=41.0, diff=-22.9 (55.9%)
+  Step 87: predicted=18.1, actual=41.0, diff=-22.9 (55.9%)
+  Step 88: predicted=18.1, actual=42.0, diff=-23.9 (56.9%)
+  Step 89: predicted=18.1, actual=41.0, diff=-22.9 (55.8%)
+  Step 90: predicted=18.1, actual=41.0, diff=-22.9 (55.8%)
+  Step 91: predicted=18.1, actual=41.0, diff=-22.9 (55.8%)
+  Step 92: predicted=18.1, actual=41.0, diff=-22.9 (55.8%)
+  Step 93: predicted=18.1, actual=41.0, diff=-22.9 (55.7%)
+  Step 94: predicted=18.2, actual=43.0, diff=-24.8 (57.8%)
+  Step 95: predicted=18.2, actual=43.0, diff=-24.8 (57.8%)
+  Step 96: predicted=18.2, actual=44.0, diff=-25.8 (58.7%)
+  Step 97: predicted=18.2, actual=46.0, diff=-27.8 (60.5%)
+  Step 98: predicted=18.2, actual=46.0, diff=-27.8 (60.5%)
+  Step 99: predicted=18.2, actual=46.0, diff=-27.8 (60.5%)
+  Step 100: predicted=18.2, actual=47.0, diff=-28.8 (61.3%)
+
+Plot saved to /Users/francescobassignana/Desktop/school/unitn/antibiotic_learning/k_step_prediction_with_env_actual.png
+
+======================================================================
+Test 2: Comparison of WITH vs WITHOUT env wrapper (DOSE action)
+======================================================================
+
+======================================================================
+Comparing predictions WITH and WITHOUT env wrapper
+======================================================================
+
+Creating environment wrapper for comparison...
+Real observation from environment initialized. Observation shape: (28,)
+
+Test 1: WITHOUT env wrapper (fixed observation)
+Predictions (fixed observation): [0.32695454 0.09634923 0.18087699 0.13152419 0.10355233]...
+
+Test 2: WITH env wrapper (evolving observation)
+Predictions (evolving observation): [0.32695454 0.09644112 0.18155086 0.13232888 0.10448384]...
+
+Collecting actual environment counts for WITH env wrapper...
+  Step 0 (before action): actual=400.0
+  Step 1 (DOSE): actual=340.0
+  Step 2 (NOOP): actual=283.0
+  Step 3 (NOOP): actual=241.0
+  Step 4 (NOOP): actual=211.0
+  Step 5 (NOOP): actual=192.0
+  Step 6 (NOOP): actual=167.0
+  Step 7 (NOOP): actual=153.0
+  Step 8 (NOOP): actual=137.0
+  Step 9 (NOOP): actual=123.0
+  Step 10 (NOOP): actual=112.0
+  Step 11 (NOOP): actual=99.0
+  Step 12 (NOOP): actual=93.0
+  Step 13 (NOOP): actual=85.0
+  Step 14 (NOOP): actual=77.0
+  Step 15 (NOOP): actual=75.0
+  Step 16 (NOOP): actual=73.0
+  Step 17 (NOOP): actual=73.0
+  Step 18 (NOOP): actual=69.0
+  Step 19 (NOOP): actual=68.0
+  Step 20 (NOOP): actual=69.0
+  Step 21 (NOOP): actual=65.0
+  Step 22 (NOOP): actual=62.0
+  Step 23 (NOOP): actual=59.0
+  Step 24 (NOOP): actual=57.0
+  Step 25 (NOOP): actual=58.0
+  Step 26 (NOOP): actual=56.0
+  Step 27 (NOOP): actual=53.0
+  Step 28 (NOOP): actual=52.0
+  Step 29 (NOOP): actual=50.0
+  Step 30 (NOOP): actual=48.0
+  Step 31 (NOOP): actual=49.0
+  Step 32 (NOOP): actual=48.0
+  Step 33 (NOOP): actual=46.0
+  Step 34 (NOOP): actual=46.0
+  Step 35 (NOOP): actual=45.0
+  Step 36 (NOOP): actual=43.0
+  Step 37 (NOOP): actual=43.0
+  Step 38 (NOOP): actual=43.0
+  Step 39 (NOOP): actual=42.0
+  Step 40 (NOOP): actual=42.0
+  Step 41 (NOOP): actual=45.0
+  Step 42 (NOOP): actual=46.0
+  Step 43 (NOOP): actual=45.0
+  Step 44 (NOOP): actual=43.0
+  Step 45 (NOOP): actual=42.0
+  Step 46 (NOOP): actual=41.0
+  Step 47 (NOOP): actual=40.0
+  Step 48 (NOOP): actual=40.0
+  Step 49 (NOOP): actual=41.0
+  Step 50 (NOOP): actual=40.0
+  Step 51 (NOOP): actual=39.0
+  Step 52 (NOOP): actual=39.0
+  Step 53 (NOOP): actual=40.0
+  Step 54 (NOOP): actual=40.0
+  Step 55 (NOOP): actual=40.0
+  Step 56 (NOOP): actual=42.0
+  Step 57 (NOOP): actual=42.0
+  Step 58 (NOOP): actual=42.0
+  Step 59 (NOOP): actual=42.0
+  Step 60 (NOOP): actual=42.0
+  Step 61 (NOOP): actual=46.0
+  Step 62 (NOOP): actual=48.0
+  Step 63 (NOOP): actual=49.0
+  Step 64 (NOOP): actual=49.0
+  Step 65 (NOOP): actual=48.0
+  Step 66 (NOOP): actual=47.0
+  Step 67 (NOOP): actual=47.0
+  Step 68 (NOOP): actual=47.0
+  Step 69 (NOOP): actual=47.0
+  Step 70 (NOOP): actual=44.0
+  Step 71 (NOOP): actual=43.0
+  Step 72 (NOOP): actual=46.0
+  Step 73 (NOOP): actual=48.0
+  Step 74 (NOOP): actual=51.0
+  Step 75 (NOOP): actual=52.0
+  Step 76 (NOOP): actual=53.0
+  Step 77 (NOOP): actual=56.0
+  Step 78 (NOOP): actual=56.0
+  Step 79 (NOOP): actual=56.0
+  Step 80 (NOOP): actual=54.0
+  Step 81 (NOOP): actual=56.0
+  Step 82 (NOOP): actual=54.0
+  Step 83 (NOOP): actual=58.0
+  Step 84 (NOOP): actual=59.0
+  Step 85 (NOOP): actual=59.0
+  Step 86 (NOOP): actual=57.0
+  Step 87 (NOOP): actual=57.0
+  Step 88 (NOOP): actual=57.0
+  Step 89 (NOOP): actual=56.0
+  Step 90 (NOOP): actual=56.0
+  Step 91 (NOOP): actual=60.0
+  Step 92 (NOOP): actual=66.0
+  Step 93 (NOOP): actual=65.0
+  Step 94 (NOOP): actual=65.0
+  Step 95 (NOOP): actual=65.0
+  Step 96 (NOOP): actual=66.0
+  Step 97 (NOOP): actual=68.0
+  Step 98 (NOOP): actual=70.0
+  Step 99 (NOOP): actual=72.0
+  Step 100 (NOOP): actual=72.0
+
+Comparison plot saved to /Users/francescobassignana/Desktop/school/unitn/antibiotic_learning/k_step_prediction_with_vs_without_env.png
+
+======================================================================
+Test 3: K-step prediction with NOOP action
+======================================================================
+
+Testing k-step predictions with NOOP action (k=50)...
+✓ Model loaded from checkpoint
+✓ Environment created (k_steps_ahead will be capped at 100)
+✓ Environment reset
+
+Predicting 50 steps ahead with NOOP action...
+
+Collecting actual population counts with NOOP action...
+  Step 0 (initial): population=150.0
+  Step 1 (NOOP): population=150.0
+  Step 2 (NOOP): population=150.0
+  Step 3 (NOOP): population=150.0
+  Step 4 (NOOP): population=150.0
+  Step 10 (NOOP): population=150.0
+  Step 20 (NOOP): population=198.0
+  Step 30 (NOOP): population=280.0
+  Step 40 (NOOP): population=343.0
+  Step 50 (NOOP): population=446.0
+
+Step   Predicted       Actual          Error          
+-------------------------------------------------------
+0      280.5           150.0           130.5          
+1      230.3           150.0           80.3           
+2      211.6           150.0           61.6           
+3      165.7           150.0           15.7           
+4      185.9           150.0           35.9           
+5      252.5           150.0           102.5          
+6      311.9           150.0           161.9          
+7      362.5           150.0           212.5          
+8      374.1           150.0           224.1          
+9      310.8           150.0           160.8          
+10     155.0           150.0           5.0            
+11     92.9            150.0           -57.1          
+12     66.5            150.0           -83.5          
+13     59.8            151.0           -91.2          
+14     56.8            154.0           -97.2          
+15     53.0            156.0           -103.0         
+16     49.8            163.0           -113.2         
+17     47.8            171.0           -123.2         
+18     46.5            181.0           -134.5         
+19     45.3            187.0           -141.7         
+20     44.1            198.0           -153.9         
+21     43.1            208.0           -164.9         
+22     42.3            213.0           -170.7         
+23     41.5            220.0           -178.5         
+24     40.7            230.0           -189.3         
+25     39.7            241.0           -201.3         
+26     38.5            249.0           -210.5         
+27     36.9            257.0           -220.1         
+28     35.0            268.0           -233.0         
+29     33.2            276.0           -242.8         
+30     31.7            280.0           -248.3         
+31     30.2            282.0           -251.8         
+32     28.9            283.0           -254.1         
+33     27.7            287.0           -259.3         
+34     26.6            299.0           -272.4         
+35     25.5            305.0           -279.5         
+36     24.5            311.0           -286.5         
+37     23.5            318.0           -294.5         
+38     22.5            327.0           -304.5         
+39     21.5            339.0           -317.5         
+40     20.4            343.0           -322.6         
+41     19.3            354.0           -334.7         
+42     18.2            359.0           -340.8         
+43     17.3            369.0           -351.7         
+44     16.9            385.0           -368.1         
+45     16.8            400.0           -383.2         
+46     16.9            416.0           -399.1         
+47     17.1            427.0           -409.9         
+48     17.4            438.0           -420.6         
+49     17.8            445.0           -427.2         
+Traceback (most recent call last):
+  File "/Users/francescobassignana/Desktop/school/unitn/antibiotic_learning/test_k_step_prediction_with_env.py", line 1052, in <module>
+    test_k_step_with_noop_action(checkpoint_path, k_steps=50, device="cpu")
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/francescobassignana/Desktop/school/unitn/antibiotic_learning/test_k_step_prediction_with_env.py", line 736, in test_k_step_with_noop_action
+    ax.plot(steps_predicted, predictions_actual, 'g-o', linewidth=plot_params['line_width_thick'],
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            markersize=plot_params['marker_size'], label='Model Prediction (NOOP actions)', alpha=0.85)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/francescobassignana/miniforge3/envs/AL/lib/python3.13/site-packages/matplotlib/axes/_axes.py", line 1777, in plot
+    lines = [*self._get_lines(self, *args, data=data, **kwargs)]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/francescobassignana/miniforge3/envs/AL/lib/python3.13/site-packages/matplotlib/axes/_base.py", line 297, in __call__
+    yield from self._plot_args(
+               ~~~~~~~~~~~~~~~^
+        axes, this, kwargs, ambiguous_fmt_datakey=ambiguous_fmt_datakey,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        return_kwargs=return_kwargs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/francescobassignana/miniforge3/envs/AL/lib/python3.13/site-packages/matplotlib/axes/_base.py", line 494, in _plot_args
+    raise ValueError(f"x and y must have same first dimension, but "
+                     f"have shapes {x.shape} and {y.shape}")
+ValueError: x and y must have same first dimension, but have shapes (50,) and (49,)

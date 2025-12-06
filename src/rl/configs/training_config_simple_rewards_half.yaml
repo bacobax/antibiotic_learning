@@ -4,6 +4,7 @@
 environment:
   max_steps: 256
   k_doses: 3
+  k_steps_ahead: 0  # K-step ahead predictions (0 = disabled, 10/20/50 = enabled)
   device: "mps"
   dtype: "float32"
 

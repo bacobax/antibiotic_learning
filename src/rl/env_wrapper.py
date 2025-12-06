@@ -153,6 +153,7 @@ class PetriEnvWrapper:
         prediction_reward_target_weight: float = 0.25,
         prediction_alignment_scale: float = 5.0,
         prediction_target_scale: float = 3.0,
+        k_steps_ahead: int = 0,  # Number of k-step predictions to accept
         
         # ===== Early termination =====
         early_termination_enabled: bool = True,
@@ -178,6 +179,7 @@ class PetriEnvWrapper:
     ):
         self.mesa_model_factory = mesa_model_factory
         self.k_doses = k_doses
+        self.k_steps_ahead = int(max(0, k_steps_ahead))
 
         self.max_steps = int(max_steps) if (max_steps is not None and max_steps > 0) else None
         self.episode_length = float(self.max_steps) if self.max_steps is not None else None
@@ -489,6 +491,7 @@ class PetriEnvWrapper:
         self.ts_last_dose_I = None
         self.ts_last_dose_A = None
         self._dose_update_buffer = None
+        self.c=0
 
         if self.initial_skip_steps > 0:
             return self._fast_forward_without_agent(self.initial_skip_steps)
@@ -688,7 +691,7 @@ class PetriEnvWrapper:
                 self.seq_eta = duration
                 # Timer reset happens after env_step() in _update_timers_after_env_step
 
-    def step(self, a_discrete: int, a_cont: np.ndarray, pred_population: Optional[float] = None) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+    def step(self, a_discrete: int, a_cont: np.ndarray, pred_population: Optional[float] = None, pred_k_steps: Optional[np.ndarray] = None) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
         """
         Execute one step following the pseudo-code structure:
         1) Compute pre-reward
@@ -701,14 +704,29 @@ class PetriEnvWrapper:
         Args:
             a_discrete: Discrete action (NOOP=0, COUNT=1, SEQ=2, DOSE=3)
             a_cont: Continuous action (dose amounts)
-            pred_population: Optional population prediction (for prediction reward)
-            
+            pred_population: Optional population prediction for next step (for prediction reward)
+            pred_k_steps: Optional array of k-step ahead population predictions [k_steps_ahead]
+                         First element is same as pred_population (1-step ahead)
+                         
         Returns:
             obs, reward, done, info
         """
         assert 0 <= a_discrete <= 3, f"a_discrete out of range: {a_discrete}"
         assert isinstance(a_cont, np.ndarray) and a_cont.shape == (self.k_doses,)
         
+        # Validate k-step predictions if provided
+        if pred_k_steps is not None and self.k_steps_ahead > 0:
+            assert isinstance(pred_k_steps, np.ndarray), "pred_k_steps must be numpy array"
+            assert len(pred_k_steps) == self.k_steps_ahead, f"Expected {self.k_steps_ahead} predictions, got {len(pred_k_steps)}"
+            # Use first k-step prediction as the immediate prediction if pred_population not given
+            if pred_population is None:
+                pred_population = float(pred_k_steps[0])
+        print("ACTION:", a_discrete, "DOSE AMOUNTS:", a_cont)
+        print("k steps ahead predictions:", pred_k_steps*self.population_norm)
+        if a_discrete == 3:
+            self.c+=1
+        if self.c == 3:
+            raise NotImplementedError("Step function is not fully implemented.")
         # Reset reward tracking
         self.last_pre_reward = 0.0
         self.last_post_penalties = 0.0
@@ -968,7 +986,18 @@ class PetriEnvWrapper:
             # Prediction supervision signal
             "population_next_norm": population_counted_norm,
             "count_was_performed": count_result_landed,
+            
+            # K-step ahead predictions (if provided)
+            "k_steps_ahead": self.k_steps_ahead,
+            "pred_k_steps_available": pred_k_steps is not None,
+            
+            # Actual population count for monitoring
+            "actual_population": self._read_true_population(),
         }
+        
+        # Store k-step predictions in info if provided
+        if pred_k_steps is not None and self.k_steps_ahead > 0:
+            info["pred_k_steps"] = pred_k_steps.copy() if isinstance(pred_k_steps, np.ndarray) else np.array(pred_k_steps)
         
         return obs, float(total_reward), bool(done), info
 

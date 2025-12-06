@@ -218,6 +218,7 @@ class EnvironmentConfig:
     k_doses: int
     device: str
     dtype: str
+    k_steps_ahead: int
     rewards: RewardConfig
     timing: TimingConfig
     initial_bacteria_per_type_range: Optional[Tuple[int, int]] = None
@@ -999,6 +1000,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
 
     env_cfg = EnvironmentConfig(
         max_steps=int(env.get("max_steps", 0)),
+        k_steps_ahead=int(env.get("k_steps_ahead", 0)),
         k_doses=int(env.get("k_doses", 0)),
         device=str(env.get("device", "cpu")),
         dtype=str(env.get("dtype", "float32")),
@@ -1015,6 +1017,7 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> CompleteConfi
         population_norm=float(env.get("population", {}).get("population_norm", population_cfg.population_norm)),
         budget_init=float(env.get("budget", {}).get("budget_init", budget_cfg.budget_init)),
         budget_norm=float(env.get("budget", {}).get("budget_norm", budget_cfg.budget_norm)),
+
     )
 
     # Actions (keep raw dicts for action details)

@@ -396,6 +396,202 @@ class RecurrentActorCritic(nn.Module):
             "action_mask": action_mask if action_mask is not None else torch.ones(obs.shape[0], self.n_discrete, device=obs.device),  # [B, 4]
         }
     
+    def predict_k_steps_ahead(
+        self,
+        obs: torch.Tensor,
+        a_disc: torch.Tensor,
+        a_cont: torch.Tensor,
+        h_current: torch.Tensor,
+        k_steps: int,
+        env_wrapper=None,
+    ) -> torch.Tensor:
+        """
+        Predict population K steps ahead in inference mode without modifying GRU memory.
+        
+        Assumes:
+        1. The first step uses the given action (a_disc, a_cont)
+        2. All subsequent steps use NOOP action (discrete action 0)
+        3. The observation evolves based on env wrapper logic (if provided)
+        4. The GRU hidden state is never modified
+        
+        Args:
+            obs: Current observation, shape [B, obs_dim]
+            a_disc: Initial discrete action just chosen, shape [B] (LongTensor)
+            a_cont: Initial continuous action just chosen, shape [B, k_doses]
+            h_current: Current GRU hidden state, shape [layers, B, hidden_dim]
+            k_steps: Number of steps to predict ahead (including the first action step)
+            env_wrapper: Optional env wrapper instance to simulate observation evolution.
+                        If None, observation remains fixed throughout rollout.
+        
+        Returns:
+            predictions: Tensor of predicted populations over K steps, shape [K, B]
+                        Each value is normalized population (as returned by predictor)
+        """
+        B = obs.shape[0]
+        device = obs.device
+        predictions = []
+        
+        # Clone hidden state to avoid modifying original
+        # Use .detach() to ensure no gradients flow back to the actual hidden state
+        # This prevents hidden state pollution when predict_k_steps_ahead is called during training
+        h_rollout = h_current.detach().clone()
+        
+        # Current observation for rollout (will be updated if env_wrapper provided)
+        current_obs = obs.clone()
+        
+        # Step 0: Use the action that was just chosen
+        current_a_disc = a_disc
+        current_a_cont = a_cont
+        
+        # Extract vulnerabilities and build modified observation
+        avg_genome = current_obs[:, 3: 3 + N_BACTERIA_TYPES * N_TRAITS]
+        age = current_obs[:, 3 + N_BACTERIA_TYPES * N_TRAITS + 2]
+        avg_genome_with_age = torch.cat([avg_genome, age.unsqueeze(-1)], dim=-1)
+        vulnerabilities = self.vuln_predictor(avg_genome_with_age)  # [B, n_antibiotics]
+        
+        prefix = current_obs[:, :3]
+        suffix_start = 3 + N_BACTERIA_TYPES * N_TRAITS + 2 + 1
+        suffix = current_obs[:, suffix_start:]
+        obs_modified = torch.cat([prefix, vulnerabilities, suffix], dim=-1)  # [B, adjusted_obs_dim]
+        
+        # Create action encoding for step 0
+        current_action_one_hot = F.one_hot(current_a_disc, num_classes=self.n_discrete).float()
+        current_is_dose = (current_a_disc == self.dose_action_index).float()
+        # Only apply continuous action if it's a DOSE action; otherwise zero it out
+        # This ensures non-DOSE actions are properly represented as having no dose effect
+        current_action_cont = current_a_cont * current_is_dose.unsqueeze(-1)
+        # For first step, assume prev_pred_next_pop is zero (no previous prediction)
+        prev_pred_next_pop = torch.zeros(B, 1, device=device, dtype=obs.dtype)
+        
+        # Construct prev_action encoding for GRU input at step 0
+        prev_action_0 = torch.cat([
+            current_action_one_hot,
+            current_action_cont,
+            prev_pred_next_pop
+        ], dim=-1)  # [B, prev_action_dim]
+        
+        # Forward step for step 0
+        gru_input = torch.cat([obs_modified, prev_action_0], dim=-1).unsqueeze(0)  # [1, B, ...]
+        gru_out, h_rollout = self.gru(gru_input, h_rollout)
+        features = gru_out.squeeze(0)  # [B, hidden_dim]
+        
+        # Predict next population for step 0
+        pred_0 = self._predict_next_population(
+            features,
+            current_action_one_hot,
+            current_action_cont,
+            prev_pred_next_pop
+        )  # [B, 1]
+        predictions.append(pred_0.squeeze(-1))  # [B]
+        
+        # Update observation for next step if env_wrapper is provided
+        if env_wrapper is not None:
+            current_obs = self._simulate_observation_after_noop(current_obs, env_wrapper).to(device)
+        
+        # Steps 1 to K-1: All NOOP actions
+        noop_action_one_hot = F.one_hot(
+            torch.zeros(B, dtype=torch.long, device=device),
+            num_classes=self.n_discrete
+        ).float()  # [B, n_discrete] with all zeros except index 0
+        noop_action_cont = torch.zeros(B, self.k_doses, device=device, dtype=obs.dtype)  # [B, k_doses]
+        
+        for step in range(1, k_steps):
+            # Extract vulnerabilities and build modified observation for this step
+            avg_genome = current_obs[:, 3: 3 + N_BACTERIA_TYPES * N_TRAITS]
+            age = current_obs[:, 3 + N_BACTERIA_TYPES * N_TRAITS + 2]
+            avg_genome_with_age = torch.cat([avg_genome, age.unsqueeze(-1)], dim=-1).to(device)
+            vulnerabilities = self.vuln_predictor(avg_genome_with_age)
+            
+            prefix = current_obs[:, :3]
+            suffix = current_obs[:, suffix_start:]
+            obs_modified = torch.cat([prefix, vulnerabilities, suffix], dim=-1)
+            
+            # For subsequent steps, use prediction from previous step
+            # pred_0 is [B, 1], we need to keep it that way
+            
+            # Construct prev_action encoding for NOOP
+            # NOOP action means: discrete=0, continuous doses=0 (no dose applied)
+            prev_action_noop = torch.cat([
+                noop_action_one_hot,  # [B, n_discrete] one-hot for action 0
+                noop_action_cont,  # [B, k_doses] all zeros - no dose applied
+                pred_0  # [B, 1] previous prediction
+            ], dim=-1)  # [B, prev_action_dim]
+            
+            # Forward step with NOOP
+            gru_input = torch.cat([obs_modified, prev_action_noop], dim=-1).unsqueeze(0)
+            gru_out, h_rollout = self.gru(gru_input, h_rollout)
+            features = gru_out.squeeze(0)  # [B, hidden_dim]
+            
+            # Predict next population for this step
+            pred_step = self._predict_next_population(
+                features,
+                noop_action_one_hot,
+                noop_action_cont,
+                pred_0  # [B, 1]
+            )  # [B, 1]
+            predictions.append(pred_step.squeeze(-1))  # [B]
+            
+            # Update prediction for next iteration
+            pred_0 = pred_step  # [B, 1]
+            
+            # Update observation for next step if env_wrapper is provided
+            if env_wrapper is not None:
+                current_obs = self._simulate_observation_after_noop(current_obs, env_wrapper).to(device)
+        
+        return torch.stack(predictions, dim=0)  # [K, B]
+    
+    def _simulate_observation_after_noop(
+        self,
+        obs: torch.Tensor,
+        env_wrapper,
+    ) -> torch.Tensor:
+        """
+        Simulate how the observation would change after a NOOP action.
+        
+        Uses env_wrapper's internal state to properly construct the observation,
+        accounting for timer updates, aging, and all measurement caches.
+        
+        IMPORTANT: This method temporarily modifies env_wrapper state (t and timers),
+        then restores it. This ensures accurate observation simulation while avoiding
+        permanent changes to the environment.
+        
+        Args:
+            obs: Current observation (not used - for API consistency), shape [B, obs_dim]
+            env_wrapper: Environment wrapper instance
+        
+        Returns:
+            Updated observation tensor, shape [B, obs_dim]
+                Single sample will be repeated B times in batch dimension
+        """
+        # Save current state
+        t_saved = env_wrapper.t
+        t_since_count_saved = env_wrapper.t_since_last_count
+        t_since_dose_saved = env_wrapper.t_since_last_dose
+        t_since_seq_saved = env_wrapper.t_since_last_seq
+        
+        # Simulate NOOP action: advance time and timers without changing measurements
+        env_wrapper.t += 1
+        env_wrapper.t_since_last_count += 1.0
+        env_wrapper.t_since_last_dose += 1.0
+        env_wrapper.t_since_last_seq += 1.0
+        
+        # Build observation using env_wrapper's internal state
+        # This properly ages all measurements and updates t_norm
+        obs_noop = env_wrapper._build_observation()  # [obs_dim]
+        
+        # Restore state to avoid polluting the real environment
+        env_wrapper.t = t_saved
+        env_wrapper.t_since_last_count = t_since_count_saved
+        env_wrapper.t_since_last_dose = t_since_dose_saved
+        env_wrapper.t_since_last_seq = t_since_seq_saved
+        
+        # Convert to tensor and repeat for batch dimension
+        B = obs.shape[0]
+        obs_tensor = torch.from_numpy(obs_noop).float()  # [obs_dim]
+        obs_batch = obs_tensor.unsqueeze(0).expand(B, -1).clone()  # [B, obs_dim]
+        
+        return obs_batch
+    
     def evaluate_actions(
         self,
         obs_seq: torch.Tensor,
