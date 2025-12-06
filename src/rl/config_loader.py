@@ -96,6 +96,8 @@ class InformedDosingConfig:
     penalty_blind_dose_amount_scale: float
     penalty_blind_dose_amount_exponent: float
     penalty_blind_dose_max: Optional[float]
+    dosing_margin: float
+    penalty_dosing_in_margin: float
 
 
 @dataclass

@@ -117,6 +117,8 @@ class PetriEnvWrapper:
         penalty_blind_dose_amount_scale: float = 0.0,
         penalty_blind_dose_amount_exponent: float = 1.0,
         penalty_blind_dose_max: Optional[float] = None,
+        dosing_margin: float = 0.0,
+        penalty_dosing_in_margin: float = 0.0,
         
         # Sequencing
         seq_already_pending_penalty: float = 2.0,
@@ -272,6 +274,8 @@ class PetriEnvWrapper:
             penalty_blind_dose_amount_scale=penalty_blind_dose_amount_scale,
             penalty_blind_dose_amount_exponent=penalty_blind_dose_amount_exponent,
             penalty_blind_dose_max=penalty_blind_dose_max,
+            dosing_margin=dosing_margin,
+            penalty_dosing_in_margin=penalty_dosing_in_margin,
         )
         
         self.sequencing_reward = SequencingReward(
@@ -753,11 +757,14 @@ class PetriEnvWrapper:
         self.last_step_budget = float(self.budget)
         cost_penalty = -action_cost * self.cost_weight if action_cost > 0.0 else 0.0
         self.last_action_cost_penalty = cost_penalty
+
+
         
         # Advance the biological simulation by one step
         self.model.step()
         self.t += 1
         
+        #print(f"current pop before step: {debug_pop_before}, current pop after step: {debug_pop_after}, action: {a_discrete}, predicted_pop: {pred_population * self.population_norm}")
         # ==============================================
         # STEP 4: POST-ENV UPDATES & OBSERVATION CACHING
         # ==============================================

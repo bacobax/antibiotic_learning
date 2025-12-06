@@ -909,6 +909,12 @@ def _create_environment(
         penalty_blind_dose_max = getattr(
             informed_dosing, 'penalty_blind_dose_max', None
         )
+        dosing_margin = getattr(
+            informed_dosing, 'dosing_margin', 0.0
+        )
+        penalty_dosing_in_margin = getattr(
+            informed_dosing, 'penalty_dosing_in_margin', 0.0
+        )
     else:
         raise ValueError("Informed dosing reward config is required in the new reward structure.")
     
@@ -1044,6 +1050,8 @@ def _create_environment(
         penalty_blind_dose_amount_scale=penalty_blind_dose_amount_scale,
         penalty_blind_dose_amount_exponent=penalty_blind_dose_amount_exponent,
         penalty_blind_dose_max=penalty_blind_dose_max,
+        dosing_margin=dosing_margin,
+        penalty_dosing_in_margin=penalty_dosing_in_margin,
         
         # Pre-step rewards (sequencing)
         seq_already_pending_penalty=seq_already_pending_penalty,

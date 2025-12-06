@@ -53,6 +53,8 @@ environment:
       penalty_blind_dose_amount_scale: 1.5    # Scales blind penalty with antibiotic amount
       penalty_blind_dose_amount_exponent: 1.1 # Non-linear scaling for blind high doses
       penalty_blind_dose_max: null            # Hard ceiling for blind penalty (null = disabled)
+      dosing_margin: 0.0                      # Margin offset from target_pop for dosing threshold (0 = threshold at target_pop)
+      penalty_dosing_in_margin: 0.0           # Penalty when dosing in margin zone (target_pop < pop < target_pop + margin). Set lower than penalty_dosing_under_target
     sequencing:
       seq_already_pending_penalty: 0.0        # Penalty for redundant sequencing
       informative_seq_reward: 1.0             # Reward for informative sequencing
@@ -150,7 +152,7 @@ ppo:
 
 # Training configuration
 training:
-  total_updates: 500
+  total_updates: 1500
   seed: 42
   checkpoint_interval: 100
   log_interval: 2
