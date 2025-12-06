@@ -346,7 +346,7 @@ class RecurrentActorCritic(nn.Module):
         mu = torch.tanh(mu_raw) * (self.sigmoid_scale_factor / 2) + (self.sigmoid_scale_factor / 2)  # [B, k_doses]
         
         # Softplus for std: map to [0.01, sigmoid_scale_factor/3]
-        std = torch.softplus(std_scale_raw) * (self.sigmoid_scale_factor / 3) + 0.01  # [B, k_doses]
+        std = F.softplus(std_scale_raw) * (self.sigmoid_scale_factor / 3) + 0.01  # [B, k_doses]
 
         # Value estimate
         value = self.value_head(features)  # [B, 1]
@@ -556,7 +556,7 @@ class RecurrentActorCritic(nn.Module):
         mu = torch.tanh(mu_raw) * (self.sigmoid_scale_factor / 2) + (self.sigmoid_scale_factor / 2)  # [T, B, k_doses]
         
         # Softplus for std
-        std = torch.softplus(std_scale_raw) * (self.sigmoid_scale_factor / 3) + 0.01  # [T, B, k_doses]
+        std = F.softplus(std_scale_raw) * (self.sigmoid_scale_factor / 3) + 0.01  # [T, B, k_doses]
         
         value = self.value_head(gru_out).squeeze(-1)  # [T, B]
         
