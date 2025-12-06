@@ -197,9 +197,25 @@ class RecurrentActorCritic(nn.Module):
         # Discrete action head
         self.discrete_head = nn.Linear(hidden_dim, n_discrete)
         
-        # Continuous action head (Gaussian policy with sigmoid scaling)
-        self.continuous_head = nn.Linear(hidden_dim + self.vuln_dim, k_doses)
-        self.continuous_log_std = nn.Parameter(torch.zeros(k_doses))
+        # Continuous action head with context-aware dose prediction
+        # Context features: [GRU_features, vulnerabilities, pop_ratio, last_count_age_norm, measure_age_norm, last_dose_age]
+        # +4 for context: pop_ratio, last_count_age_norm, measure_age_norm, last_dose_age
+        dose_context_input_dim = hidden_dim + self.vuln_dim + 4
+        self.dose_context = nn.Sequential(
+            nn.Linear(dose_context_input_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+        )
+        
+        # Separate heads for mean and std with adaptive output
+        # Output k_doses * 2 to predict both mu and std_scale
+        self.dose_head = nn.Linear(64, k_doses * 2)
+        
+        # Intelligent log_std initialization: start with std = sigmoid_scale_factor * 0.25
+        # This gives reasonable exploration relative to the action range
+        initial_std = sigmoid_scale_factor * 0.25
+        self.continuous_log_std = nn.Parameter(torch.full((k_doses,), torch.log(torch.tensor(initial_std))))
         
         # Value head
         self.value_head = nn.Linear(hidden_dim, 1)
@@ -212,10 +228,14 @@ class RecurrentActorCritic(nn.Module):
         self.apply(lambda m: init_weights_orthogonal(m, gain=1.0))
         # Smaller init for output layers
         init_weights_orthogonal(self.discrete_head, gain=0.01)
-        init_weights_orthogonal(self.continuous_head, gain=0.01)
+        init_weights_orthogonal(self.dose_head, gain=0.01)
         init_weights_orthogonal(self.value_head, gain=1.0)
         init_weights_orthogonal(self.prediction_fc, gain=1.0)
         init_weights_orthogonal(self.pred_head, gain=0.01)
+        # Initialize dose context layers
+        for layer in self.dose_context:
+            if isinstance(layer, nn.Linear):
+                init_weights_orthogonal(layer, gain=1.0)
     
     def forward_step(
         self, 
@@ -285,10 +305,48 @@ class RecurrentActorCritic(nn.Module):
         # Discrete action logits
         logits_disc = self.discrete_head(features)  # [B, n_discrete]
         
-        # Continuous action distribution (sigmoid-scaled)
-        mu_raw = self.continuous_head(torch.cat([features, vulnerabilities], dim=-1))  # [B, k_doses]
-        mu = torch.sigmoid(mu_raw) * self.sigmoid_scale_factor  # [B, k_doses] in [0, sigmoid_scale_factor]
-        std = torch.exp(self.continuous_log_std).expand_as(mu)  # [B, k_doses]
+        # Continuous action distribution with context-aware, adaptive mean and std
+        # Extract context features from ORIGINAL observation (before vuln replacement)
+        # Original obs structure: [last_count_norm, has_last_count, last_count_age_norm, 
+        #                         genome(12), has_last_seq, last_seq_age_norm, measure_age_norm,
+        #                         dose_features(9), t_norm]
+        last_count_norm = obs[:, 0:1]  # [B, 1]
+        last_count_age_norm = obs[:, 2:3]  # [B, 1]
+        
+        # measure_age_norm is at index: 3 (prefix) + 12 (genome) + 2 (has/age seq) = 17
+        measure_age_norm = obs[:, 3 + N_BACTERIA_TYPES * N_TRAITS + 2:3 + N_BACTERIA_TYPES * N_TRAITS + 3]  # [B, 1]
+        
+        # last_dose_age: for each antibiotic, there are 3 features [has, norm, age]
+        # Dose features start at: 3 + genome + has_seq + seq_age + measure_age = 3 + 12 + 1 + 1 + 1 = 18
+        # For antibiotic 0: [has, norm, age], for 1: [has, norm, age], for 2: [has, norm, age]
+        # Last dose age is the last feature before t_norm, specifically indices 26 (K), 29 (I), 32 (A) for their ages
+        # We take the minimum/most recent dose age across antibiotics
+        dose_features_start = 3 + N_BACTERIA_TYPES * N_TRAITS + 3  # Start of dose features
+        dose_ages = obs[:, dose_features_start + 2::3]  # Every 3rd value starting from offset 2 (the age within each triple)
+        last_dose_age = torch.min(dose_ages, dim=1, keepdim=True)[0]  # [B, 1] - most recent (minimum age)
+        
+        # Population ratio: normalized population (already in [0, 1])
+        pop_ratio = torch.clamp(last_count_norm, 0.0, 1.0)  # [B, 1]
+        
+        # Build context input: [features, vulnerabilities, pop_ratio, last_count_age_norm, measure_age_norm, last_dose_age]
+        dose_context_input = torch.cat(
+            [features, vulnerabilities, pop_ratio, last_count_age_norm, measure_age_norm, last_dose_age],
+            dim=-1
+        )  # [B, hidden_dim + vuln_dim + 4]
+        
+        # Process through context network
+        dose_context = self.dose_context(dose_context_input)  # [B, 64]
+        
+        # Output mu and std_scale from dose head
+        head_out = self.dose_head(dose_context)  # [B, k_doses * 2]
+        mu_raw = head_out[:, :self.k_doses]  # [B, k_doses]
+        std_scale_raw = head_out[:, self.k_doses:]  # [B, k_doses]
+        
+        # Tanh for mean: map to [-1, 1] then affine to [0, sigmoid_scale_factor]
+        mu = torch.tanh(mu_raw) * (self.sigmoid_scale_factor / 2) + (self.sigmoid_scale_factor / 2)  # [B, k_doses]
+        
+        # Softplus for std: map to [0.01, sigmoid_scale_factor/3]
+        std = torch.softplus(std_scale_raw) * (self.sigmoid_scale_factor / 3) + 0.01  # [B, k_doses]
 
         # Value estimate
         value = self.value_head(features)  # [B, 1]
@@ -460,9 +518,46 @@ class RecurrentActorCritic(nn.Module):
         
         # Compute heads
         logits_disc = self.discrete_head(gru_out)  # [T, B, n_discrete]
-        mu_raw = self.continuous_head(torch.cat([gru_out, vulnerabilities_seq], dim=-1))  # [T, B, k_doses]
-        mu = torch.sigmoid(mu_raw) * self.sigmoid_scale_factor  # [T, B, k_doses] in [0, sigmoid_scale_factor]
-        std = torch.exp(self.continuous_log_std).expand_as(mu)  # [T, B, k_doses]
+        
+        # Continuous action distribution with context-aware, adaptive mean and std
+        # Extract context features from ORIGINAL observation sequence (before vuln replacement)
+        last_count_norm_seq = obs_seq[:, :, 0:1]  # [T, B, 1]
+        last_count_age_norm_seq = obs_seq[:, :, 2:3]  # [T, B, 1]
+        
+        # measure_age_norm is at index: 3 + genome + has_seq + seq_age = 3 + 12 + 1 + 1 = 17
+        measure_age_norm_seq = obs_seq[:, :, 3 + N_BACTERIA_TYPES * N_TRAITS + 2:3 + N_BACTERIA_TYPES * N_TRAITS + 3]  # [T, B, 1]
+        
+        # last_dose_age: extract from dose features (minimum age across all antibiotics)
+        dose_features_start = 3 + N_BACTERIA_TYPES * N_TRAITS + 3  # Start of dose features
+        dose_ages_seq = obs_seq[:, :, dose_features_start + 2::3]  # Every 3rd value starting from offset 2
+        last_dose_age_seq = torch.min(dose_ages_seq, dim=2, keepdim=True)[0]  # [T, B, 1] - most recent
+        
+        # Population ratio
+        pop_ratio_seq = torch.clamp(last_count_norm_seq, 0.0, 1.0)  # [T, B, 1]
+        
+        # Build context input sequence
+        dose_context_input_seq = torch.cat(
+            [gru_out, vulnerabilities_seq, pop_ratio_seq, last_count_age_norm_seq, measure_age_norm_seq, last_dose_age_seq],
+            dim=-1
+        )  # [T, B, hidden_dim + vuln_dim + 4]
+        
+        # Process through context network
+        T_seq, B_seq = dose_context_input_seq.shape[:2]
+        dose_context_input_flat = dose_context_input_seq.reshape(-1, dose_context_input_seq.shape[-1])  # [T*B, ...]
+        dose_context_flat = self.dose_context(dose_context_input_flat)  # [T*B, 64]
+        dose_context_seq = dose_context_flat.reshape(T_seq, B_seq, -1)  # [T, B, 64]
+        
+        # Output mu and std_scale
+        head_out_flat = self.dose_head(dose_context_flat)  # [T*B, k_doses*2]
+        mu_raw = head_out_flat[:, :self.k_doses].reshape(T_seq, B_seq, self.k_doses)  # [T, B, k_doses]
+        std_scale_raw = head_out_flat[:, self.k_doses:].reshape(T_seq, B_seq, self.k_doses)  # [T, B, k_doses]
+        
+        # Tanh for mean
+        mu = torch.tanh(mu_raw) * (self.sigmoid_scale_factor / 2) + (self.sigmoid_scale_factor / 2)  # [T, B, k_doses]
+        
+        # Softplus for std
+        std = torch.softplus(std_scale_raw) * (self.sigmoid_scale_factor / 3) + 0.01  # [T, B, k_doses]
+        
         value = self.value_head(gru_out).squeeze(-1)  # [T, B]
         
         # Apply action masks if provided

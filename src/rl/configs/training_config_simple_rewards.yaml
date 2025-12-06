@@ -2,7 +2,7 @@
 # All rewards are pre/post step based with timing windows and freshness checks
 
 environment:
-  max_steps: 384
+  max_steps: 4000
   k_doses: 3
   device: "mps"
   dtype: "float32"
@@ -16,7 +16,7 @@ environment:
     max_individual_history: 100   # Per-individual history window
 
   history:
-    max_steps: 2000                # Trim global per-step history buffers
+    max_steps: 4000                # Trim global per-step history buffers
 
   reward_buffers:
     max_recent_dose_events: 256    # Controls PetriEnvWrapper recent-dose deque size
@@ -53,8 +53,8 @@ environment:
       penalty_blind_dose_amount_scale: 1.5    # Scales blind penalty with antibiotic amount
       penalty_blind_dose_amount_exponent: 1.1 # Non-linear scaling for blind high doses
       penalty_blind_dose_max: null            # Hard ceiling for blind penalty (null = disabled)
-      dosing_margin: 0.0                      # Margin offset from target_pop for dosing threshold (0 = threshold at target_pop)
-      penalty_dosing_in_margin: 0.0           # Penalty when dosing in margin zone (target_pop < pop < target_pop + margin). Set lower than penalty_dosing_under_target
+      dosing_margin: 100                      # Margin offset from target_pop for dosing threshold (0 = threshold at target_pop)
+      penalty_dosing_in_margin: 8.0           # Penalty when dosing in margin zone (target_pop < pop < target_pop + margin). Set lower than penalty_dosing_under_target
     sequencing:
       seq_already_pending_penalty: 0.0        # Penalty for redundant sequencing
       informative_seq_reward: 1.0             # Reward for informative sequencing
