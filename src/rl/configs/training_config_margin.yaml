@@ -2,9 +2,9 @@
 # All rewards are pre/post step based with timing windows and freshness checks
 
 environment:
-  max_steps: 1500
+  max_steps: 2000
   k_doses: 3
-  device: "mps"
+  device: "cuda"
   dtype: "float32"
   initial_bacteria_per_type_range: [30, 90]
   warmup_skip_steps: 10
@@ -16,7 +16,7 @@ environment:
     max_individual_history: 100   # Per-individual history window
 
   history:
-    max_steps: 3000                # Trim global per-step history buffers
+    max_steps: 2000                # Trim global per-step history buffers
 
   reward_buffers:
     max_recent_dose_events: 256    # Controls PetriEnvWrapper recent-dose deque size
@@ -26,7 +26,7 @@ environment:
     t_count_freshness: 8              # Steps for count to remain "fresh"
     t_seq_freshness: 10                # Steps for sequencing to remain "fresh"
     max_count_window: 20              # Max steps without counting before penalty
-    critical_ratio: 3.0               # Population ratio for critical state (target × ratio)
+    critical_ratio: 4.0               # Population ratio for critical state (target × ratio)
     
     # Timing windows for informative actions
     count_window:
@@ -47,14 +47,14 @@ environment:
       penalty_dosing_under_target_deficit_scale: 3.0 # Extra penalty per deficit fraction
       penalty_dosing_under_target_deficit_cap: 1.8   # Multiplier/cap for normalized deficit term
       penalty_dosing_under_target_max: null    # Hard ceiling for under-target penalty (null = disabled)
-      reward_dosing_above_with_seq: 2.0       # Reward for dosing above target with seq
-      reward_dosing_above_no_seq: 1.0         # Reward for dosing above target without seq
+      reward_dosing_above_with_seq: 5.0       # Reward for dosing above target with seq
+      reward_dosing_above_no_seq: 4.0         # Reward for dosing above target without seq
       penalty_blind_dose: 10.0                # Base penalty for dosing without fresh count
       penalty_blind_dose_amount_scale: 1.5    # Scales blind penalty with antibiotic amount
       penalty_blind_dose_amount_exponent: 1.1 # Non-linear scaling for blind high doses
       penalty_blind_dose_max: null            # Hard ceiling for blind penalty (null = disabled)
-      dosing_margin: 100                      # Margin offset from target_pop for dosing threshold (0 = threshold at target_pop)
-      penalty_dosing_in_margin: 8.0           # Penalty when dosing in margin zone (target_pop < pop < target_pop + margin). Set lower than penalty_dosing_under_target
+      dosing_margin: 200.0                      # Margin offset from target_pop for dosing threshold (0 = threshold at target_pop)
+      penalty_dosing_in_margin: 4.0           # Penalty when dosing in margin zone (target_pop < pop < target_pop + margin). Set lower than penalty_dosing_under_target
     sequencing:
       seq_already_pending_penalty: 0.0        # Penalty for redundant sequencing
       informative_seq_reward: 1.0             # Reward for informative sequencing
@@ -64,7 +64,7 @@ environment:
     noop:
       strategic_noop_reward: 0.5              # Reward for waiting when below target
     critical_penalties:
-      penalty_critical_no_dose: 0.5           # Penalty for not dosing when critical
+      penalty_critical_no_dose: 1           # Penalty for not dosing when critical
       penalty_critical_no_count: 0.0          # Penalty for stale count data
     population_maintenance:
       enabled: true
@@ -133,7 +133,7 @@ model:
   n_discrete: 4
   dose_action_index: 3
   k_doses: 3
-  sigmoid_scale_factor: 0.2
+  sigmoid_scale_factor: 0.1
   override_sigmoid_scale_factor_from_checkpoint: true  # If true, use yaml value instead of checkpoint value
 
 # PPO hyperparameters
@@ -152,12 +152,12 @@ ppo:
 
 # Training configuration
 training:
-  total_updates: 1500
+  total_updates: 4500
   seed: 42
-  checkpoint_interval: 100
+  checkpoint_interval: 500
   log_interval: 2
   save_dir: "./checkpoints"
-  experiment_name: "new_expression_computation"
+  experiment_name: "new_margin_penalty"
   save_checkpoints_per_run: true
   log_window_size: 200            # Rolling window for in-memory training metrics
   log_memory: true                # Enable periodic RSS/CUDA memory telemetry
