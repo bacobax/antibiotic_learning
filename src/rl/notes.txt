@@ -1,6 +1,0 @@
-change count_pop_reward in env_wrapper, the count is strange
-
-head for prediction next population
-
-add big penalty for not counting every so often -> renable critical NOOP penalty
-if last_counting i bigger then treshold, big penalty every time you dont COUNT even NOOp

@@ -425,7 +425,7 @@ DOSE:     {action_pcts.get(3, 0):5.1f}% ({stats.get('action_counts_total', {}).g
         prediction_reward = current_rewards.get('prediction', 0.0)
         pre_reward = current_rewards.get('pre', 0.0)
         post_penalties = current_rewards.get('post_penalties', 0.0)
-    cost_penalty = current_rewards.get('cost_penalty', 0.0)
+        cost_penalty = current_rewards.get('cost_penalty', 0.0)
         
         text = f"""Step: {stats.get('step', 0)}
 Episode Return: {stats.get('episode_return', 0):.2f}
@@ -648,7 +648,7 @@ class TrainingVisualizer:
             logger.log_info(f"Loading checkpoint from: {resume_from}")
             try:
                 from rl.training_utils import _load_checkpoint_into_agent
-                self.current_update = _load_checkpoint_into_agent(self.agent, resume_from, logger)
+                self.current_update = _load_checkpoint_into_agent(self.agent, resume_from, logger, self.config)
             except Exception as e:
                 logger.log_error(f"Failed to load checkpoint: {e}")
                 import traceback

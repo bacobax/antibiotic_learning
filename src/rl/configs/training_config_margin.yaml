@@ -2,7 +2,7 @@
 # All rewards are pre/post step based with timing windows and freshness checks
 
 environment:
-  max_steps: 384
+  max_steps: 2000
   k_doses: 3
   device: "cuda"
   dtype: "float32"
@@ -54,7 +54,7 @@ environment:
       penalty_blind_dose_amount_exponent: 1.1 # Non-linear scaling for blind high doses
       penalty_blind_dose_max: null            # Hard ceiling for blind penalty (null = disabled)
       dosing_margin: 200.0                      # Margin offset from target_pop for dosing threshold (0 = threshold at target_pop)
-      penalty_dosing_in_margin: 4.0           # Penalty when dosing in margin zone (target_pop < pop < target_pop + margin). Set lower than penalty_dosing_under_target
+      penalty_dosing_in_margin: 8.0           # Penalty when dosing in margin zone (target_pop < pop < target_pop + margin). Set lower than penalty_dosing_under_target
     sequencing:
       seq_already_pending_penalty: 0.0        # Penalty for redundant sequencing
       informative_seq_reward: 1.0             # Reward for informative sequencing
@@ -71,7 +71,7 @@ environment:
       kernel_type: "gaussian"                 # "gaussian" or "laplace"
       kernel_peak_reward: 30.0                 # R: peak reward at target
       kernel_max_penalty: 5.0                 # M: maximum penalty (min value -M)
-      kernel_zero_distance: 45.0              # distance where kernel equals 0
+      kernel_zero_distance: 30.0              # distance where kernel equals 0
     survival_bonus:
       enabled: true
       base_bonus: 2.0
@@ -152,7 +152,7 @@ ppo:
 
 # Training configuration
 training:
-  total_updates: 3000
+  total_updates: 6000
   seed: 42
   checkpoint_interval: 500
   log_interval: 2

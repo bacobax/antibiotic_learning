@@ -20,7 +20,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Optional, Callable
 from datetime import datetime
-
+from pprint import pprint
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -158,6 +158,11 @@ def rollout(
     # Prediction tracking (diagnostic only - error metric)
     episode_pred_error = []
     
+    # Dose tracking per antibiotic type (k_doses)
+    # Track doses per episode, then aggregate across episodes in rollout
+    episode_doses_per_type = []  # List of np.array of shape [k_doses], one per episode
+    current_episode_doses = []  # List of dose arrays for current episode (only DOSE actions)
+    
     current_episode_reward = 0.0
     current_episode_length = 0
     dose_action_count = 0  # Track number of DOSE actions
@@ -206,9 +211,10 @@ def rollout(
         pure_a_cont = a_cont.cpu().numpy()[0]
         # Extract actions
         
-        # Track dose actions
+        # Track dose actions and store dose values
         if pure_a_disc == ACTION_DOSE:
             dose_action_count += 1
+            current_episode_doses.append(pure_a_cont.copy())  # Store dose values for this step
         if pure_a_disc == ACTION_SEQUENCING:
             sequencing_action_count += 1
         if pure_a_disc == ACTION_COUNT_BACTERIA:
@@ -309,6 +315,13 @@ def rollout(
             episode_budgets_remaining.append(budget_metrics['current_budget'])
             episode_budgets_per_step.append(budget_metrics['budget_per_step'])
             
+            # Aggregate doses for completed episode
+            # Average doses across all DOSE steps in this episode, for each antibiotic type
+            if current_episode_doses:
+                episode_dose_array = np.array(current_episode_doses)  # Shape: [num_dose_steps, k_doses]
+                episode_mean_doses = np.mean(episode_dose_array, axis=0)  # Shape: [k_doses]
+                episode_doses_per_type.append(episode_mean_doses)
+            
             # Reset episode tracking
             current_episode_reward = 0.0
             current_episode_length = 0
@@ -342,6 +355,16 @@ def rollout(
     mean_pred_error = float(np.mean(episode_pred_error)) if episode_pred_error else 0.0
     print(f"PREDICTION REWARD (AVG): {mean_pred_reward:.4f} | ERROR: {mean_pred_error:.4f}")
     
+    # Compute dose metrics: average across episodes in rollout, per antibiotic type
+    dose_metrics = {}
+    if episode_doses_per_type:
+        rollout_dose_array = np.array(episode_doses_per_type)  # Shape: [num_episodes, k_doses]
+        rollout_mean_doses = np.mean(rollout_dose_array, axis=0)  # Shape: [k_doses]
+        
+        # Create metrics for each antibiotic type
+        for i in range(len(rollout_mean_doses)):
+            dose_metrics[f"doses/antibiotic_{i}"] = float(rollout_mean_doses[i])
+    
     metrics = {
         "mean_episode_reward": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
         "std_episode_reward": float(np.std(episode_rewards)) if episode_rewards else 0.0,
@@ -369,13 +392,15 @@ def rollout(
         "rewards/survival_bonus": float(np.mean(episode_reward_survival_bonus)) if episode_reward_survival_bonus else 0.0,
         "rewards/prediction": float(np.mean(episode_reward_prediction)) if episode_reward_prediction else 0.0,
         "rewards/early_termination_penalty": float(np.mean(episode_reward_early_termination_penalty)) if episode_reward_early_termination_penalty else 0.0,
-    "rewards/cost_penalty": float(np.mean(episode_reward_cost_penalty)) if episode_reward_cost_penalty else 0.0,
+        "rewards/cost_penalty": float(np.mean(episode_reward_cost_penalty)) if episode_reward_cost_penalty else 0.0,
         "rewards/total": float(np.mean(episode_rewards)) if episode_rewards else 0.0,
         # Prediction metrics
         "prediction/error": float(np.mean(episode_pred_error)) if episode_pred_error else 0.0,
         # Early termination metrics
         "early_termination/count": early_termination_count,
         "early_termination/rate": float(early_termination_count) / len(episode_rewards) if episode_rewards else 0.0,
+        # Dose metrics (per antibiotic type)
+        **dose_metrics,
     }
     
     return metrics
@@ -406,7 +431,7 @@ def _initialize_agent(cfg: PPOConfig, env: PetriEnvWrapper) -> RLAgent:
     return agent
 
 
-def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: TrainingLogger) -> int:
+def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: TrainingLogger, config: CompleteConfig = None) -> int:
     """
     Load checkpoint state into an existing agent.
     
@@ -414,6 +439,7 @@ def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: Tr
         agent: Agent to load checkpoint into
         checkpoint_path: Path to checkpoint file
         logger: Training logger
+        config: Optional CompleteConfig to check override_sigmoid_scale_factor_from_checkpoint flag
         
     Returns:
         Update number from checkpoint
@@ -427,22 +453,68 @@ def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: Tr
     if "rl.config" not in sys.modules:
         sys.modules["rl.config"] = ConfigModule()
     
+    # Determine target device from agent's model
+    target_device = next(agent.model.parameters()).device
+    
+    # Map checkpoint to target device (handles CUDA -> CPU/MPS conversion)
+    def _map_location(storage, loc):
+        if loc.startswith('cuda'):
+            return storage.cpu()
+        return storage
+    
     try:
-        checkpoint = torch.load(checkpoint_path, weights_only=False)
+        checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=_map_location)
     except ModuleNotFoundError as e:
         if "rl.config" in str(e):
             sys.modules["rl.config"] = ConfigModule()
-            checkpoint = torch.load(checkpoint_path, weights_only=False)
+            checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=_map_location)
         else:
             raise
     
     # Load model state
     agent.model.load_state_dict(checkpoint["model_state_dict"])
     
+    # Check if we should override sigmoid_scale_factor from checkpoint
+    should_override = config and getattr(config.model, "override_sigmoid_scale_factor_from_checkpoint", False)
+    
+    if should_override:
+        # Use the value from the YAML config, don't restore from checkpoint
+        agent.model.sigmoid_scale_factor = config.model.sigmoid_scale_factor
+        logger.log_info(f"✓ Overriding sigmoid_scale_factor from checkpoint with YAML value: {config.model.sigmoid_scale_factor}")
+    else:
+        # Restore sigmoid_scale_factor from checkpoint (if available)
+        if "sigmoid_scale_factor" in checkpoint:
+            agent.model.sigmoid_scale_factor = checkpoint["sigmoid_scale_factor"]
+            logger.log_debug(f"✓ Restored sigmoid_scale_factor: {checkpoint['sigmoid_scale_factor']}")
+        elif hasattr(checkpoint.get("config"), "sigmoid_scale_factor"):
+            agent.model.sigmoid_scale_factor = checkpoint["config"].sigmoid_scale_factor
+            logger.log_debug(f"✓ Restored sigmoid_scale_factor from config: {checkpoint['config'].sigmoid_scale_factor}")
+    
+    print(f"SIGMOID SCALE FACTOR AFTER LOADING CHECKPOINT: {agent.model.sigmoid_scale_factor}")
+    # Move model to target device
+    agent.model.to(target_device)
+    
     # Load optimizer state if available
     if "optimizer_state_dict" in checkpoint and agent.trainer:
         agent.trainer.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         logger.log_debug("✓ Loaded optimizer state")
+    
+    # Restore recurrent and action encoding state if available
+    if "h_state" in checkpoint:
+        agent.prev_h_state = checkpoint["h_state"].to(target_device)
+        logger.log_debug("✓ Restored recurrent hidden state")
+    
+    if "prev_action_onehot" in checkpoint:
+        agent.prev_action_onehot = checkpoint["prev_action_onehot"].to(target_device)
+        logger.log_debug("✓ Restored previous action (onehot)")
+    
+    if "prev_action_cont" in checkpoint:
+        agent.prev_action_cont = checkpoint["prev_action_cont"].to(target_device)
+        logger.log_debug("✓ Restored previous action (continuous)")
+    
+    if "prev_pred_next_pop" in checkpoint:
+        agent.prev_pred_next_pop = checkpoint["prev_pred_next_pop"].to(target_device)
+        logger.log_debug("✓ Restored previous predicted population")
     
     update_number = checkpoint.get("update", 0)
     logger.log_info(f"✓ Loaded checkpoint from update {update_number}")
@@ -651,10 +723,33 @@ def _setup_logger_and_log_startup(
     # Extract rewards config for cleaner access
     rewards = config.environment.rewards
     
+    env_population_target = (
+        config.environment.population_target
+        if config.environment.population_target is not None
+        else rewards.population.target_population
+    )
+    env_population_norm = (
+        config.environment.population_norm
+        if config.environment.population_norm is not None
+        else rewards.population.population_norm
+    )
+    env_budget_init = (
+        config.environment.budget_init
+        if config.environment.budget_init is not None
+        else rewards.budget.budget_init
+    )
+    env_budget_norm = (
+        config.environment.budget_norm
+        if config.environment.budget_norm is not None
+        else rewards.budget.budget_norm
+    )
+
     logger.log_info(f"Environment Settings:")
     logger.log_info(f"  - Max steps: {config.environment.max_steps}")
-    logger.log_info(f"  - Target population: {rewards.population.target_population}")
-    logger.log_info(f"  - Budget: {rewards.budget.budget_init}")
+    logger.log_info(f"  - Target population: {env_population_target}")
+    logger.log_info(f"  - Population normalization: {env_population_norm}")
+    logger.log_info(f"  - Budget init: {env_budget_init}")
+    logger.log_info(f"  - Budget normalization: {env_budget_norm}")
     logger.log_info(f"  - K doses (antibiotic types): {config.environment.k_doses}")
     # Report device with CUDA details when relevant
     try:
@@ -695,21 +790,11 @@ def _setup_logger_and_log_startup(
     logger.log_info(f"  - Total updates: {config.training.total_updates}")
     logger.log_info(f"  - Seed: {config.training.seed}")
     
-    logger.log_info(f"Reward Weights:")
-    logger.log_info(f"  - Population: {rewards.dose.w_pop}")
-    logger.log_info(f"  - Genome: {rewards.dose.w_genome}")
-    logger.log_info(f"  - Cost: {rewards.dose.w_cost}")
-    logger.log_info(f"  - Population maintenance: {rewards.population.w_population_maintenance}")
-    
     logger.log_info(f"Reward Modules:")
     logger.log_info(f"  - Survival bonus: {'enabled' if rewards.survival_bonus.enabled else 'disabled'}")
     if rewards.survival_bonus.enabled:
         logger.log_info(f"    - Base bonus: {rewards.survival_bonus.base_bonus}")
         logger.log_info(f"    - Scaling type: {rewards.survival_bonus.scaling_type}")
-    logger.log_info(f"  - Budget conservation: {'enabled' if rewards.budget_conservation.enabled else 'disabled'}")
-    if rewards.budget_conservation.enabled:
-        logger.log_info(f"    - Weight: {rewards.budget_conservation.weight}")
-        logger.log_info(f"    - Reserve threshold: {rewards.budget_conservation.reserve_bonus_threshold}")
     logger.log_info(f"  - Prediction reward: {'enabled' if rewards.prediction.enabled else 'disabled'}")
     if rewards.prediction.enabled:
         pred_cfg = rewards.prediction
@@ -776,7 +861,8 @@ def _create_environment(
     # Otherwise, provide sensible defaults
     
     # Check if we have new timing config
-    timing = getattr(rewards, 'timing', None)
+    # pprint(config.environment)
+    timing = getattr(config.environment, 'timing', None)
     if timing is not None:
         # New config format
         t_count_freshness = timing.t_count_freshness
@@ -789,14 +875,7 @@ def _create_environment(
         t_max_elapsed_time_seq = timing.seq_window.max_elapsed
     else:
         # Old config format - use defaults
-        t_count_freshness = 5
-        t_seq_freshness = 8
-        max_count_window = 30
-        critical_ratio = getattr(rewards.critical_inaction, 'high_population_threshold', 3.0)
-        t_min_elapsed_time_count = getattr(rewards.regular_monitoring, 'count_min_interval', 5)
-        t_max_elapsed_time_count = getattr(rewards.regular_monitoring, 'count_interval', 30)
-        t_min_elapsed_time_seq = 8
-        t_max_elapsed_time_seq = 50
+        raise ValueError("Timing config is required in the new reward structure.")
     
     # Extract reward scalars (new format)
     informed_dosing = getattr(rewards, 'informed_dosing', None)
@@ -830,34 +909,27 @@ def _create_environment(
         penalty_blind_dose_max = getattr(
             informed_dosing, 'penalty_blind_dose_max', None
         )
+        dosing_margin = getattr(
+            informed_dosing, 'dosing_margin', 0.0
+        )
+        penalty_dosing_in_margin = getattr(
+            informed_dosing, 'penalty_dosing_in_margin', 0.0
+        )
     else:
-        # Old format or defaults
-        penalty_informed_dosing_under = 5.0
-        penalty_informed_dosing_under_dose_scale = 0.0
-        penalty_informed_dosing_under_dose_exponent = 1.0
-        penalty_informed_dosing_under_deficit_scale = 0.0
-        penalty_informed_dosing_under_deficit_cap = 1.0
-        penalty_informed_dosing_under_max = None
-        reward_informed_dosing_above = 2.0
-        reward_informed_dosing_above_without_seq = 1.0
-        penalty_blind_dose = 3.0
-        penalty_blind_dose_amount_scale = 0.0
-        penalty_blind_dose_amount_exponent = 1.0
-        penalty_blind_dose_max = None
+        raise ValueError("Informed dosing reward config is required in the new reward structure.")
     
     sequencing_rewards = getattr(rewards, 'sequencing', None)
     if sequencing_rewards and hasattr(sequencing_rewards, 'seq_already_pending_penalty'):
         seq_already_pending_penalty = sequencing_rewards.seq_already_pending_penalty
         informative_seq_reward = sequencing_rewards.informative_seq_reward
     else:
-        seq_already_pending_penalty = getattr(sequencing_rewards, 'redundant_penalty', 2.0) if sequencing_rewards else 2.0
-        informative_seq_reward = 1.0
+        raise ValueError("Sequencing reward config is required in the new reward structure.")
     
     counting_rewards = getattr(rewards, 'counting', None)
     if counting_rewards:
         informative_count_reward = counting_rewards.informative_count_reward
     else:
-        informative_count_reward = 1.0
+        raise ValueError("Counting reward config is required in the new reward structure.")
     
     noop_rewards = getattr(rewards, 'noop', None)
     if noop_rewards:
@@ -870,20 +942,14 @@ def _create_environment(
         penalty_critical_no_dose = critical_penalties.penalty_critical_no_dose
         penalty_critical_no_count = critical_penalties.penalty_critical_no_count
     else:
-        penalty_critical_no_dose = getattr(rewards.critical_inaction, 'no_dose_penalty', 5.0) if hasattr(rewards, 'critical_inaction') else 5.0
-        penalty_critical_no_count = 2.0
+        raise ValueError("Critical penalties config is required in the new reward structure.")
     # Use extinction_penalty from early_termination config for extinction handling everywhere
     big_penalty = rewards.early_termination.extinction_penalty
     
     # Population maintenance (kernel-based)
     pop_maintenance = getattr(rewards, 'population_maintenance', None)
     if pop_maintenance is None:
-        kernel_maintenance_enabled = True
-        target_population = rewards.population.target_population
-        kernel_type = "gaussian"
-        kernel_peak_reward = 1.0
-        kernel_max_penalty = 0.0
-        kernel_zero_distance = 100.0
+        raise ValueError("Population maintenance config is required in the new reward structure.")
     else:
         kernel_maintenance_enabled = pop_maintenance.enabled
         target_population = pop_maintenance.target_population
@@ -984,6 +1050,8 @@ def _create_environment(
         penalty_blind_dose_amount_scale=penalty_blind_dose_amount_scale,
         penalty_blind_dose_amount_exponent=penalty_blind_dose_amount_exponent,
         penalty_blind_dose_max=penalty_blind_dose_max,
+        dosing_margin=dosing_margin,
+        penalty_dosing_in_margin=penalty_dosing_in_margin,
         
         # Pre-step rewards (sequencing)
         seq_already_pending_penalty=seq_already_pending_penalty,

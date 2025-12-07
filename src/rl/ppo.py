@@ -113,110 +113,125 @@ class PPOTrainer:
         
         # Multiple epochs over the same data
         for epoch in range(self.cfg.epochs):
-            # Process data in sequential chunks (truncated BPTT)
-            num_chunks = max(1, T // self.cfg.seq_len)
+            # Identify episode boundaries (where done=True)
+            # Find all done indices and treat them as episode boundaries
+            done_indices = torch.where(dones[:, 0])[0].tolist()  # Use first batch element
+            episode_starts = [0] + [idx + 1 for idx in done_indices if idx + 1 < T]
+            episode_starts = [s for s in episode_starts if s < T]
             
-            for chunk_idx in range(num_chunks):
-                t_start = chunk_idx * self.cfg.seq_len
-                t_end = min(t_start + self.cfg.seq_len, T)
+            # Process chunks within episodes
+            for ep_start_idx, ep_start in enumerate(episode_starts):
+                # Determine episode end
+                if ep_start_idx + 1 < len(episode_starts):
+                    ep_end = episode_starts[ep_start_idx + 1]
+                else:
+                    ep_end = T
                 
-                if t_end - t_start < 2:  # Skip very short chunks
-                    continue
+                # Split episode into chunks of size seq_len
+                episode_length = ep_end - ep_start
+                num_chunks_in_episode = max(1, (episode_length + self.cfg.seq_len - 1) // self.cfg.seq_len)
                 
-                # Extract chunk
-                obs_chunk = obs[t_start:t_end]  # [seq_len, B, obs_dim]
-                a_disc_chunk = a_disc[t_start:t_end]
-                a_cont_chunk = a_cont[t_start:t_end]
-                old_logp_disc_chunk = old_logp_disc[t_start:t_end]
-                old_logp_cont_chunk = old_logp_cont[t_start:t_end]
-                advantages_chunk = advantages[t_start:t_end]
-                returns_chunk = returns[t_start:t_end]
-                h_init = h_in[t_start]  # [layers, B, hidden_dim]
-                population_counted_norm_chunk = population_counted_norm[t_start:t_end]
-                count_mask_chunk = count_mask[t_start:t_end]
-                action_masks_chunk = action_masks[t_start:t_end]
-                prev_action_encoding_chunk = prev_action_encoding[t_start:t_end]
-                pred_action_input_chunk = pred_action_input[t_start:t_end]
-                
-                # Evaluate actions with current policy (with action masks for consistency)
-                eval_dict = self.model.evaluate_actions(
-                    obs_chunk,
-                    prev_action_encoding_chunk,
-                    h_init,
-                    a_disc_chunk,
-                    a_cont_chunk,
-                    pred_action_input=pred_action_input_chunk,
-                    action_masks=action_masks_chunk,
-                )
-                
-                new_logp_disc = eval_dict["logp_disc"]
-                new_logp_cont = eval_dict["logp_cont"]
-                new_values = eval_dict["value"]
-                new_pred_next_pop = eval_dict["pred_next_pop"]
-                entropy_disc = eval_dict["entropy_disc"]
-                entropy_cont = eval_dict["entropy_cont"]
-                
-                # Masked prediction loss (only on COUNT steps)
-                pred_error = (new_pred_next_pop - population_counted_norm_chunk) ** 2
-                pred_loss = (pred_error * count_mask_chunk).mean()
-                
-                # Compute PPO ratios
-                ratio_disc = torch.exp(new_logp_disc - old_logp_disc_chunk)
-                ratio_cont = torch.exp(new_logp_cont - old_logp_cont_chunk)
-                
-                # Joint ratio: multiply discrete and continuous ratios
-                # Only apply continuous ratio where action is DOSE
-                is_dose = (a_disc_chunk == self.cfg.dose_action_index).float()
-                joint_ratio = ratio_disc * torch.exp(is_dose * torch.log(ratio_cont + 1e-8))
-                
-                # PPO clipped objective
-                surr1 = joint_ratio * advantages_chunk
-                surr2 = torch.clamp(
-                    joint_ratio, 
-                    1.0 - self.cfg.clip_eps, 
-                    1.0 + self.cfg.clip_eps
-                ) * advantages_chunk
-                
-                actor_loss = -torch.min(surr1, surr2).mean()
-                
-                # Value loss (MSE)
-                critic_loss = 0.5 * ((new_values - returns_chunk) ** 2).mean()
-                
-                # Entropy bonus (higher entropy = more exploration)
-                entropy = (entropy_disc + entropy_cont).mean()
-                
-                # Total loss
-                total_loss = (
-                    actor_loss 
-                    + self.cfg.vf_coef * critic_loss
-                    + pred_loss
-                    - self.cfg.ent_coef * entropy
-                )
-                
-                # Optimization step
-                self.optimizer.zero_grad()
-                total_loss.backward()
-                grad_norm = clip_grad_norm_(
-                    self.model.parameters(), 
-                    self.cfg.max_grad_norm
-                )
-                self.optimizer.step()
-                
-                # Clip fraction (diagnostic)
-                with torch.no_grad():
-                    clip_frac = ((joint_ratio - 1.0).abs() > self.cfg.clip_eps).float().mean()
-                
-                # Accumulate stats (ensure all are Python floats, not tensors)
-                stats["loss_total"] += float(total_loss.item())
-                stats["loss_actor"] += float(actor_loss.item())
-                stats["loss_critic"] += float(critic_loss.item())
-                stats["loss_pred"] += float(pred_loss.item())
-                stats["entropy"] += float(entropy.item())
-                stats["clip_fraction"] += float(clip_frac.item())
-                stats["grad_norm"] += float(grad_norm)
-                stats["value_mean"] += float(new_values.mean().item())
-                stats["advantage_mean"] += float(advantages_chunk.mean().item())
-                stats["num_updates"] += 1
+                for chunk_idx in range(num_chunks_in_episode):
+                    t_start = ep_start + chunk_idx * self.cfg.seq_len
+                    t_end = min(t_start + self.cfg.seq_len, ep_end)
+                    
+                    if t_end - t_start < 2:  # Skip very short chunks
+                        continue
+                    
+                    # Extract chunk
+                    obs_chunk = obs[t_start:t_end]  # [seq_len, B, obs_dim]
+                    a_disc_chunk = a_disc[t_start:t_end]
+                    a_cont_chunk = a_cont[t_start:t_end]
+                    old_logp_disc_chunk = old_logp_disc[t_start:t_end]
+                    old_logp_cont_chunk = old_logp_cont[t_start:t_end]
+                    advantages_chunk = advantages[t_start:t_end]
+                    returns_chunk = returns[t_start:t_end]
+                    h_init = h_in[t_start]  # [layers, B, hidden_dim]
+                    population_counted_norm_chunk = population_counted_norm[t_start:t_end]
+                    count_mask_chunk = count_mask[t_start:t_end]
+                    action_masks_chunk = action_masks[t_start:t_end]
+                    prev_action_encoding_chunk = prev_action_encoding[t_start:t_end]
+                    pred_action_input_chunk = pred_action_input[t_start:t_end]
+                    
+                    # Evaluate actions with current policy (with action masks for consistency)
+                    eval_dict = self.model.evaluate_actions(
+                        obs_chunk,
+                        prev_action_encoding_chunk,
+                        h_init,
+                        a_disc_chunk,
+                        a_cont_chunk,
+                        pred_action_input=pred_action_input_chunk,
+                        action_masks=action_masks_chunk,
+                    )
+                    
+                    new_logp_disc = eval_dict["logp_disc"]
+                    new_logp_cont = eval_dict["logp_cont"]
+                    new_values = eval_dict["value"]
+                    new_pred_next_pop = eval_dict["pred_next_pop"]
+                    entropy_disc = eval_dict["entropy_disc"]
+                    entropy_cont = eval_dict["entropy_cont"]
+                    
+                    # Masked prediction loss (only on COUNT steps)
+                    pred_error = (new_pred_next_pop - population_counted_norm_chunk) ** 2
+                    pred_loss = (pred_error * count_mask_chunk).mean()
+                    
+                    # Compute PPO ratios
+                    ratio_disc = torch.exp(new_logp_disc - old_logp_disc_chunk)
+                    ratio_cont = torch.exp(new_logp_cont - old_logp_cont_chunk)
+                    
+                    # Joint ratio: multiply discrete and continuous ratios
+                    # Only apply continuous ratio where action is DOSE
+                    is_dose = (a_disc_chunk == self.cfg.dose_action_index).float()
+                    joint_ratio = ratio_disc * torch.exp(is_dose * torch.log(ratio_cont + 1e-8))
+                    
+                    # PPO clipped objective
+                    surr1 = joint_ratio * advantages_chunk
+                    surr2 = torch.clamp(
+                        joint_ratio, 
+                        1.0 - self.cfg.clip_eps, 
+                        1.0 + self.cfg.clip_eps
+                    ) * advantages_chunk
+                    
+                    actor_loss = -torch.min(surr1, surr2).mean()
+                    
+                    # Value loss (MSE)
+                    critic_loss = 0.5 * ((new_values - returns_chunk) ** 2).mean()
+                    
+                    # Entropy bonus (higher entropy = more exploration)
+                    entropy = (entropy_disc + entropy_cont).mean()
+                    
+                    # Total loss
+                    total_loss = (
+                        actor_loss 
+                        + self.cfg.vf_coef * critic_loss
+                        + pred_loss
+                        - self.cfg.ent_coef * entropy
+                    )
+                    
+                    # Optimization step
+                    self.optimizer.zero_grad()
+                    total_loss.backward()
+                    grad_norm = clip_grad_norm_(
+                        self.model.parameters(), 
+                        self.cfg.max_grad_norm
+                    )
+                    self.optimizer.step()
+                    
+                    # Clip fraction (diagnostic)conda
+                    with torch.no_grad():
+                        clip_frac = ((joint_ratio - 1.0).abs() > self.cfg.clip_eps).float().mean()
+                    
+                    # Accumulate stats (ensure all are Python floats, not tensors)
+                    stats["loss_total"] += float(total_loss.item())
+                    stats["loss_actor"] += float(actor_loss.item())
+                    stats["loss_critic"] += float(critic_loss.item())
+                    stats["loss_pred"] += float(pred_loss.item())
+                    stats["entropy"] += float(entropy.item())
+                    stats["clip_fraction"] += float(clip_frac.item())
+                    stats["grad_norm"] += float(grad_norm)
+                    stats["value_mean"] += float(new_values.mean().item())
+                    stats["advantage_mean"] += float(advantages_chunk.mean().item())
+                    stats["num_updates"] += 1
         
         # Average stats
         if stats["num_updates"] > 0:

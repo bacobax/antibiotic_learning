@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional, Union
 import torch
 import torch.nn as nn
 import numpy as np
-from simulation.simulation_config import TOX_TIMES_DOSE_MAX, antibiotic_resistances
+from simulation.simulation_config import TOX_TIMES_DOSE_MAX
 
 
 class AgeNormalizer(nn.Module):
@@ -106,84 +106,6 @@ class PopulationReward(nn.Module):
         return float(pop_term_tensor.item())
 
 
-class GenomeReward(nn.Module):
-    """
-    Computes reward based on antibiotic efficacy against current population.
-    
-    Evaluates effectiveness of applied doses against observed population genome.
-    Combines resistance and toxicity metrics to guide dose selection.
-    """
-    def __init__(
-        self,
-        device: str = "cpu",
-        dtype: torch.dtype = torch.float32,
-        aging_type: str = "sqrt",
-    ):
-        super(GenomeReward, self).__init__()
-        self.device = device
-        self.dtype = dtype
-        self.age_normalizer = AgeNormalizer(aging_type)
-
-    def forward(
-        self,
-        avg_genome: Optional[torch.Tensor],
-        doses: torch.Tensor,
-        age: Union[int, float],
-    ) -> float:
-        """
-        Args:
-            avg_genome: Average genome matrix [K, M] or None if no sequencing data
-            doses: Applied dose vector [A] (tensor or numpy array)
-            age: Age of sequencing measurement in timesteps
-            
-        Returns:
-            Genome-based efficacy reward as Python float
-        """
-        # No sequencing data → neutral
-        if avg_genome is None:
-            return 0.0
-        
-        # Ensure tensors are on correct device/dtype
-        if isinstance(avg_genome, np.ndarray):
-            avg_genome = torch.from_numpy(avg_genome).to(self.device).to(self.dtype)
-        else:
-            avg_genome = avg_genome.to(self.device).to(self.dtype)
-        
-        if isinstance(doses, np.ndarray):
-            doses = torch.from_numpy(doses).to(self.device).to(self.dtype)
-        else:
-            doses = doses.to(self.device).to(self.dtype)
-        
-        # Compute resistances and toxicities
-        resistances, toxicities, _ = antibiotic_resistances(
-            avg_genome, device=self.device, dtype=self.dtype
-        )
-        
-        # Verify shapes
-        if doses.shape[0] != toxicities.shape[0]:
-            raise ValueError(
-                f"dose_vector ({doses.shape[0]}) must match #antibiotics ({toxicities.shape[0]})"
-            )
-        
-        # Compute reward: negative of (aggressiveness × susceptibility)
-        # Lower values encourage using susceptible populations with appropriate toxicity
-        aggressiveness = doses * toxicities  # [A]
-        avg_resistance_by_ab = resistances.mean(dim=0)  # [K, A] -> [A]
-        avg_susceptibility = 1.0 - avg_resistance_by_ab  # [A]
-        
-        # Reward is negative to penalize high toxicity × aggressiveness
-        reward_vec = -1.0 * ((aggressiveness * avg_susceptibility) / TOX_TIMES_DOSE_MAX)  # [A]
-        genome_term = torch.mean(reward_vec)  # scalar tensor
-        
-        # Apply age-based decay (older sequencing data is less valuable)
-        genome_term = self.age_normalizer(genome_term, age)
-        
-        # Clip to valid range
-        genome_term = torch.clamp(genome_term, min=-1.0, max=1.0)
-        
-        return float(genome_term.item())
-
-
 class CostReward(nn.Module):
     """
     Computes negative reward (penalty) for action costs.
@@ -267,8 +189,8 @@ class SurvivalBonusReward(nn.Module):
         if self.scaling_type == "constant":
             bonus = self.base_bonus
         elif self.scaling_type == "linear":
-            # Bonus increases linearly with time: base * (1 + factor * t / 1000)
-            bonus = self.base_bonus * (1.0 + self.scaling_factor * timestep / 1000.0)
+            # Bonus increases linearly with time: base * (1 + factor * t)
+            bonus = self.base_bonus * (1.0 + self.scaling_factor * timestep)
         elif self.scaling_type == "exponential":
             # Bonus grows exponentially but slowly: base * exp(factor * t / 1000)
             import math
@@ -444,6 +366,14 @@ class InformedDosingReward(nn.Module):
     Differentiates between dosing above vs below target population and
     supports gradient-style penalties that scale with dose magnitude and
     population deficit relative to target.
+    
+    The dosing_margin parameter defines a threshold offset from target_pop.
+    Dosing is penalized when population < (target_pop + dosing_margin),
+    and rewarded when population >= (target_pop + dosing_margin).
+    
+    When population is in the margin zone (target_pop < pop < target_pop + margin),
+    a smaller penalty (penalty_dosing_in_margin) is applied instead of the base
+    below-target penalty.
     """
     def __init__(
         self,
@@ -459,13 +389,21 @@ class InformedDosingReward(nn.Module):
         penalty_blind_dose_amount_scale: float = 0.0,
         penalty_blind_dose_amount_exponent: float = 1.0,
         penalty_blind_dose_max: Optional[float] = None,
+        dosing_margin: float = 0.0,
+        penalty_dosing_in_margin: float = 0.0,
     ):
         """
         Args:
             penalty_dosing_under_target: Penalty for dosing when population is below target
-            reward_dosing_above_with_seq: Reward for dosing above target with sequencing
-            reward_dosing_above_no_seq: Reward for dosing above target without sequencing
+            reward_dosing_above_with_seq: Reward for dosing above threshold with sequencing
+            reward_dosing_above_no_seq: Reward for dosing above threshold without sequencing
             penalty_blind_dose: Penalty for dosing without fresh count
+            dosing_margin: Margin offset from target_pop for the dosing threshold.
+                          Dosing penalized if pop < target_pop + margin, rewarded if pop >= target_pop + margin.
+                          Default 0.0 means threshold is exactly at target_pop.
+            penalty_dosing_in_margin: Penalty when dosing in margin zone (target_pop < pop < target_pop + margin).
+                          If 0.0, margin zone uses normal deficit-based penalty calculation.
+                          If > 0.0, margin zone uses this fixed penalty instead.
         """
         super(InformedDosingReward, self).__init__()
         self.penalty_dosing_under_target = float(penalty_dosing_under_target)
@@ -488,6 +426,8 @@ class InformedDosingReward(nn.Module):
             if penalty_blind_dose_max is not None
             else None
         )
+        self.dosing_margin = float(dosing_margin)
+        self.penalty_dosing_in_margin = float(penalty_dosing_in_margin)
         self.last_breakdown: Dict[str, Any] = {}
 
     @staticmethod
@@ -499,6 +439,103 @@ class InformedDosingReward(nn.Module):
         else:
             total = float(np.clip(dose_amounts, a_min=0.0, a_max=None).sum())
         return max(0.0, total)
+    
+    def _is_in_margin_zone(self, last_count_pop: Optional[float], target_pop: float) -> bool:
+        """Check if population is in the margin zone (target_pop < pop < target_pop + margin)."""
+        if self.dosing_margin <= 0 or last_count_pop is None:
+            return False
+        dosing_threshold = target_pop + self.dosing_margin
+        return last_count_pop >= target_pop and last_count_pop < dosing_threshold
+    
+    def _calculate_margin_penalty(self, dose_total: float) -> float:
+        """Calculate penalty for dosing in margin zone."""
+        penalty = self.penalty_dosing_in_margin
+        dose_term = 0.0
+        if dose_total > 0.0:
+            dose_term = self.penalty_dosing_under_target_dose_scale * (
+                dose_total ** self.penalty_dosing_under_target_dose_exponent
+            )
+        penalty = penalty + dose_term
+        self.last_breakdown = {
+            "mode": "penalty_in_margin",
+            "base": self.penalty_dosing_in_margin,
+            "dose_term": dose_term,
+            "dose_magnitude": dose_total,
+            "total": penalty,
+        }
+        return penalty
+    
+    def _calculate_below_target_penalty(
+        self, last_count_pop: float, target_pop: float, dose_total: float, dosing_threshold: float
+    ) -> float:
+        """Calculate penalty for dosing below target population."""
+        deficit_ratio = 0.0
+        if dosing_threshold > 0:
+            deficit = max(0.0, dosing_threshold - float(last_count_pop))
+            deficit_ratio = deficit / max(dosing_threshold, 1e-6)
+            cap = self.penalty_dosing_under_target_deficit_cap
+            if cap > 0.0:
+                deficit_ratio = min(deficit_ratio * cap, cap)
+        
+        dose_term = 0.0
+        if dose_total > 0.0:
+            dose_term = self.penalty_dosing_under_target_dose_scale * (
+                dose_total ** self.penalty_dosing_under_target_dose_exponent
+            )
+        
+        deficit_term = self.penalty_dosing_under_target_deficit_scale * deficit_ratio
+        penalty = self.penalty_dosing_under_target + dose_term + deficit_term
+        if self.penalty_dosing_under_target_max is not None:
+            penalty = min(penalty, self.penalty_dosing_under_target_max)
+        
+        self.last_breakdown = {
+            "mode": "penalty_under_target",
+            "base": self.penalty_dosing_under_target,
+            "dose_term": dose_term,
+            "deficit_term": deficit_term,
+            "deficit_ratio": deficit_ratio,
+            "dose_magnitude": dose_total,
+            "total": penalty,
+        }
+        return penalty
+    
+    def _calculate_above_target_reward(self, dose_total: float, recent_sequencing: bool) -> float:
+        """Calculate reward for dosing above target population."""
+        if recent_sequencing:
+            reward = self.reward_dosing_above_with_seq
+            self.last_breakdown = {
+                "mode": "reward_above_target_with_seq",
+                "reward": reward,
+                "dose_magnitude": dose_total,
+            }
+        else:
+            reward = self.reward_dosing_above_no_seq
+            self.last_breakdown = {
+                "mode": "reward_above_target_no_seq",
+                "reward": reward,
+                "dose_magnitude": dose_total,
+            }
+        return reward
+    
+    def _calculate_blind_dose_penalty(self, dose_total: float) -> float:
+        """Calculate penalty for dosing without fresh count."""
+        dose_term = 0.0
+        if dose_total > 0.0:
+            dose_term = self.penalty_blind_dose_amount_scale * (
+                dose_total ** self.penalty_blind_dose_amount_exponent
+            )
+        penalty = self.penalty_blind_dose + dose_term
+        if self.penalty_blind_dose_max is not None:
+            penalty = min(penalty, self.penalty_blind_dose_max)
+        
+        self.last_breakdown = {
+            "mode": "penalty_blind",
+            "base": self.penalty_blind_dose,
+            "dose_term": dose_term,
+            "dose_magnitude": dose_total,
+            "total": penalty,
+        }
+        return penalty
     
     def forward(
         self,
@@ -516,77 +553,33 @@ class InformedDosingReward(nn.Module):
             last_count_pop: Last measured population (None if never counted)
             target_pop: Target population
             recent_sequencing: Whether sequencing is recent
+            dose_amounts: Dose amounts vector
             
         Returns:
             DOSE reward as Python float
         """
         dose_total = self._total_dose(dose_amounts)
+        dosing_threshold = target_pop + self.dosing_margin
 
         if count_fresh:
             # Informed dosing
-            if last_count_pop is not None and last_count_pop < target_pop:
-                # Dosing when below target → penalty
-                deficit_ratio = 0.0
-                if target_pop > 0:
-                    deficit = max(0.0, target_pop - float(last_count_pop))
-                    deficit_ratio = deficit / max(target_pop, 1e-6)
-                    cap = self.penalty_dosing_under_target_deficit_cap
-                    if cap > 0.0:
-                        deficit_ratio = min(deficit_ratio * cap, cap)
-                dose_term = 0.0
-                if dose_total > 0.0:
-                    dose_term = self.penalty_dosing_under_target_dose_scale * (
-                        dose_total ** self.penalty_dosing_under_target_dose_exponent
-                    )
-                deficit_term = self.penalty_dosing_under_target_deficit_scale * deficit_ratio
-                penalty = self.penalty_dosing_under_target + dose_term + deficit_term
-                if self.penalty_dosing_under_target_max is not None:
-                    penalty = min(penalty, self.penalty_dosing_under_target_max)
-                self.last_breakdown = {
-                    "mode": "penalty_under_target",
-                    "base": self.penalty_dosing_under_target,
-                    "dose_term": dose_term,
-                    "deficit_term": deficit_term,
-                    "deficit_ratio": deficit_ratio,
-                    "dose_magnitude": dose_total,
-                    "total": penalty,
-                }
-                return -penalty
-            else:
-                # Dosing when above target → reward
-                if recent_sequencing:
-                    reward = self.reward_dosing_above_with_seq
-                    self.last_breakdown = {
-                        "mode": "reward_above_target_with_seq",
-                        "reward": reward,
-                        "dose_magnitude": dose_total,
-                    }
-                    return reward
+            if last_count_pop is not None and last_count_pop < dosing_threshold:
+                # Dosing when below threshold → penalty
+                if self._is_in_margin_zone(last_count_pop, target_pop) and self.penalty_dosing_in_margin > 0:
+                    penalty = self._calculate_margin_penalty(dose_total)
+                    return -penalty
                 else:
-                    reward = self.reward_dosing_above_no_seq
-                    self.last_breakdown = {
-                        "mode": "reward_above_target_no_seq",
-                        "reward": reward,
-                        "dose_magnitude": dose_total,
-                    }
-                    return reward
+                    penalty = self._calculate_below_target_penalty(
+                        last_count_pop, target_pop, dose_total, dosing_threshold
+                    )
+                    return -penalty
+            else:
+                # Dosing when above threshold → reward
+                reward = self._calculate_above_target_reward(dose_total, recent_sequencing)
+                return reward
         else:
             # Blind dosing → penalty
-            dose_term = 0.0
-            if dose_total > 0.0:
-                dose_term = self.penalty_blind_dose_amount_scale * (
-                    dose_total ** self.penalty_blind_dose_amount_exponent
-                )
-            penalty = self.penalty_blind_dose + dose_term
-            if self.penalty_blind_dose_max is not None:
-                penalty = min(penalty, self.penalty_blind_dose_max)
-            self.last_breakdown = {
-                "mode": "penalty_blind",
-                "base": self.penalty_blind_dose,
-                "dose_term": dose_term,
-                "dose_magnitude": dose_total,
-                "total": penalty,
-            }
+            penalty = self._calculate_blind_dose_penalty(dose_total)
             return -penalty
 
 
