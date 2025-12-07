@@ -64,8 +64,8 @@ environment:
     noop:
       strategic_noop_reward: 0.5              # Reward for waiting when below target
     critical_penalties:
-      penalty_critical_no_dose: 0.5           # Penalty for not dosing when critical
-      penalty_critical_no_count: 0.0          # Penalty for stale count data
+      penalty_critical_no_dose: 2           # Penalty for not dosing when critical
+      penalty_critical_no_count: 0.1          # Penalty for stale count data
     population_maintenance:
       enabled: true
       kernel_type: "gaussian"                 # "gaussian" or "laplace"
