@@ -152,7 +152,7 @@ ppo:
 
 # Training configuration
 training:
-  total_updates: 6000
+  total_updates: 8000
   seed: 42
   checkpoint_interval: 500
   log_interval: 2
