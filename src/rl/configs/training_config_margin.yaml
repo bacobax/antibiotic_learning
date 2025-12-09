@@ -77,7 +77,7 @@ environment:
       base_bonus: 2.0
       scaling_type: "linear"                  # "constant", "linear", "exponential"
       scaling_factor: 0.005
-      max_bonus: 10.0
+      max_bonus: 5.0
     prediction:
       enabled: false
       weight: 1.0
@@ -87,12 +87,12 @@ environment:
       target_scale: 3.0
     early_termination:
       enabled: true
-      penalty: 10.0                           # Penalty applied on early termination
+      penalty: 15.0                           # Penalty applied on early termination
       min_penalty: 2.0                       # Penalty when terminating near horizon
       penalty_decay_power: 1.2                # Decay rate exponent
       population_low_threshold: 0.1           # Terminate if pop < target × this
       population_threshold: 6               # Unrecoverable if pop > target × this
-      extinction_penalty: 15.0                # Additional penalty for extinction
+      extinction_penalty: 50.0                # Additional penalty for extinction
       require_budget_depleted: false          # If true, also require budget == 0
   budget:
     budget_init: 300.0
@@ -135,7 +135,7 @@ model:
   k_doses: 3
   sigmoid_scale_factor: 0.1
   override_sigmoid_scale_factor_from_checkpoint: true  # If true, use yaml value instead of checkpoint value
-  reset_continuous_log_std_from_checkpoint: false      # If true, reset continuous action std to 1.0 when resuming (fixes exploded std)
+  reset_continuous_log_std_from_checkpoint: true      # If true, reset continuous action std to 1.0 when resuming (fixes exploded std)
 
 # PPO hyperparameters
 ppo:
