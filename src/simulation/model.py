@@ -581,9 +581,9 @@ class BacteriaModel(Model):
         # Optional: Log replenishment event (only occasionally to avoid spam)
         if self.step_count % 200 == 0:
             total_food = float(np.sum(self.food_field))
-            print(
-                f"[Food] Step {self.step_count}: Added {patch_count} patches and normalized total to {total_food:.2f}"
-            )
+            # print(
+            #     f"[Food] Step {self.step_count}: Added {patch_count} patches and normalized total to {total_food:.2f}"
+            # )
 
     def step(self):
         """Execute one simulation step"""

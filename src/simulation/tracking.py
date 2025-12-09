@@ -90,6 +90,10 @@ class IndividualTracker:
             if bacterium.pos is None:
                 continue
 
+            # Skip if bacterium was evicted from tracking due to max_individuals limit
+            if bacterium.unique_id not in self.tracked_individuals:
+                continue
+
             data = self.tracked_individuals[bacterium.unique_id]
             data["steps"].append(current_step)
             data["enzyme"].append(bacterium.enzyme)
