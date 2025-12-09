@@ -246,6 +246,7 @@ class ModelConfig:
     k_doses: int
     sigmoid_scale_factor: float
     override_sigmoid_scale_factor_from_checkpoint: bool = False
+    reset_continuous_log_std_from_checkpoint: bool = False  # Reset continuous action std when resuming from checkpoint
 
 
 @dataclass

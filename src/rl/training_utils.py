@@ -490,6 +490,25 @@ def _load_checkpoint_into_agent(agent: RLAgent, checkpoint_path: str, logger: Tr
             agent.model.sigmoid_scale_factor = checkpoint["config"].sigmoid_scale_factor
             logger.log_debug(f"✓ Restored sigmoid_scale_factor from config: {checkpoint['config'].sigmoid_scale_factor}")
     
+    # Check if we should reset continuous_log_std (useful when it has exploded in the checkpoint)
+    reset_log_std = config and getattr(config.model, "reset_continuous_log_std_from_checkpoint", False)
+    
+    if reset_log_std:
+        # Reset continuous_log_std to initial value (zeros)
+        with torch.no_grad():
+            agent.model.continuous_log_std.zero_()
+        logger.log_info(f"✓ Reset continuous_log_std to zeros (std=1.0)")
+    else:
+        # Log current continuous_log_std value for diagnostics
+        log_std_values = agent.model.continuous_log_std.data.tolist()
+        std_values = [torch.exp(torch.tensor(v)).item() for v in log_std_values]
+        if any(v > 2.0 for v in log_std_values):  # log_std > 2 means std > 7.4
+            logger.log_info(f"⚠ Warning: continuous_log_std from checkpoint is high: {log_std_values}")
+            logger.log_info(f"  This means std = {std_values} - will be clamped during forward pass")
+            logger.log_info(f"  Consider setting reset_continuous_log_std_from_checkpoint: true in config")
+        else:
+            logger.log_debug(f"✓ Restored continuous_log_std: {log_std_values} (std={std_values})")
+    
     print(f"SIGMOID SCALE FACTOR AFTER LOADING CHECKPOINT: {agent.model.sigmoid_scale_factor}")
     # Move model to target device
     agent.model.to(target_device)

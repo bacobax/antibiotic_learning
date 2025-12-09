@@ -288,7 +288,9 @@ class RecurrentActorCritic(nn.Module):
         # Continuous action distribution (sigmoid-scaled)
         mu_raw = self.continuous_head(torch.cat([features, vulnerabilities], dim=-1))  # [B, k_doses]
         mu = torch.sigmoid(mu_raw) * self.sigmoid_scale_factor  # [B, k_doses] in [0, sigmoid_scale_factor]
-        std = torch.exp(self.continuous_log_std).expand_as(mu)  # [B, k_doses]
+        # Clamp log_std to prevent explosion: exp(-5) ≈ 0.007, exp(2) ≈ 7.4
+        log_std_clamped = torch.clamp(self.continuous_log_std, min=-5.0, max=2.0)
+        std = torch.exp(log_std_clamped).expand_as(mu)  # [B, k_doses]
 
         # Value estimate
         value = self.value_head(features)  # [B, 1]
@@ -462,7 +464,9 @@ class RecurrentActorCritic(nn.Module):
         logits_disc = self.discrete_head(gru_out)  # [T, B, n_discrete]
         mu_raw = self.continuous_head(torch.cat([gru_out, vulnerabilities_seq], dim=-1))  # [T, B, k_doses]
         mu = torch.sigmoid(mu_raw) * self.sigmoid_scale_factor  # [T, B, k_doses] in [0, sigmoid_scale_factor]
-        std = torch.exp(self.continuous_log_std).expand_as(mu)  # [T, B, k_doses]
+        # Clamp log_std to prevent explosion: exp(-5) ≈ 0.007, exp(2) ≈ 7.4
+        log_std_clamped = torch.clamp(self.continuous_log_std, min=-5.0, max=2.0)
+        std = torch.exp(log_std_clamped).expand_as(mu)  # [T, B, k_doses]
         value = self.value_head(gru_out).squeeze(-1)  # [T, B]
         
         # Apply action masks if provided

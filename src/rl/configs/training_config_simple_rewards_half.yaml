@@ -126,6 +126,7 @@ model:
   k_doses: 3
   sigmoid_scale_factor: 1.0
   override_sigmoid_scale_factor_from_checkpoint: false  # If true, use yaml value instead of checkpoint value
+  reset_continuous_log_std_from_checkpoint: false       # If true, reset continuous action std to 1.0 when resuming (fixes exploded std)
 
 # PPO hyperparameters
 ppo:
