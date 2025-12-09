@@ -152,6 +152,16 @@ class TrainingLogger:
                     self.metrics_data.append(entry)
         
         self._flush_json()
+
+    def log_update_metrics(
+        self,
+        update: int,
+        rollout_metrics: Dict,
+        train_stats: Dict,
+        extra_metrics: Optional[Dict] = None,
+    ) -> None:
+        """Backward-compatible alias for legacy scripts/tests."""
+        self.log_metrics(update, rollout_metrics, train_stats, extra_metrics)
     
     def log_bacteria_population(self, update: int, population: int) -> None:
         """
