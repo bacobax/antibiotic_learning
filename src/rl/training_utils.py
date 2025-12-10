@@ -734,6 +734,9 @@ def _setup_logger_and_log_startup(
         max_metrics_entries=config.training.log_window_size,
     )
     
+    # Log hyperparameters to TensorBoard for run comparison
+    logger.log_hparams(config)
+    
     logger.log_info("="*70)
     logger.log_info("PPO Training Started")
     logger.log_info("="*70)

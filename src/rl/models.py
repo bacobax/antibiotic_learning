@@ -176,11 +176,18 @@ class RecurrentActorCritic(nn.Module):
         self.prev_action_dim = n_discrete + k_doses + 1
         
         # Calculate adjusted input dimension for GRU:
-        # Remove genome slots (N_BACTERIA_TYPES * N_TRAITS) and related observation slots
-        # Removed: genome (N_BACTERIA_TYPES*N_TRAITS) + has_last_seq (1) + last_seq_age_norm (1) + measure_age_norm (1) = N_BACTERIA_TYPES*N_TRAITS+3
-        # Add vulnerability slots (number of antibiotic types)
+        # Observation structure (31 values):
+        #   [0:3] - count features (last_count_norm, has_last_count, last_count_age_norm)
+        #   [3:3+K*T] - genome (N_BACTERIA_TYPES * N_TRAITS = 12 values)
+        #   [3+K*T:3+K*T+K] - proportions (N_BACTERIA_TYPES = 3 values)
+        #   [3+K*T+K:3+K*T+K+3] - seq_meta (has_last_seq, last_seq_age_norm, measure_age_norm)
+        #   [3+K*T+K+3:end-1] - dose_features (9 values)
+        #   [end-1:end] - t_norm (1 value)
+        #
+        # Removed: genome (K*T) + proportions (K) + seq_meta (3) = K*T + K + 3
+        # Add: vulnerability slots (number of antibiotic types)
         n_antibiotics = len(ANTIBIOTIC_TYPES)
-        self.genome_age_removal = N_BACTERIA_TYPES * N_TRAITS + 3  # Slots to remove
+        self.genome_age_removal = N_BACTERIA_TYPES * N_TRAITS + N_BACTERIA_TYPES + 3  # Slots to remove
         self.vuln_dim = n_antibiotics  # Slots to add
         self.adjusted_obs_dim = obs_dim - self.genome_age_removal + self.vuln_dim
         
@@ -227,10 +234,18 @@ class RecurrentActorCritic(nn.Module):
         Single forward step through the network.
         
         Modifies observation by:
-        1. Extracting genome and age from obs
+        1. Extracting genome, proportions, and age from obs
         2. Computing vulnerabilities via vuln_predictor
-        3. Replacing genome and age slots with vulnerabilities
+        3. Replacing genome, proportions, and seq_meta slots with vulnerabilities
         4. Feeding modified obs to GRU
+        
+        Observation structure (31 values):
+            [0:3] - count features (last_count_norm, has_last_count, last_count_age_norm)
+            [3:15] - genome (N_BACTERIA_TYPES * N_TRAITS = 12 values)
+            [15:18] - proportions (N_BACTERIA_TYPES = 3 values)
+            [18:21] - seq_meta (has_last_seq, last_seq_age_norm, measure_age_norm)
+            [21:30] - dose_features (9 values)
+            [30:31] - t_norm (1 value)
         
         Args:
             obs: Observations, shape [B, obs_dim] (as built by env)
@@ -246,11 +261,17 @@ class RecurrentActorCritic(nn.Module):
             features: Latent features for heads, shape [B, hidden_dim]
             h_next: Next hidden state, shape [layers, B, hidden_dim]
         """
-        # Extract genome and age from observation
-        # Genome is at indices [3:3+N_BACTERIA_TYPES*N_TRAITS]
-        # Age is at index [3+N_BACTERIA_TYPES*N_TRAITS+2]
-        avg_genome = obs[:, 3: 3 + N_BACTERIA_TYPES * N_TRAITS]
-        age = obs[:, 3 + N_BACTERIA_TYPES * N_TRAITS + 2]
+        # Extract genome, proportions, and age from observation using new indices
+        # Genome is at indices [3:3+N_BACTERIA_TYPES*N_TRAITS] = [3:15]
+        genome_end = 3 + N_BACTERIA_TYPES * N_TRAITS
+        avg_genome = obs[:, 3:genome_end]
+        
+        # Proportions are at [genome_end:genome_end+N_BACTERIA_TYPES] = [15:18]
+        proportions_end = genome_end + N_BACTERIA_TYPES
+        # proportions = obs[:, genome_end:proportions_end]  # Available if needed later
+        
+        # Age (measure_age_norm) is at index [proportions_end + 2] = [20]
+        age = obs[:, proportions_end + 2]
         avg_genome_with_age = torch.cat([avg_genome, age.unsqueeze(-1)], dim=-1)
 
         # Compute vulnerabilities from genome and age
@@ -258,13 +279,12 @@ class RecurrentActorCritic(nn.Module):
 
         # Build modified observation tensor:
         # Keep: obs[:, 0:3] (last_count_norm, has_last_count, last_count_age_norm)
-        # Remove: obs[:, 3:3+N_BACTERIA_TYPES*N_TRAITS+1] (genome + has_last_seq)
-        # Remove: obs[:, 3+N_BACTERIA_TYPES*N_TRAITS+2] (last_seq_age_norm, measure_age_norm already removed)
+        # Remove: genome + proportions + seq_meta = obs[:, 3:proportions_end+3]
         # Add: vulnerabilities at this position
-        # Keep: the rest (dose_features, t_norm)
+        # Keep: the rest (dose_features, t_norm) starting at proportions_end + 3
         
         prefix = obs[:, :3]  # [B, 3] - last_count_norm, has_last_count, last_count_age_norm
-        suffix_start = 3 + N_BACTERIA_TYPES * N_TRAITS + 2 + 1  # Start of measure_age_norm
+        suffix_start = proportions_end + 3  # Start after seq_meta (has_last_seq, last_seq_age_norm, measure_age_norm)
         suffix = obs[:, suffix_start:]  # [B, remaining] - dose_features, t_norm
         
         # Concatenate: prefix + vulnerabilities + suffix
@@ -435,10 +455,24 @@ class RecurrentActorCritic(nn.Module):
         """
         T, B = obs_seq.shape[:2]
         
-        # Transform observations: replace genome and age with vulnerabilities
+        # Transform observations: replace genome, proportions, and seq_meta with vulnerabilities
+        # Observation structure (31 values):
+        #   [0:3] - count features (last_count_norm, has_last_count, last_count_age_norm)
+        #   [3:15] - genome (N_BACTERIA_TYPES * N_TRAITS = 12 values)
+        #   [15:18] - proportions (N_BACTERIA_TYPES = 3 values)
+        #   [18:21] - seq_meta (has_last_seq, last_seq_age_norm, measure_age_norm)
+        #   [21:30] - dose_features (9 values)
+        #   [30:31] - t_norm (1 value)
+        
         # Extract genome and age from observation sequence
-        avg_genome_seq = obs_seq[:, :, 3: 3 + N_BACTERIA_TYPES * N_TRAITS]  # [T, B, genome_dim]
-        age_seq = obs_seq[:, :, 3 + N_BACTERIA_TYPES * N_TRAITS + 2]  # [T, B]
+        genome_end = 3 + N_BACTERIA_TYPES * N_TRAITS
+        avg_genome_seq = obs_seq[:, :, 3:genome_end]  # [T, B, genome_dim]
+        
+        # Proportions are at [genome_end:genome_end+N_BACTERIA_TYPES]
+        proportions_end = genome_end + N_BACTERIA_TYPES
+        
+        # Age (measure_age_norm) is at index proportions_end + 2
+        age_seq = obs_seq[:, :, proportions_end + 2]  # [T, B]
         
         # Reshape for vulnerability prediction: flatten batch and time dimensions
         avg_genome_flat = avg_genome_seq.reshape(-1, N_BACTERIA_TYPES * N_TRAITS)  # [T*B, genome_dim]
@@ -450,9 +484,10 @@ class RecurrentActorCritic(nn.Module):
         vulnerabilities_seq = vulnerabilities_flat.reshape(T, B, -1)  # [T, B, n_antibiotics]
         
         # Build modified observation sequence
+        # Keep: prefix (count features), remove: genome + proportions + seq_meta, add: vulnerabilities
         prefix = obs_seq[:, :, :3]  # [T, B, 3]
-        suffix_start = 3 + N_BACTERIA_TYPES * N_TRAITS + 2 + 1
-        suffix = obs_seq[:, :, suffix_start:]  # [T, B, remaining]
+        suffix_start = proportions_end + 3  # Start after seq_meta
+        suffix = obs_seq[:, :, suffix_start:]  # [T, B, remaining] - dose_features, t_norm
         
         obs_seq_modified = torch.cat([prefix, vulnerabilities_seq, suffix], dim=-1)  # [T, B, adjusted_obs_dim]
         

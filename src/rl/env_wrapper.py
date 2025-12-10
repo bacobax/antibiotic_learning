@@ -3,7 +3,7 @@ from collections import deque
 import math
 import numpy as np
 import torch
-from simulation.simulation_config import ANTIBIOTIC_TYPES, TOX_TIMES_DOSE_MAX, N_TRAITS, N_BACTERIA_TYPES
+from simulation.simulation_config import ANTIBIOTIC_TYPES, TOX_TIMES_DOSE_MAX, N_TRAITS, N_BACTERIA_TYPES, BACTERIAL_TYPES
 from rl.reward import (
     SurvivalBonusReward,
     KernelPopulationMaintenanceReward,
@@ -35,7 +35,8 @@ class PetriEnvWrapper:
         [ last_count_norm,
             has_last_count,
             last_count_age_norm,
-            avg_genome_flat (12 values),
+            avg_genome_flat (N_BACTERIA_TYPES * N_TRAITS = 12 values),
+            proportions_by_type (N_BACTERIA_TYPES = 3 values, sums to 1.0),
             has_last_seq,
             last_seq_age_norm,
             measure_age_norm,
@@ -44,7 +45,7 @@ class PetriEnvWrapper:
             dose_history_A (has, norm, age),
             t_norm
         ]
-    Length = 28. Missing values are zeroed with companion mask bits.
+    Length = 31. Missing values are zeroed with companion mask bits.
     
     REWARD STRUCTURE:
     =================
@@ -379,6 +380,7 @@ class PetriEnvWrapper:
         
         # Measurement/state caches
         self.avg_genome = np.zeros((N_BACTERIA_TYPES, N_TRAITS), dtype=np.float32)
+        self.proportions = np.zeros((N_BACTERIA_TYPES,), dtype=np.float32)
         
         # Dosing history (K, I, A) - still needed for observation
         self.last_dose_K = 0.0
@@ -484,6 +486,7 @@ class PetriEnvWrapper:
         self.ts_last_seq = None
         self.prev_count_step = None
         self.avg_genome.fill(0.0)
+        self.proportions.fill(0.0)
 
         # Reset dosing history
         self.last_dose_K = 0.0
@@ -1017,21 +1020,32 @@ class PetriEnvWrapper:
         """
         Build a sequencing summary from the true state (hidden),
         shaped like:
-          { "avg_genome": np.array([enzyme, efflux, repair, membrane], dtype=float32),
-            "proportions": np.array([p_0..p_{K-1}], dtype=float32) }
+          { "avg_genome": np.array shape (N_BACTERIA_TYPES, N_TRAITS) with average traits per type,
+            "proportions": np.array([p_0..p_{K-1}], dtype=float32) where K=N_BACTERIA_TYPES }
+        
+        Proportions represent the fraction of total population belonging to each bacterial type.
         """
-        # --- Average genome traits ---
-        genome_matrix = self.model.get_population_stats()["traits_matrix"]
+        # --- Get population statistics ---
+        stats = self.model.get_population_stats()
+        genome_matrix = stats["traits_matrix"]
+        total_population = stats["total"]
 
-        # --- Type proportions ---
-        # You can compute these from your model taxonomy; here we default to zeros
-        proportions = np.zeros((self.k_doses,), dtype=np.float32)
+        # --- Compute type proportions from stats["by_type"] ---
+        # Use BACTERIAL_TYPES.keys() to ensure consistent ordering
+        bacterial_types_list = list(BACTERIAL_TYPES.keys())
+        proportions = np.zeros((N_BACTERIA_TYPES,), dtype=np.float32)
+        
+        if total_population > 0:
+            for i, btype in enumerate(bacterial_types_list):
+                count = stats["by_type"].get(btype, 0)
+                proportions[i] = float(count) / float(total_population)
 
         return {
             "avg_genome": np.array(genome_matrix, dtype=np.float32),
             "proportions": proportions,
         }
 
+    # -------------------------
     def _apply_antibiotics(self, scaled_doses: np.ndarray) -> None:
         """
         Applies antibiotics into the Mesa model. Expects the model to have:
@@ -1147,6 +1161,7 @@ class PetriEnvWrapper:
         }
         self.ts_last_seq = self.t
         self.avg_genome = np.array(seq["avg_genome"], dtype=np.float32, copy=True)
+        self.proportions = np.array(seq["proportions"], dtype=np.float32, copy=True)
 
     def _age_norm(self, timestamp: Optional[int]) -> float:
         if timestamp is None:
@@ -1158,12 +1173,29 @@ class PetriEnvWrapper:
     def _build_observation(self) -> np.ndarray:
         """
         Assemble what the agent is allowed to see (cached measurements + meta).
+        
+        Structure:
+            [ last_count_norm,              # 1 value
+              has_last_count,               # 1 value
+              last_count_age_norm,          # 1 value
+              avg_genome_flat,              # N_BACTERIA_TYPES * N_TRAITS = 12 values
+              proportions_by_type,          # N_BACTERIA_TYPES = 3 values
+              has_last_seq,                 # 1 value
+              last_seq_age_norm,            # 1 value
+              measure_age_norm,             # 1 value
+              dose_history_K (has,norm,age),# 3 values
+              dose_history_I (has,norm,age),# 3 values
+              dose_history_A (has,norm,age),# 3 values
+              t_norm                        # 1 value
+            ]
+        Total: 3 + 12 + 3 + 3 + 9 + 1 = 31 values
         """
         last_count_norm = 0.0 if self.last_count_obs is None else float(self.last_count_obs) / max(1.0, self.population_norm)
         has_last_count = 1.0 if self.last_count_obs is not None else 0.0
         last_count_age_norm = self._age_norm(self.ts_last_count)
 
         genome_values = self.avg_genome.astype(np.float32, copy=False).reshape(-1)
+        proportions_values = self.proportions.astype(np.float32, copy=False)
 
         has_last_seq = 1.0 if self.ts_last_seq is not None else 0.0
         last_seq_age_norm = self._age_norm(self.ts_last_seq)
@@ -1204,6 +1236,7 @@ class PetriEnvWrapper:
             has_last_count,
             last_count_age_norm,
             *genome_values.tolist(),
+            *proportions_values.tolist(),
             has_last_seq,
             last_seq_age_norm,
             measure_age_norm,

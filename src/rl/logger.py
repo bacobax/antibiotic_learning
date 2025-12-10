@@ -97,6 +97,78 @@ class TrainingLogger:
             self.logger.warning(f"TensorBoard initialization failed: {e}")
             return None
     
+    def _flatten_config(self, obj, prefix: str = "") -> Dict[str, any]:
+        """
+        Recursively flatten a nested config object (dataclass or dict) into a flat dict.
+        
+        Args:
+            obj: Object to flatten (dataclass, dict, or primitive)
+            prefix: Key prefix for nested keys
+        
+        Returns:
+            Flattened dictionary with dot-separated keys
+        """
+        from dataclasses import is_dataclass, asdict
+        
+        flat = {}
+        
+        if is_dataclass(obj) and not isinstance(obj, type):
+            obj = asdict(obj)
+        
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                new_key = f"{prefix}.{key}" if prefix else key
+                flat.update(self._flatten_config(value, new_key))
+        elif isinstance(obj, (list, tuple)):
+            # Convert lists/tuples to string representation for hparams
+            flat[prefix] = str(obj)
+        elif isinstance(obj, (int, float, str, bool)) or obj is None:
+            # Convert None to string for TensorBoard compatibility
+            flat[prefix] = obj if obj is not None else "None"
+        else:
+            # For other types, convert to string
+            flat[prefix] = str(obj)
+        
+        return flat
+    
+    def log_hparams(self, config, final_metrics: Optional[Dict[str, float]] = None) -> None:
+        """
+        Log hyperparameters to TensorBoard.
+        
+        This logs all configuration parameters as hyperparameters, which can be viewed
+        in TensorBoard's HPARAMS tab for comparing different runs.
+        
+        Args:
+            config: CompleteConfig object or dict containing all hyperparameters
+            final_metrics: Optional dict of final metrics to associate with hparams
+        """
+        if not self.tb_writer:
+            self.logger.debug("TensorBoard not available, skipping hparam logging.")
+            return
+        
+        try:
+            # Flatten the config to a single-level dict
+            hparam_dict = self._flatten_config(config)
+            
+            # Filter out any values that TensorBoard can't handle
+            filtered_hparams = {}
+            for key, value in hparam_dict.items():
+                if isinstance(value, (int, float, str, bool)):
+                    filtered_hparams[key] = value
+                else:
+                    filtered_hparams[key] = str(value)
+            
+            # Default metrics if not provided
+            if final_metrics is None:
+                final_metrics = {"hparam/placeholder": 0.0}
+            
+            # Log to TensorBoard
+            self.tb_writer.add_hparams(filtered_hparams, final_metrics)
+            self.logger.debug(f"✓ Logged {len(filtered_hparams)} hyperparameters to TensorBoard")
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to log hyperparameters to TensorBoard: {e}")
+    
     # ========================================================================
     # Public Methods
     # ========================================================================

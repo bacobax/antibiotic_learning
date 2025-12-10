@@ -1,0 +1,165 @@
+# Simple reward system configuration following pseudo-code structure
+# All rewards are pre/post step based with timing windows and freshness checks
+
+environment:
+  max_steps: 1024
+  k_doses: 3
+  device: "cuda"
+  dtype: "float32"
+  initial_bacteria_per_type_range: [20, 60]
+  warmup_skip_steps: 10
+
+  # Memory safety controls for tracking-heavy runs
+  tracking:
+    enabled: false                  # Disable entirely for visualization-heavy sweeps
+    max_tracked_individuals: 2000  # Cap unique individuals kept in memory
+    max_individual_history: 100   # Per-individual history window
+
+  history:
+    max_steps: 2000                # Trim global per-step history buffers
+
+  reward_buffers:
+    max_recent_dose_events: 256    # Controls PetriEnvWrapper recent-dose deque size
+
+  # Timing and freshness thresholds
+  timing:
+    t_count_freshness: 10              # Steps for count to remain "fresh"
+    t_seq_freshness: 10                # Steps for sequencing to remain "fresh"
+    max_count_window: 25              # Max steps without counting before penalty
+    critical_ratio: 3.0               # Population ratio for critical state (target × ratio)
+    
+    # Timing windows for informative actions
+    count_window:
+      min_elapsed: 3                  # Minimum time between counts
+      max_elapsed: 15                 # Maximum time for informative count
+    
+    seq_window:
+      min_elapsed: 25                  # Minimum time between sequencing
+      max_elapsed: 50                 # Maximum time for informative sequencing
+
+  # Reward/Penalty scalars (all configurable)
+  rewards:
+    # Pre-step rewards (informed dosing)
+    informed_dosing:
+      penalty_dosing_under_target: 100.0       # Base penalty for dosing when pop < target #!
+      penalty_dosing_under_target_dose_scale: 6.0    # Scales penalty with antibiotic amount
+      penalty_dosing_under_target_dose_exponent: 1.0 # Linear scaling for dose magnitude
+      penalty_dosing_under_target_deficit_scale: 3.0 # Extra penalty per deficit fraction
+      penalty_dosing_under_target_deficit_cap: 1.8   # Multiplier/cap for normalized deficit term
+      penalty_dosing_under_target_max: null    # Hard ceiling for under-target penalty (null = disabled)
+      reward_dosing_above_with_seq: 10.0       # Reward for dosing above target with seq
+      reward_dosing_above_no_seq: 8.0         # Reward for dosing above target without seq
+      penalty_blind_dose: 20.0                # Base penalty for dosing without fresh count
+      penalty_blind_dose_amount_scale: 1.5    # Scales blind penalty with antibiotic amount #!
+      penalty_blind_dose_amount_exponent: 1.1 # Non-linear scaling for blind high doses
+      penalty_blind_dose_max: null            # Hard ceiling for blind penalty (null = disabled)
+      dosing_margin: 50.0                      # Margin offset from target_pop for dosing threshold (0 = threshold at target_pop) #!
+      penalty_dosing_in_margin: 10.0           # Penalty when dosing in margin zone (target_pop < pop < target_pop + margin). Set lower than penalty_dosing_under_target
+    sequencing:
+      seq_already_pending_penalty: 0.0        # Penalty for redundant sequencing
+      informative_seq_reward: 1.0             # Reward for informative sequencing
+    counting:
+      informative_count_reward: 2.0           # Reward for informative counting
+      cost_penalty: 0.15
+    noop:
+      strategic_noop_reward: 0.5              # Reward for waiting when below target
+    critical_penalties:
+      penalty_critical_no_dose: 6           # Penalty for not dosing when critical #!
+      penalty_critical_no_count: 10.0          # Penalty for stale count data
+    population_maintenance:
+      enabled: true
+      kernel_type: "gaussian"                 # "gaussian" or "laplace"
+      kernel_peak_reward: 30.0                 # R: peak reward at target
+      kernel_max_penalty: 2.0                 # M: maximum penalty (min value -M) #!
+      kernel_zero_distance: 50.0              # distance where kernel equals 0
+    survival_bonus:
+      enabled: true
+      base_bonus: 2.0
+      scaling_type: "linear"                  # "constant", "linear", "exponential"
+      scaling_factor: 0.005
+      max_bonus: 3.5
+    prediction:
+      enabled: false
+      weight: 1.0
+      align_weight: 3.0
+      target_weight: 1.0
+      align_scale: 6.0
+      target_scale: 3.0
+    early_termination:
+      enabled: true
+      penalty: 100.0                           # Penalty applied on early termination
+      min_penalty: 2.0                       # Penalty when terminating near horizon
+      penalty_decay_power: 1.3                # Decay rate exponent
+      population_low_threshold: 0.05           # Terminate if pop < target × this
+      population_threshold: 4.5               # Unrecoverable if pop > target × this
+      extinction_penalty: 100                # Additional penalty for extinction
+      require_budget_depleted: false          # If true, also require budget == 0
+  budget:
+    budget_init: 100.0
+    budget_norm: 300.0
+  
+  population:
+    target_population: 100
+    population_norm: 300.0                    # For observation normalization only
+
+# Action costs and durations
+actions:
+  weight_cost: 0.5
+  noop:
+    id: 0
+    cost: 0.0
+    duration: 0
+
+  count_bacteria:
+    id: 1
+    cost: 0.5
+    duration: 0
+
+  sequencing:
+    id: 2
+    cost: 2.5
+    duration: 5
+
+  dose:
+    id: 3
+    cost: 1.0
+    cost_per_unit: 3.0
+    duration: 0
+
+# Model architecture
+model:
+  hidden_dim: 256
+  rnn_layers: 2
+  n_discrete: 4
+  dose_action_index: 3
+  k_doses: 3
+  sigmoid_scale_factor: 0.1
+  override_sigmoid_scale_factor_from_checkpoint: true  # If true, use yaml value instead of checkpoint value
+  reset_continuous_log_std_from_checkpoint: true      # If true, reset continuous action std to 1.0 when resuming (fixes exploded std)
+
+# PPO hyperparameters
+ppo:
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_eps: 0.3
+  vf_coef: 0.5
+  ent_coef: 0.03
+  max_grad_norm: 0.5
+  rollout_steps: 2048
+  epochs: 15
+  seq_len: 256
+  batch_seq_len: 256
+  lr: 0.0001
+
+# Training configuration
+training:
+  total_updates: 5000
+  seed: 42
+  checkpoint_interval: 1000
+  log_interval: 2
+  save_dir: "./checkpoints"
+  experiment_name: "long_run"
+  save_checkpoints_per_run: true
+  log_window_size: 200            # Rolling window for in-memory training metrics
+  log_memory: true                # Enable periodic RSS/CUDA memory telemetry
+  memory_log_interval: 1          # Log memory every update (increase for fewer samples)
