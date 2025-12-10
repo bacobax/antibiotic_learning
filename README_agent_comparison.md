@@ -6,12 +6,12 @@ Compare multiple bacterial control agents (Programmatic, Random, and RL) in a he
 
 ```bash
 python src/compare_agents.py \
-    --steps 800 \
+    --steps 400 \
     --target-population 100 \
     --rl-checkpoints \
-        src/checkpoints/gaussian/checkpoint_final_1000.pt \
+        src/checkpoints/new_margin_penalty/checkpoint_10000.pt \
         src/checkpoints/new_margin_penalty/checkpoint_8000.pt \
-        src/checkpoints/improved_cont_head/checkpoint_3500.pt \
+        src/checkpoints/new_margin_penalty/checkpoint_6000.pt \
     --rl-runs 5 \
     --seed 42 \
     --verbose \
