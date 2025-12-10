@@ -135,6 +135,11 @@ def main():
         action="store_true",
         help="Ignore the config's max_steps and let budget/early termination end the episode"
     )
+    parser.add_argument(
+        "--disable-seq-proportions",
+        action="store_true",
+        help="Drop sequencing proportion features from observations (legacy checkpoints)"
+    )
     
     args = parser.parse_args()
     
@@ -202,6 +207,9 @@ def main():
         env_logger,
         mesa_model_factory=shared_model_factory,
     )
+    if args.disable_seq_proportions:
+        env.configure_seq_proportions(enabled=False)
+        print("Sequencing proportions disabled for observation compatibility.")
     
     # Create UI
     print(f"Loading agent from checkpoint: {checkpoint_path}")

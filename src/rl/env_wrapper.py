@@ -3,7 +3,14 @@ from collections import deque
 import math
 import numpy as np
 import torch
-from simulation.simulation_config import ANTIBIOTIC_TYPES, antibiotic_resistances, TOX_TIMES_DOSE_MAX, N_TRAITS, N_BACTERIA_TYPES
+from simulation.simulation_config import (
+    ANTIBIOTIC_TYPES,
+    BACTERIAL_TYPES,
+    antibiotic_resistances,
+    TOX_TIMES_DOSE_MAX,
+    N_TRAITS,
+    N_BACTERIA_TYPES,
+)
 from rl.reward import (
     SurvivalBonusReward,
     KernelPopulationMaintenanceReward,
@@ -36,6 +43,7 @@ class PetriEnvWrapper:
             has_last_count,
             last_count_age_norm,
             avg_genome_flat (12 values),
+            type_proportions (seq_proportion_dim),
             has_last_seq,
             last_seq_age_norm,
             measure_age_norm,
@@ -44,7 +52,7 @@ class PetriEnvWrapper:
             dose_history_A (has, norm, age),
             t_norm
         ]
-    Length = 28. Missing values are zeroed with companion mask bits.
+    Length = 28 + seq_proportion_dim. Set seq_proportion_dim=0 to emulate legacy checkpoints.
     
     REWARD STRUCTURE:
     =================
@@ -173,6 +181,7 @@ class PetriEnvWrapper:
         initial_bacteria_per_type_range: Optional[Tuple[int, int]] = None,
         initial_skip_steps: int = 0,
         max_recent_dose_events: int = 256,
+        include_seq_proportions: bool = True,
         
         device: str = "cpu",
         dtype: torch.dtype = torch.float32,
@@ -227,6 +236,11 @@ class PetriEnvWrapper:
         self.dtype = dtype
         self.initial_skip_steps = max(0, int(initial_skip_steps))
         self.max_recent_dose_events = max(1, int(max_recent_dose_events))
+        self.include_seq_proportions = bool(include_seq_proportions)
+        self._default_seq_proportion_dim = N_BACTERIA_TYPES
+        self.seq_proportion_dim = (
+            self._default_seq_proportion_dim if self.include_seq_proportions else 0
+        )
         
         # ===== Prediction reward =====
         self.prediction_reward_enabled = bool(prediction_reward_enabled)
@@ -386,6 +400,7 @@ class PetriEnvWrapper:
         
         # Measurement/state caches
         self.avg_genome = np.zeros((N_BACTERIA_TYPES, N_TRAITS), dtype=np.float32)
+        self.seq_proportions = np.zeros((self.seq_proportion_dim,), dtype=np.float32)
         
         # Dosing history (K, I, A) - still needed for observation
         self.last_dose_K = 0.0
@@ -491,6 +506,7 @@ class PetriEnvWrapper:
         self.ts_last_seq = None
         self.prev_count_step = None
         self.avg_genome.fill(0.0)
+        self.seq_proportions.fill(0.0)
 
         # Reset dosing history
         self.last_dose_K = 0.0
@@ -1023,17 +1039,24 @@ class PetriEnvWrapper:
 
     def _read_true_sequencing(self) -> Dict[str, Any]:
         """
-        Build a sequencing summary from the true state (hidden),
-        shaped like:
-          { "avg_genome": np.array([enzyme, efflux, repair, membrane], dtype=float32),
-            "proportions": np.array([p_0..p_{K-1}], dtype=float32) }
+                Build a sequencing summary from the true state (hidden),
+                shaped like:
+                    { "avg_genome": np.array([enzyme, efflux, repair, membrane], dtype=float32),
+                        "proportions": np.array([p_0..p_{seq_proportion_dim-1}], dtype=float32) }
         """
-        # --- Average genome traits ---
-        genome_matrix = self.model.get_population_stats()["traits_matrix"]
+        stats = self.model.get_population_stats()
+        genome_matrix = stats["traits_matrix"]
 
-        # --- Type proportions ---
-        # You can compute these from your model taxonomy; here we default to zeros
-        proportions = np.zeros((self.k_doses,), dtype=np.float32)
+        proportions = np.zeros((self.seq_proportion_dim,), dtype=np.float32)
+        total = float(stats.get("total", 0))
+        if total > 0.0:
+            type_keys = list(BACTERIAL_TYPES.keys())
+            limit = min(len(type_keys), proportions.shape[0])
+            by_type = stats.get("by_type", {})
+            for idx in range(limit):
+                btype = type_keys[idx]
+                count = float(by_type.get(btype, 0))
+                proportions[idx] = count / total
 
         return {
             "avg_genome": np.array(genome_matrix, dtype=np.float32),
@@ -1155,6 +1178,7 @@ class PetriEnvWrapper:
         }
         self.ts_last_seq = self.t
         self.avg_genome = np.array(seq["avg_genome"], dtype=np.float32, copy=True)
+        self.seq_proportions = np.array(seq["proportions"], dtype=np.float32, copy=True)
 
     def _age_norm(self, timestamp: Optional[int]) -> float:
         if timestamp is None:
@@ -1172,6 +1196,10 @@ class PetriEnvWrapper:
         last_count_age_norm = self._age_norm(self.ts_last_count)
 
         genome_values = self.avg_genome.astype(np.float32, copy=False).reshape(-1)
+        if self.has_ever_sequenced:
+            proportion_values = self.seq_proportions.astype(np.float32, copy=False)
+        else:
+            proportion_values = np.zeros_like(self.seq_proportions, dtype=np.float32)
 
         has_last_seq = 1.0 if self.ts_last_seq is not None else 0.0
         last_seq_age_norm = self._age_norm(self.ts_last_seq)
@@ -1212,6 +1240,7 @@ class PetriEnvWrapper:
             has_last_count,
             last_count_age_norm,
             *genome_values.tolist(),
+            *proportion_values.tolist(),
             has_last_seq,
             last_seq_age_norm,
             measure_age_norm,
@@ -1282,6 +1311,18 @@ class PetriEnvWrapper:
             "budget_spent": float(self.episode_budget_spent),
             "budget_per_step": float(budget_per_step),
         }
+    
+    def configure_seq_proportions(self, enabled: bool, dim: Optional[int] = None) -> None:
+        """Enable/disable sequencing proportion features (for legacy checkpoints)."""
+        target_dim = 0
+        if enabled:
+            if dim is not None:
+                target_dim = max(0, int(dim))
+            else:
+                target_dim = self._default_seq_proportion_dim
+        self.seq_proportion_dim = target_dim
+        self.seq_proportions = np.zeros((self.seq_proportion_dim,), dtype=np.float32)
+        self.include_seq_proportions = bool(enabled)
     
     def get_action_mask(self, a_cont: np.ndarray) -> np.ndarray:
         """
