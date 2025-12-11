@@ -60,7 +60,7 @@ environment:
       informative_seq_reward: 1.0             # Reward for informative sequencing
     counting:
       informative_count_reward: 2.0           # Reward for informative counting
-      cost_penalty: 0.15
+      cost_penalty: 0.3
       redundant_count_penalty: 0.1            # Penalty for redundant counting
     noop:
       strategic_noop_reward: 0.5              # Reward for waiting when below target
@@ -70,7 +70,7 @@ environment:
     population_maintenance:
       enabled: true
       kernel_type: "gaussian"                 # "gaussian" or "laplace"
-      kernel_peak_reward: 30.0                 # R: peak reward at target
+      kernel_peak_reward: 20.0                 # R: peak reward at target
       kernel_max_penalty: 2.0                 # M: maximum penalty (min value -M) #!
       kernel_zero_distance: 50.0              # distance where kernel equals 0
     survival_bonus:
