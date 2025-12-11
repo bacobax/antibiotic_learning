@@ -102,7 +102,7 @@ validation_data/
 *.rar
 
 # Model checkpoints and logs
-checkpoints/
+
 logs/
 tensorboard_logs/
 runs/

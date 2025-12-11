@@ -61,7 +61,7 @@ environment:
     counting:
       informative_count_reward: 2.0           # Reward for informative counting
       cost_penalty: 0.15
-      redundant_count_penalty: 0.5            # Penalty for redundant counting
+      redundant_count_penalty: 0.1            # Penalty for redundant counting
     noop:
       strategic_noop_reward: 0.5              # Reward for waiting when below target
     critical_penalties:
@@ -156,7 +156,7 @@ ppo:
 training:
   total_updates: 5000
   seed: 42
-  checkpoint_interval: 1000
+  checkpoint_interval: 500
   log_interval: 2
   save_dir: "./checkpoints"
   experiment_name: "long_run"
