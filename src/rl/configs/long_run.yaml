@@ -30,8 +30,8 @@ environment:
     
     # Timing windows for informative actions
     count_window:
-      min_elapsed: 3                  # Minimum time between counts
-      max_elapsed: 15                 # Maximum time for informative count
+      min_elapsed: 8                  # Minimum time between counts
+      max_elapsed: 20                 # Maximum time for informative count
     
     seq_window:
       min_elapsed: 25                  # Minimum time between sequencing
@@ -61,6 +61,7 @@ environment:
     counting:
       informative_count_reward: 2.0           # Reward for informative counting
       cost_penalty: 0.15
+      redundant_count_penalty: 0.5            # Penalty for redundant counting
     noop:
       strategic_noop_reward: 0.5              # Reward for waiting when below target
     critical_penalties:

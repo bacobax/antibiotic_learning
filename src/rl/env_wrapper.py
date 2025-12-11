@@ -127,6 +127,7 @@ class PetriEnvWrapper:
         
         # Counting
         informative_count_reward: float = 1.0,
+        redundant_count_penalty: float = 0.0,
         
         # Strategic NOOP
         strategic_noop_reward: float = 0.5,
@@ -286,6 +287,7 @@ class PetriEnvWrapper:
         
         self.count_reward = CountReward(
             informative_count_reward=informative_count_reward,
+            redundant_count_penalty=redundant_count_penalty,
         )
         
         self.strategic_noop_reward = StrategicNoopReward(

@@ -112,6 +112,7 @@ class CountingRewardConfig:
     """Pre-step rewards for counting."""
     informative_count_reward: float
     cost_penalty: float
+    redundant_count_penalty: float = 0.0
 
 
 @dataclass

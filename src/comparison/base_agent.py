@@ -23,7 +23,6 @@ class BaseComparisonAgent(ABC):
         self,
         name: str,
         target_population: int,
-        total_steps: int,
         initial_budget: float,
         noop_cost: float = 0.0,
         count_cost: float = 0.5,
@@ -31,10 +30,10 @@ class BaseComparisonAgent(ABC):
         dose_cost: float = 2.0,
         dose_cost_per_unit: float = 2.0,
         dose_scale: float = 0.5,
+        **kwargs,  # Accept but ignore extra args like total_steps for backward compatibility
     ):
         self.name = name
         self.target_population = target_population
-        self.total_steps = total_steps
         self.initial_budget = initial_budget
         self.budget_remaining = initial_budget
         
@@ -50,6 +49,11 @@ class BaseComparisonAgent(ABC):
         self.step_count = 0
         self.last_count_population: Optional[int] = None
         self.action_counts = {action.name: 0 for action in ActionType}
+    
+    def is_budget_exhausted(self) -> bool:
+        """Check if budget is exhausted (can't afford even the cheapest non-noop action)."""
+        min_action_cost = min(self.count_cost, self.dose_cost)
+        return self.budget_remaining < min_action_cost
     
     def compute_action_cost(self, action_type: ActionType, dose_strength: float = 0.0) -> float:
         """Compute the cost of an action."""

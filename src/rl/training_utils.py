@@ -950,6 +950,7 @@ def _create_environment(
     counting_rewards = getattr(rewards, 'counting', None)
     if counting_rewards:
         informative_count_reward = counting_rewards.informative_count_reward
+        redundant_count_penalty = getattr(counting_rewards, 'redundant_count_penalty', 0.0)
     else:
         raise ValueError("Counting reward config is required in the new reward structure.")
     
@@ -1081,6 +1082,7 @@ def _create_environment(
         
         # Pre-step rewards (counting)
         informative_count_reward=informative_count_reward,
+        redundant_count_penalty=redundant_count_penalty,
         cost_weight=config.actions.cost_weight,
         
         # Pre-step rewards (strategic NOOP)

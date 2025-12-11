@@ -24,14 +24,12 @@ class RLAgentWrapper(BaseComparisonAgent):
         env: PetriEnvWrapper,
         checkpoint_name: str,
         target_population: int,
-        total_steps: int,
         initial_budget: float,
         **kwargs
     ):
         super().__init__(
             name=f"RL Agent ({checkpoint_name})",
             target_population=target_population,
-            total_steps=total_steps,
             initial_budget=initial_budget,
             **kwargs
         )

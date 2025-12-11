@@ -9,8 +9,8 @@ This script runs agents in headless mode and produces:
 - Radar chart showing normalized performance metrics
 
 Usage:
-    python compare_agents.py --steps 500 --rl-checkpoints checkpoint1.pt checkpoint2.pt
-    python compare_agents.py --steps 500 --rl-config rl/configs/training_config_simple_rewards.yaml
+    python compare_agents.py --steps 500 --rl-checkpoints checkpoint1.pt:config1.yaml checkpoint2.pt:config2.yaml
+    python compare_agents.py --steps 500 --rl-checkpoints checkpoint.pt  # Uses default config
 """
 
 import argparse
@@ -43,7 +43,6 @@ from comparison import (
 def run_rl_agent_multiple_times(
     config_path: str,
     checkpoint_path: str,
-    steps: int,
     target_population: int,
     initial_budget: float,
     tolerance: float,
@@ -58,7 +57,6 @@ def run_rl_agent_multiple_times(
         return run_rl_agent(
             config_path=config_path,
             checkpoint_path=checkpoint_path,
-            steps=steps,
             target_population=target_population,
             initial_budget=initial_budget,
             tolerance=tolerance,
@@ -80,7 +78,6 @@ def run_rl_agent_multiple_times(
         metrics = run_rl_agent(
             config_path=config_path,
             checkpoint_path=checkpoint_path,
-            steps=steps,
             target_population=target_population,
             initial_budget=initial_budget,
             tolerance=tolerance,
@@ -109,10 +106,6 @@ def parse_args():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--steps", type=int, default=500,
-        help="Number of simulation steps to run"
-    )
-    parser.add_argument(
         "--target-population", type=int, default=100,
         help="Target population for all agents"
     )
@@ -134,11 +127,11 @@ def parse_args():
     )
     parser.add_argument(
         "--rl-checkpoints", type=str, nargs='+', default=None,
-        help="Paths to RL agent checkpoint files (can specify multiple)"
+        help="RL checkpoint:config pairs. Format: 'checkpoint.pt:config.yaml' or just 'checkpoint.pt' (uses default config)"
     )
     parser.add_argument(
         "--rl-config", type=str, default="src/rl/configs/training_config_simple_rewards.yaml",
-        help="Path to RL config file"
+        help="Default RL config file (used when no config specified in --rl-checkpoints)"
     )
     parser.add_argument(
         "--seed", type=int, default=None,
@@ -190,9 +183,11 @@ def main():
     
     seed_for_models = args.seed if args.seed is not None else random.randint(0, 2**31)
     
-    # Find RL checkpoints
-    rl_checkpoints = args.rl_checkpoints or []
-    if not rl_checkpoints:
+    # Parse RL checkpoint:config pairs
+    rl_checkpoint_configs = []  # List of (checkpoint_path, config_path) tuples
+    raw_checkpoints = args.rl_checkpoints or []
+    
+    if not raw_checkpoints:
         # Try to find default checkpoints
         default_checkpoints = [
             "checkpoints/gaussian/checkpoint_1500.pt",
@@ -201,21 +196,37 @@ def main():
         ]
         for ckpt in default_checkpoints:
             if Path(ckpt).exists():
-                rl_checkpoints.append(ckpt)
+                raw_checkpoints.append(ckpt)
                 break
     
-    # Validate checkpoints exist
-    valid_checkpoints = []
-    for ckpt in rl_checkpoints:
-        if Path(ckpt).exists():
-            valid_checkpoints.append(ckpt)
+    # Parse and validate checkpoint:config pairs
+    for entry in raw_checkpoints:
+        if ':' in entry:
+            # Format: checkpoint_path:config_path
+            parts = entry.split(':', 1)
+            checkpoint_path = parts[0]
+            config_path = parts[1]
         else:
-            print(f"Warning: Checkpoint not found: {ckpt}")
+            # Format: checkpoint_path (use default config)
+            checkpoint_path = entry
+            config_path = args.rl_config
+        
+        if not Path(checkpoint_path).exists():
+            print(f"Warning: Checkpoint not found: {checkpoint_path}")
+            continue
+        if not Path(config_path).exists():
+            print(f"Warning: Config not found: {config_path}")
+            continue
+        
+        rl_checkpoint_configs.append((checkpoint_path, config_path))
     
-    print(f"Steps: {args.steps}, Target: {args.target_population}, Budget: {args.initial_budget}")
+    print(f"Target: {args.target_population}, Budget: {args.initial_budget}")
     print(f"Population cap: {args.population_cap}")
-    if valid_checkpoints:
-        print(f"RL Checkpoints: {valid_checkpoints}")
+    if rl_checkpoint_configs:
+        print(f"RL Agents:")
+        for ckpt, cfg in rl_checkpoint_configs:
+            print(f"  - Checkpoint: {ckpt}")
+            print(f"    Config: {cfg}")
     print()
     
     all_metrics: List[RunMetrics] = []
@@ -231,13 +242,12 @@ def main():
         prog_model = BacteriaModel()
         prog_agent = ProgrammaticAgent(
             target_population=args.target_population,
-            total_steps=args.steps,
             initial_budget=args.initial_budget,
+            count_interval=5
         )
         prog_metrics = run_agent(
             agent=prog_agent,
             model=prog_model,
-            steps=args.steps,
             target_population=args.target_population,
             tolerance=args.tolerance,
             zero_distance=args.zero_distance,
@@ -260,13 +270,11 @@ def main():
         random_model = BacteriaModel()
         random_agent = RandomAgent(
             target_population=args.target_population,
-            total_steps=args.steps,
             initial_budget=args.initial_budget,
         )
         random_metrics = run_agent(
             agent=random_agent,
             model=random_model,
-            steps=args.steps,
             target_population=args.target_population,
             tolerance=args.tolerance,
             zero_distance=args.zero_distance,
@@ -279,21 +287,21 @@ def main():
             print(f"  Early termination: {random_metrics.early_termination_reason}")
     
     # Run RL Agents
-    for checkpoint_path in valid_checkpoints:
+    for checkpoint_path, config_path in rl_checkpoint_configs:
         checkpoint_name = Path(checkpoint_path).stem
+        config_name = Path(config_path).stem
         print("\n" + "=" * 60)
         if args.rl_runs > 1:
-            print(f"Running RL Agent ({checkpoint_name}) - {args.rl_runs} runs...")
+            print(f"Running RL Agent ({checkpoint_name} + {config_name}) - {args.rl_runs} runs...")
         else:
-            print(f"Running RL Agent ({checkpoint_name})...")
+            print(f"Running RL Agent ({checkpoint_name} + {config_name})...")
         print("=" * 60)
         random.seed(seed_for_models)
         np.random.seed(seed_for_models)
         
         rl_metrics = run_rl_agent_multiple_times(
-            config_path=args.rl_config,
+            config_path=config_path,
             checkpoint_path=checkpoint_path,
-            steps=args.steps,
             target_population=args.target_population,
             initial_budget=args.initial_budget,
             tolerance=args.tolerance,
@@ -320,7 +328,6 @@ def main():
         metrics_dict = {
             "agents": [],
             "settings": {
-                "steps": args.steps,
                 "target_population": args.target_population,
                 "initial_budget": args.initial_budget,
                 "tolerance": args.tolerance,

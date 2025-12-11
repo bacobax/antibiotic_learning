@@ -640,17 +640,21 @@ class CountReward(nn.Module):
     Pre-step reward for COUNT action.
     
     Rewards informative counting (within timing window).
+    Penalizes redundant counting (too early, before min elapsed time).
     """
     def __init__(
         self,
         informative_count_reward: float = 1.0,
+        redundant_count_penalty: float = 0.0,
     ):
         """
         Args:
             informative_count_reward: Reward for counting within timing window
+            redundant_count_penalty: Penalty for counting too early (before min elapsed time)
         """
         super(CountReward, self).__init__()
         self.informative_count_reward = float(informative_count_reward)
+        self.redundant_count_penalty = float(redundant_count_penalty)
     
     def forward(
         self,
@@ -669,14 +673,16 @@ class CountReward(nn.Module):
         Returns:
             COUNT reward as Python float
         """
-        reward = 0.0
-        
         # Check timing window
         if t_min_elapsed_time_count <= t_since_last_count <= t_max_elapsed_time_count:
             # Informative counting → reward
-            reward += self.informative_count_reward
-        
-        return reward
+            return self.informative_count_reward
+        elif t_since_last_count < t_min_elapsed_time_count:
+            # Counting too early (redundant) → penalty
+            return -self.redundant_count_penalty
+        else:
+            # After max window → neutral
+            return 0.0
 
 
 class StrategicNoopReward(nn.Module):
