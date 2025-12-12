@@ -196,11 +196,10 @@ def plot_radar_chart(
         return None
     
     # Define metrics to display (all higher=better after normalization)
+    # Only show three metrics: Gaussian Score, Target Band %, Low Error
     metric_names = [
         'Gaussian Score',
         'Target Band %',
-        'Budget Efficiency',
-        'Population Stability',
         'Low Error',
     ]
     
@@ -214,12 +213,12 @@ def plot_radar_chart(
         target_band = metrics.target_band_ratio
         
         # Budget efficiency: proportion of budget remaining (0-1, higher=better)
-        budget_efficiency = metrics.final_budget / metrics.initial_budget if metrics.initial_budget > 0 else 0.0
+        #budget_efficiency = metrics.final_budget / metrics.initial_budget if metrics.initial_budget > 0 else 0.0
         
         # Population stability: inverse of coefficient of variation (normalized)
         # Lower CV = more stable = better
         cv = metrics.std_population / metrics.mean_population if metrics.mean_population > 0 else 1.0
-        stability = 1.0 / (1.0 + cv)  # Normalize to 0-1, higher=better
+        #stability = 1.0 / (1.0 + cv)  # Normalize to 0-1, higher=better
         
         # Low error: inverse of normalized MAE (higher=better means lower error)
         # Normalize MAE by target population
@@ -228,7 +227,7 @@ def plot_radar_chart(
         
         agent_data.append({
             'name': metrics.agent_name,
-            'values': [gaussian_score, target_band, budget_efficiency, stability, low_error]
+            'values': [gaussian_score, target_band, low_error]
         })
     
     # Number of metrics
@@ -264,8 +263,8 @@ def plot_radar_chart(
     
     # Set y-axis limits
     ax.set_ylim(0, 1)
-    ax.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
-    ax.set_yticklabels(['0.2', '0.4', '0.6', '0.8', '1.0'], size=9, color='gray')
+    ax.set_yticks([0.2,  0.6,  1.0])
+    ax.set_yticklabels(['0.2', '0.6', '1.0'], size=9, color='gray')
     
     # Add grid
     ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.7)
