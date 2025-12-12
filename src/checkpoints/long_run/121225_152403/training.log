@@ -1,0 +1,96 @@
+2025-12-12 15:24:03 [INFO] Logging to: checkpoints/long_run/121225_152403
+2025-12-12 15:24:03 [INFO] TensorBoard logs: checkpoints/long_run/121225_152403/long_run/20251212_152403
+2025-12-12 15:24:03 [INFO] View with: tensorboard --logdir=checkpoints/long_run/121225_152403/long_run
+2025-12-12 15:24:03 [DEBUG] ✓ Logged 115 hyperparameters to TensorBoard
+2025-12-12 15:24:03 [INFO] ======================================================================
+2025-12-12 15:24:03 [INFO] PPO Training Started
+2025-12-12 15:24:03 [INFO] ======================================================================
+2025-12-12 15:24:03 [INFO] Configuration from: ./checkpoints
+2025-12-12 15:24:03 [INFO] Environment Settings:
+2025-12-12 15:24:03 [INFO]   - Max steps: 450
+2025-12-12 15:24:03 [INFO]   - Target population: 100.0
+2025-12-12 15:24:03 [INFO]   - Population normalization: 300.0
+2025-12-12 15:24:03 [INFO]   - Budget init: 100.0
+2025-12-12 15:24:03 [INFO]   - Budget normalization: 300.0
+2025-12-12 15:24:03 [INFO]   - K doses (antibiotic types): 3
+2025-12-12 15:24:03 [INFO]   - Device: cuda
+2025-12-12 15:24:03 [INFO]     - torch.cuda.is_available: True
+2025-12-12 15:24:03 [INFO]     - Using GPU: cuda:0 (NVIDIA GeForce RTX 3090)
+2025-12-12 15:24:03 [INFO] Model Architecture:
+2025-12-12 15:24:03 [INFO]   - Hidden dim: 256
+2025-12-12 15:24:03 [INFO]   - RNN layers: 2
+2025-12-12 15:24:03 [INFO] PPO Hyperparameters:
+2025-12-12 15:24:03 [INFO]   - Learning rate: 0.0001
+2025-12-12 15:24:03 [INFO]   - Gamma: 0.99
+2025-12-12 15:24:03 [INFO]   - GAE lambda: 0.95
+2025-12-12 15:24:03 [INFO]   - Rollout steps: 2048
+2025-12-12 15:24:03 [INFO]   - Epochs: 15
+2025-12-12 15:24:03 [INFO]   - Seq len: 256
+2025-12-12 15:24:03 [INFO] Training Config:
+2025-12-12 15:24:03 [INFO]   - Total updates: 5000
+2025-12-12 15:24:03 [INFO]   - Seed: 42
+2025-12-12 15:24:03 [INFO] Reward Modules:
+2025-12-12 15:24:03 [INFO]   - Survival bonus: enabled
+2025-12-12 15:24:03 [INFO]     - Base bonus: 1.5
+2025-12-12 15:24:03 [INFO]     - Scaling type: linear
+2025-12-12 15:24:03 [INFO]   - Prediction reward: disabled
+2025-12-12 15:24:03 [INFO]   - Early termination: enabled
+2025-12-12 15:24:03 [INFO]     - Population thresholds: ≤0.1x or ≥4.5x target
+2025-12-12 15:24:03 [INFO]     - Extinction penalty: 100
+2025-12-12 15:24:03 [INFO]     - Penalty (early → late): 100.0 → 2.0
+2025-12-12 15:24:03 [INFO]     - Penalty decay power: 1.4
+2025-12-12 15:24:03 [INFO]     - Require budget depleted: False
+2025-12-12 15:24:03 [INFO] Action Costs:
+2025-12-12 15:24:03 [INFO]   - Weight: 3.0
+2025-12-12 15:24:03 [INFO]   - NOOP: 0.0
+2025-12-12 15:24:03 [INFO]   - COUNT: 0.5
+2025-12-12 15:24:03 [INFO]   - SEQUENCING: 2.5
+2025-12-12 15:24:03 [INFO]     └ duration: 5 steps
+2025-12-12 15:24:03 [INFO]   - DOSE base: 1.0
+2025-12-12 15:24:03 [INFO]   - DOSE per unit: 3.0
+2025-12-12 15:24:03 [INFO] ✓ Run directory created: checkpoints/long_run/121225_152403
+2025-12-12 15:24:03 [INFO]   Structure: checkpoints/long_run/121225_152403/
+2025-12-12 15:24:03 [DEBUG] ✓ Random seed set to: 42
+2025-12-12 15:24:03 [INFO] Creating environment with simplified reward structure...
+2025-12-12 15:24:03 [INFO] Informed dosing configuration:
+2025-12-12 15:24:03 [INFO]   - Under-target base penalty: 150.0
+2025-12-12 15:24:03 [INFO]     · Dose scale/exponent: 6.0 / 1.0
+2025-12-12 15:24:03 [INFO]     · Deficit scale/cap: 3.0 / 1.8
+2025-12-12 15:24:03 [INFO]     · Under-target max penalty: None
+2025-12-12 15:24:03 [INFO]   - Blind base penalty: 200.0
+2025-12-12 15:24:03 [INFO]     · Blind dose scale/exponent: 1.5 / 1.1
+2025-12-12 15:24:03 [INFO]     · Blind max penalty: None
+2025-12-12 15:24:03 [INFO] Initial bacteria per type range set to [20, 60]
+2025-12-12 15:24:03 [INFO] ✓ Environment created with simplified reward structure
+2025-12-12 15:24:03 [INFO]   - Timing: t_count_freshness=10, t_seq_freshness=10
+2025-12-12 15:24:03 [INFO]   - Warmup skip steps: 10
+2025-12-12 15:24:03 [INFO]   - Kernel maintenance: laplace (R=35.0, M=2.0, zero_distance=30)
+2025-12-12 15:24:03 [INFO]   - Survival bonus: enabled=True
+2025-12-12 15:24:03 [INFO]   - Early termination: enabled=True
+2025-12-12 15:24:03 [INFO]   - Prediction reward: enabled=False, align=3.0/6.0, target=1.0/3.0
+2025-12-12 15:24:03 [INFO] Observation dimension: 31
+2025-12-12 15:24:04 [INFO] Loading checkpoint from: /home/francesco.bassignana/antibiotic_learning/src/checkpoints/long_run/101225_140738/checkpoint_2000.pt
+2025-12-12 15:24:04 [INFO] ✓ Overriding sigmoid_scale_factor from checkpoint with YAML value: 0.1
+2025-12-12 15:24:04 [INFO] ✓ Reset continuous_log_std to zeros (std=1.0)
+2025-12-12 15:24:04 [DEBUG] ✓ Loaded optimizer state
+2025-12-12 15:24:04 [DEBUG] ✓ Restored recurrent hidden state
+2025-12-12 15:24:04 [DEBUG] ✓ Restored previous action (onehot)
+2025-12-12 15:24:04 [DEBUG] ✓ Restored previous action (continuous)
+2025-12-12 15:24:04 [DEBUG] ✓ Restored previous predicted population
+2025-12-12 15:24:04 [INFO] ✓ Loaded checkpoint from update 2000
+2025-12-12 15:24:04 [INFO] ✓ Checkpoints will be saved in: checkpoints/long_run/121225_152403
+2025-12-12 15:24:04 [DEBUG] Warning: Could not save config: 'RewardConfig' object has no attribute 'dose'
+2025-12-12 15:24:04 [INFO] ======================================================================
+2025-12-12 15:24:04 [INFO] Resuming Headless Training from Update 2000
+2025-12-12 15:24:04 [INFO] ======================================================================
+2025-12-12 15:24:04 [INFO] Starting PPO training for 5000 updates
+2025-12-12 15:24:04 [INFO] Config: obs_dim=31, hidden_dim=256, rnn_layers=2, k_doses=3
+2025-12-12 15:24:04 [INFO] Hyperparams: lr=0.0001, gamma=0.99, gae_lambda=0.95
+2025-12-12 15:24:04 [INFO] Rollout steps per update: 2048, PPO epochs: 15
+2025-12-12 15:24:04 [DEBUG] Using device: cuda
+2025-12-12 15:24:04 [INFO] Resuming training from update 2000
+2025-12-12 15:24:48 [INFO] UPDATE 2000/5000 | Reward: -370.41 (±497.67) | Episodes:   8 | Pop: 464 | Budget: 0.3 | Loss: A=-0.0230 C=2002.9485
+2025-12-12 15:24:48 [INFO]   Actions: DOSE=  1.1% | COUNT= 48.5% | SEQ=  6.8% | NOOP= 43.6%
+2025-12-12 15:24:48 [INFO]   Rewards: Pre=-428.28 | PostPen=-636.50 | Kernel=+424.24 | Survival=+603.72 | Predict= +0.00 | EarlyTerm=-34.37 | Cost=-299.23
+2025-12-12 15:24:48 [INFO]            TOTAL (calculated)=-370.41 | TOTAL (reported)=-370.41
+2025-12-12 15:24:48 [DEBUG]   Entropy: 0.3843 | Clip Frac: 0.082 | Grad Norm: 27430.8785 | ETA: 1.1 min
