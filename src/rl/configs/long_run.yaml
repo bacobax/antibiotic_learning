@@ -2,12 +2,12 @@
 # All rewards are pre/post step based with timing windows and freshness checks
 
 environment:
-  max_steps: 450
+  max_steps: 800
   k_doses: 3
   device: "cuda"
   dtype: "float32"
   initial_bacteria_per_type_range: [20, 60]
-  warmup_skip_steps: 10
+  warmup_skip_steps: 5
 
   # Memory safety controls for tracking-heavy runs
   tracking:
@@ -26,11 +26,11 @@ environment:
     t_count_freshness: 10              # Steps for count to remain "fresh"
     t_seq_freshness: 10                # Steps for sequencing to remain "fresh"
     max_count_window: 25              # Max steps without counting before penalty
-    critical_ratio: 2.5               # Population ratio for critical state (target × ratio)
+    critical_ratio: 2               # Population ratio for critical state (target × ratio)
     
     # Timing windows for informative actions
     count_window:
-      min_elapsed: 5                  # Minimum time between counts
+      min_elapsed: 6                  # Minimum time between counts
       max_elapsed: 20                 # Maximum time for informative count
     
     seq_window:
@@ -61,16 +61,16 @@ environment:
     counting:
       informative_count_reward: 10.0           # Reward for informative counting
       cost_penalty: 0.0
-      redundant_count_penalty: 5            # Penalty for redundant counting
+      redundant_count_penalty: 8            # Penalty for redundant counting
     noop:
-      strategic_noop_reward: 2              # Reward for waiting when below target
+      strategic_noop_reward: 4              # Reward for waiting when below target
     critical_penalties:
       penalty_critical_no_dose: 8           # Penalty for not dosing when critical #!
       penalty_critical_no_count: 10.0          # Penalty for stale count data
     population_maintenance:
       enabled: true
       kernel_type: "laplace"                 # "gaussian" or "laplace"
-      kernel_peak_reward: 35.0                 # R: peak reward at target
+      kernel_peak_reward: 40.0                 # R: peak reward at target
       kernel_max_penalty: 2.0                 # M: maximum penalty (min value -M) #!
       kernel_zero_distance: 30              # distance where kernel equals 0
     survival_bonus:
@@ -78,7 +78,7 @@ environment:
       base_bonus: 1.0
       scaling_type: "linear"                  # "constant", "linear", "exponential"
       scaling_factor: 0.005
-      max_bonus: 3.5
+      max_bonus: 4
     prediction:
       enabled: false
       weight: 1.0
@@ -92,8 +92,8 @@ environment:
       min_penalty: 2.0                       # Penalty when terminating near horizon
       penalty_decay_power: 1.4                # Decay rate exponent
       population_low_threshold: 0.1           # Terminate if pop < target × this
-      population_threshold: 4.5               # Unrecoverable if pop > target × this
-      extinction_penalty: 100                # Additional penalty for extinction
+      population_threshold: 4.3               # Unrecoverable if pop > target × this
+      extinction_penalty: 150                # Additional penalty for extinction
       require_budget_depleted: false          # If true, also require budget == 0
   budget:
     budget_init: 100.0
@@ -154,7 +154,7 @@ ppo:
 
 # Training configuration
 training:
-  total_updates: 5000
+  total_updates: 5500
   seed: 42
   checkpoint_interval: 100
   log_interval: 2
