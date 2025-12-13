@@ -30,7 +30,7 @@ environment:
     
     # Timing windows for informative actions
     count_window:
-      min_elapsed: 4                  # Minimum time between counts
+      min_elapsed: 5                  # Minimum time between counts
       max_elapsed: 20                 # Maximum time for informative count
     
     seq_window:
@@ -54,7 +54,7 @@ environment:
       penalty_blind_dose_amount_exponent: 1.1 # Non-linear scaling for blind high doses
       penalty_blind_dose_max: null            # Hard ceiling for blind penalty (null = disabled)
       dosing_margin: 20.0                      # Margin offset from target_pop for dosing threshold (0 = threshold at target_pop) #!
-      penalty_dosing_in_margin: 50.0           # Penalty when dosing in margin zone (target_pop < pop < target_pop + margin). Set lower than penalty_dosing_under_target
+      penalty_dosing_in_margin: 40.0           # Penalty when dosing in margin zone (target_pop < pop < target_pop + margin). Set lower than penalty_dosing_under_target
     sequencing:
       seq_already_pending_penalty: 0.0        # Penalty for redundant sequencing
       informative_seq_reward: 20.0             # Reward for informative sequencing
@@ -75,7 +75,7 @@ environment:
       kernel_zero_distance: 30              # distance where kernel equals 0
     survival_bonus:
       enabled: true
-      base_bonus: 1.5
+      base_bonus: 1.0
       scaling_type: "linear"                  # "constant", "linear", "exponential"
       scaling_factor: 0.005
       max_bonus: 3.5
@@ -105,7 +105,7 @@ environment:
 
 # Action costs and durations
 actions:
-  weight_cost: 3
+  weight_cost: 4
   noop:
     id: 0
     cost: 0.0
@@ -156,7 +156,7 @@ ppo:
 training:
   total_updates: 5000
   seed: 42
-  checkpoint_interval: 500
+  checkpoint_interval: 100
   log_interval: 2
   save_dir: "./checkpoints"
   experiment_name: "long_run"
