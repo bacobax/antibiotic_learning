@@ -154,9 +154,9 @@ ppo:
 
 # Training configuration
 training:
-  total_updates: 5500
+  total_updates: 6500
   seed: 42
-  checkpoint_interval: 100
+  checkpoint_interval: 200
   log_interval: 2
   save_dir: "./checkpoints"
   experiment_name: "long_run"
