@@ -26,7 +26,7 @@ environment:
     t_count_freshness: 10              # Steps for count to remain "fresh"
     t_seq_freshness: 10                # Steps for sequencing to remain "fresh"
     max_count_window: 25              # Max steps without counting before penalty
-    critical_ratio: 2               # Population ratio for critical state (target × ratio)
+    critical_ratio: 1.5               # Population ratio for critical state (target × ratio)
     
     # Timing windows for informative actions
     count_window:

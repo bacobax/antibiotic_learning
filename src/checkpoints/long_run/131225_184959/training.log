@@ -221,3 +221,34 @@
 2025-12-13 21:04:15 [INFO]   Rewards: Pre=+648.39 | PostPen=-1165.33 | Kernel=+248.30 | Survival=+1709.39 | Predict= +0.00 | EarlyTerm=-11.80 | Cost=-398.56
 2025-12-13 21:04:15 [INFO]            TOTAL (calculated)=+1030.37 | TOTAL (reported)=+1030.37
 2025-12-13 21:04:15 [DEBUG]   Entropy: 0.4984 | Clip Frac: 0.013 | Grad Norm: 9301.5285 | ETA: 9.1 min
+2025-12-13 21:08:57 [INFO] UPDATE 5160/5500 | Reward: 1628.58 (±476.26) | Episodes:   3 | Pop: 440 | Budget: 0.3 | Loss: A=-0.0929 C=592.5348
+2025-12-13 21:08:57 [INFO]   Actions: DOSE=  0.9% | COUNT= 12.9% | SEQ=  4.3% | NOOP= 81.8%
+2025-12-13 21:08:57 [INFO]   Rewards: Pre=+841.12 | PostPen=-460.00 | Kernel=+304.48 | Survival=+1361.77 | Predict= +0.00 | EarlyTerm=-20.12 | Cost=-398.67
+2025-12-13 21:08:57 [INFO]            TOTAL (calculated)=+1628.58 | TOTAL (reported)=+1628.58
+2025-12-13 21:08:57 [DEBUG]   Entropy: 0.5601 | Clip Frac: 0.049 | Grad Norm: 11877.2674 | ETA: 9.1 min
+2025-12-13 21:14:00 [INFO] UPDATE 5170/5500 | Reward:  910.10 (±549.12) | Episodes:   4 | Pop: 328 | Budget: 12.6 | Loss: A=-0.0474 C=476.3831
+2025-12-13 21:14:00 [INFO]   Actions: DOSE=  1.0% | COUNT= 12.2% | SEQ=  4.7% | NOOP= 82.1%
+2025-12-13 21:14:00 [INFO]   Rewards: Pre=+497.60 | PostPen=-383.00 | Kernel=+98.63 | Survival=+1078.98 | Predict= +0.00 | EarlyTerm=-32.68 | Cost=-349.43
+2025-12-13 21:14:00 [INFO]            TOTAL (calculated)=+910.10 | TOTAL (reported)=+910.10
+2025-12-13 21:14:00 [DEBUG]   Entropy: 0.5763 | Clip Frac: 0.019 | Grad Norm: 9261.3515 | ETA: 9.2 min
+2025-12-13 21:19:29 [INFO] UPDATE 5180/5500 | Reward:  572.17 (±452.05) | Episodes:   4 | Pop: 406 | Budget: 7.3 | Loss: A=-0.0689 C=543.0987
+2025-12-13 21:19:29 [INFO]   Actions: DOSE=  1.1% | COUNT= 13.8% | SEQ=  5.0% | NOOP= 80.1%
+2025-12-13 21:19:29 [INFO]   Rewards: Pre=+279.14 | PostPen=-548.00 | Kernel=+233.41 | Survival=+1002.31 | Predict= +0.00 | EarlyTerm=-23.75 | Cost=-370.95
+2025-12-13 21:19:29 [INFO]            TOTAL (calculated)=+572.17 | TOTAL (reported)=+572.17
+2025-12-13 21:19:29 [DEBUG]   Entropy: 0.6808 | Clip Frac: 0.059 | Grad Norm: 7804.7660 | ETA: 9.2 min
+2025-12-13 21:25:07 [INFO] UPDATE 5190/5500 | Reward:   41.22 (±385.74) | Episodes:   5 | Pop: 436 | Budget: 0.2 | Loss: A=0.0921 C=521.0756
+2025-12-13 21:25:07 [INFO]   Actions: DOSE=  1.1% | COUNT= 16.8% | SEQ=  7.2% | NOOP= 74.9%
+2025-12-13 21:25:07 [INFO]   Rewards: Pre=+115.24 | PostPen=-514.40 | Kernel=+199.17 | Survival=+685.09 | Predict= +0.00 | EarlyTerm=-44.61 | Cost=-399.28
+2025-12-13 21:25:07 [INFO]            TOTAL (calculated)= +41.22 | TOTAL (reported)= +41.22
+2025-12-13 21:25:07 [DEBUG]   Entropy: 0.4428 | Clip Frac: 0.087 | Grad Norm: 8071.0599 | ETA: 9.2 min
+2025-12-13 21:30:07 [DEBUG] Saved checkpoint: checkpoints/long_run/131225_184959/checkpoint_5200.pt
+2025-12-13 21:30:36 [INFO] UPDATE 5200/5500 | Reward: 1461.45 (±520.46) | Episodes:   3 | Pop: 323 | Budget: 12.2 | Loss: A=-0.0068 C=451.3724
+2025-12-13 21:30:36 [INFO]   Actions: DOSE=  0.9% | COUNT= 15.5% | SEQ=  2.6% | NOOP= 81.0%
+2025-12-13 21:30:36 [INFO]   Rewards: Pre=+659.33 | PostPen=-548.67 | Kernel=+190.90 | Survival=+1528.36 | Predict= +0.00 | EarlyTerm=-17.39 | Cost=-351.09
+2025-12-13 21:30:36 [INFO]            TOTAL (calculated)=+1461.45 | TOTAL (reported)=+1461.45
+2025-12-13 21:30:36 [DEBUG]   Entropy: 0.6292 | Clip Frac: 0.048 | Grad Norm: 5900.3620 | ETA: 9.2 min
+2025-12-13 21:35:44 [INFO] UPDATE 5210/5500 | Reward:  357.65 (±531.98) | Episodes:   4 | Pop: 327 | Budget: 22.5 | Loss: A=0.0940 C=727.7573
+2025-12-13 21:35:44 [INFO]   Actions: DOSE=  1.2% | COUNT= 12.6% | SEQ=  3.2% | NOOP= 83.0%
+2025-12-13 21:35:44 [INFO]   Rewards: Pre=+309.81 | PostPen=-996.50 | Kernel=+103.14 | Survival=+1282.19 | Predict= +0.00 | EarlyTerm=-31.00 | Cost=-310.00
+2025-12-13 21:35:44 [INFO]            TOTAL (calculated)=+357.65 | TOTAL (reported)=+357.65
+2025-12-13 21:35:44 [DEBUG]   Entropy: 0.6113 | Clip Frac: 0.061 | Grad Norm: 10380.7000 | ETA: 9.2 min
