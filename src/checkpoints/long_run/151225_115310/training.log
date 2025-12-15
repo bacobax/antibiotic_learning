@@ -579,3 +579,35 @@
 2025-12-15 19:36:39 [INFO]   Rewards: Pre=-151.92 | PostPen=-211.50 | Kernel=+49.91 | Survival=+400.81 | Predict= +0.00 | EarlyTerm=-64.90 | Cost=-183.10
 2025-12-15 19:36:39 [INFO]            TOTAL (calculated)=-160.70 | TOTAL (reported)=-160.70
 2025-12-15 19:36:39 [DEBUG]   Entropy: 0.6871 | Clip Frac: 0.053 | Grad Norm: 8574.6617 | ETA: 2.1 min
+2025-12-15 19:41:19 [INFO] UPDATE 8470/8500 | Reward: -148.19 (±321.15) | Episodes:   6 | Pop: 254 | Budget: 15.2 | Loss: A=0.1183 C=571.5720
+2025-12-15 19:41:19 [INFO]   Actions: DOSE=  1.0% | COUNT=  9.9% | SEQ=  8.4% | NOOP= 80.7%
+2025-12-15 19:41:19 [INFO]   Rewards: Pre=+101.66 | PostPen=-521.00 | Kernel=+85.12 | Survival=+577.54 | Predict= +0.00 | EarlyTerm=-52.24 | Cost=-339.27
+2025-12-15 19:41:19 [INFO]            TOTAL (calculated)=-148.19 | TOTAL (reported)=-148.19
+2025-12-15 19:41:19 [DEBUG]   Entropy: 0.6586 | Clip Frac: 0.063 | Grad Norm: 7705.7178 | ETA: 1.6 min
+2025-12-15 19:46:08 [INFO] UPDATE 8480/8500 | Reward:  395.71 (±317.23) | Episodes:   4 | Pop: 164 | Budget: 12.6 | Loss: A=-0.0253 C=642.3858
+2025-12-15 19:46:08 [INFO]   Actions: DOSE=  1.3% | COUNT= 12.4% | SEQ=  4.1% | NOOP= 82.3%
+2025-12-15 19:46:08 [INFO]   Rewards: Pre=+105.34 | PostPen=-683.00 | Kernel=+197.93 | Survival=+1150.85 | Predict= +0.00 | EarlyTerm=-26.01 | Cost=-349.40
+2025-12-15 19:46:08 [INFO]            TOTAL (calculated)=+395.71 | TOTAL (reported)=+395.71
+2025-12-15 19:46:08 [DEBUG]   Entropy: 0.5524 | Clip Frac: 0.072 | Grad Norm: 9940.0169 | ETA: 1.1 min
+2025-12-15 19:51:00 [INFO] UPDATE 8490/8500 | Reward:   46.87 (±334.59) | Episodes:   3 | Pop: 175 | Budget: 0.2 | Loss: A=0.0174 C=681.3633
+2025-12-15 19:51:00 [INFO]   Actions: DOSE=  1.3% | COUNT= 13.4% | SEQ=  2.7% | NOOP= 82.6%
+2025-12-15 19:51:00 [INFO]   Rewards: Pre=-452.77 | PostPen=-908.00 | Kernel=+177.76 | Survival=+1642.14 | Predict= +0.00 | EarlyTerm=-13.06 | Cost=-399.20
+2025-12-15 19:51:00 [INFO]            TOTAL (calculated)= +46.87 | TOTAL (reported)= +46.87
+2025-12-15 19:51:00 [DEBUG]   Entropy: 0.6010 | Clip Frac: 0.048 | Grad Norm: 8673.4040 | ETA: 0.5 min
+2025-12-15 19:55:15 [INFO] Saved final checkpoint: checkpoints/long_run/151225_115310/checkpoint_final_8500.pt
+2025-12-15 19:55:15 [DEBUG] Saved training log: checkpoints/long_run/151225_115310/training_log.json
+2025-12-15 19:55:15 [INFO] ======================================================================
+2025-12-15 19:55:15 [INFO] TRAINING SUMMARY
+2025-12-15 19:55:15 [INFO] ======================================================================
+2025-12-15 19:55:15 [INFO] Total time: 482.1 minutes (8.03 hours)
+2025-12-15 19:55:15 [INFO] Best reward: 2215.1932
+2025-12-15 19:55:15 [INFO] Final reward: 409.2438
+2025-12-15 19:55:15 [INFO] Final loss: -0.0282
+2025-12-15 19:55:15 [INFO] Reward improvement: +226.2384
+2025-12-15 19:55:15 [INFO] ======================================================================
+2025-12-15 19:55:15 [INFO] ======================================================================
+2025-12-15 19:55:15 [INFO] ✓ Training complete!
+2025-12-15 19:55:15 [INFO] Logs: checkpoints/long_run/151225_115310/training.log
+2025-12-15 19:55:15 [INFO] Metrics: checkpoints/long_run/151225_115310/training_log.json
+2025-12-15 19:55:15 [INFO] TensorBoard: tensorboard --logdir=checkpoints/long_run/151225_115310/long_run --port=6006
+2025-12-15 19:55:15 [INFO] ======================================================================
