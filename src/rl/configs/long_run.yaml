@@ -61,7 +61,7 @@ environment:
     counting:
       informative_count_reward: 10.0           # Reward for informative counting
       cost_penalty: 0.0
-      redundant_count_penalty: 8            # Penalty for redundant counting
+      redundant_count_penalty: 20            # Penalty for redundant counting
     noop:
       strategic_noop_reward: 4              # Reward for waiting when below target
     critical_penalties:
@@ -91,8 +91,8 @@ environment:
       penalty: 100.0                           # Penalty applied on early termination
       min_penalty: 2.0                       # Penalty when terminating near horizon
       penalty_decay_power: 1.4                # Decay rate exponent
-      population_low_threshold: 0.1           # Terminate if pop < target × this
-      population_threshold: 4.3               # Unrecoverable if pop > target × this
+      population_low_threshold: 0.15           # Terminate if pop < target × this
+      population_threshold: 2.5               # Unrecoverable if pop > target × this
       extinction_penalty: 150                # Additional penalty for extinction
       require_budget_depleted: false          # If true, also require budget == 0
   budget:
@@ -154,7 +154,7 @@ ppo:
 
 # Training configuration
 training:
-  total_updates: 7500
+  total_updates: 8500
   seed: 42
   checkpoint_interval: 200
   log_interval: 2
