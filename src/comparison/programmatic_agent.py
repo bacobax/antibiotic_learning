@@ -2,8 +2,9 @@
 Budget-aware programmatic agent that distributes actions over time.
 """
 
-from typing import Tuple, Optional, Union
+from typing import Dict, Optional, Tuple
 from .base_agent import BaseComparisonAgent, ActionType
+from simulation.simulation_config import ANTIBIOTIC_TYPES, TRAIT_KEYS
 
 # Lazy import of RL config loader to optionally sync defaults with RL training config
 try:
@@ -29,15 +30,7 @@ class ProgrammaticAgent(BaseComparisonAgent):
         tolerance: float = 0.15,
         dose_cooldown: int = 20,
         count_interval: int = 15,
-        # Alignment with RL env long_run.yaml defaults
-        t_count_freshness: int = 10,
-        max_count_window: int = 25,
-        count_min_elapsed: int = 6,
-        count_max_elapsed: int = 20,
-        critical_ratio: float = 2.0,
-        dosing_margin: float = 20.0,
-        # Optional RL config path or loaded config to sync parameters
-        rl_config: Optional[Union[str, CompleteConfig]] = None,
+        sequence_interval: int = 50,
         **kwargs
     ):
         super().__init__(
@@ -51,93 +44,95 @@ class ProgrammaticAgent(BaseComparisonAgent):
         self.dose_cooldown = dose_cooldown
         self.cooldown_timer = 0
 
-        # If an RL config is provided, override the defaults with values from the YAML
-        if rl_config is not None and load_config is not None:
-            # Accept either a path (str) or a CompleteConfig instance
-            try:
-                if isinstance(rl_config, str):
-                    cfg = load_config(rl_config)
-                else:
-                    cfg = rl_config
-                # Extract timing & dosing-related defaults
-                timing = cfg.environment.timing
-                rewards = cfg.environment.rewards
-                self.t_count_freshness = timing.t_count_freshness
-                self.max_count_window = timing.max_count_window
-                self.count_min_elapsed = timing.count_window.min_elapsed
-                self.count_max_elapsed = timing.count_window.max_elapsed
-                self.critical_ratio = timing.critical_ratio
-                if rewards and rewards.informed_dosing is not None:
-                    self.dosing_margin = rewards.informed_dosing.dosing_margin
-            except Exception:
-                # If config loading fails, silently fall back to explicit parameters
-                pass
-        
-        # Fixed count interval (not dependent on total steps)
-        # counting timings
+        # Fixed cadence
         self.count_interval = count_interval
-        self.min_count_interval = max(3, count_min_elapsed)
-        self.count_min_elapsed = count_min_elapsed
-        self.count_max_elapsed = count_max_elapsed
-        self.max_count_window = max_count_window
-        self.t_count_freshness = t_count_freshness
-        # Critical state detection & dosing margin
-        self.critical_ratio = critical_ratio
-        self.dosing_margin = dosing_margin
-        self.last_count_step = -self.min_count_interval
+        self.sequence_interval = sequence_interval
+        self.last_count_step = -self.count_interval
+        self.last_sequence_step = -self.sequence_interval
+
+        # Latest sequencing output (when available)
+        # Expected shape: dict with keys in TRAIT_KEYS (e.g. "enzyme_weight")
+        self.last_sequence_traits: Optional[Dict[str, float]] = None
+
+        # Runner will read this when ActionType.DOSE is returned
+        self.selected_antibiotic: Optional[str] = None
+
+        self.last_action: Optional[ActionType] = None
+
+    def update_sequence_data(self, traits: Dict[str, float]) -> None:
+        """Update the agent with a new sequencing readout."""
+        self.last_sequence_traits = {k: float(v) for k, v in traits.items() if k in TRAIT_KEYS}
+
+    def _choose_antibiotic_from_traits(self) -> Optional[str]:
+        """Pick the antibiotic that is least affected by the current trait profile.
+
+        We interpret ANTIBIOTIC_TYPES[*][trait_key] as "how effective this resistance
+        mechanism is against that antibiotic". Given measured trait strengths, we
+        choose the antibiotic that minimizes the weighted sum.
+        """
+        if not self.last_sequence_traits:
+            return None
+
+        # Ensure all expected keys exist (missing traits treated as 0)
+        trait_vec = {k: float(self.last_sequence_traits.get(k, 0.0)) for k in TRAIT_KEYS}
+
+        best_ab: Optional[str] = None
+        best_score = float("inf")
+        for ab_name, ab_def in ANTIBIOTIC_TYPES.items():
+            score = 0.0
+            for k in TRAIT_KEYS:
+                score += trait_vec[k] * float(ab_def.get(k, 0.0))
+            if score < best_score:
+                best_score = score
+                best_ab = ab_name
+        return best_ab
     
     def select_action(self, population: int) -> Tuple[ActionType, float]:
         """Select action using proportional control with budget awareness."""
+        # Default choice (runner fallback) unless dosing sets it
+        self.selected_antibiotic = None
+
         # Update cooldown
         if self.cooldown_timer > 0:
             self.cooldown_timer -= 1
-        # Determine what population the agent actually observes.
-        # The environment is partially observable for the programmatic agent:
-        # the agent only sees the last counted population (`self.last_count_population`)
-        # If no count has been performed yet, it should perform a COUNT when reasonable.
-        observed_population = self.last_count_population
-
-        # Calculate error from target using observed population when available
-        error = None if observed_population is None else (observed_population - self.target_population)
-        threshold = self.target_population * self.tolerance
         
-        # If we don't have an observed population yet, try to perform a COUNT when it's allowed
+        # Priority order requested:
+        # 1) COUNT (every 5 steps)
+        # 2) NOOP
+        # 3) DOSE (only if last counted pop exceeds threshold)
+        # 4) SEQUENCE (every 50 steps)
+
+        # 1) COUNT periodically (budget-aware)
         steps_since_count = self.step_count - self.last_count_step
-        if observed_population is None:
-            if steps_since_count >= self.min_count_interval and self.can_afford(ActionType.COUNT):
-                self.last_count_step = self.step_count
-                return ActionType.COUNT, 0.0
-
-        # If count is stale (past max_count_window) try to re-count
-        if steps_since_count >= self.max_count_window and self.can_afford(ActionType.COUNT):
-            self.last_count_step = self.step_count
-            return ActionType.COUNT, 0.0
-
-        # Critical detection: if observed pop exceeds target x critical_ratio, dose immediately
-        if error is not None and observed_population >= self.target_population * self.critical_ratio and self.cooldown_timer == 0:
-            raw_strength = self.kp * (observed_population - self.target_population)
-            strength = max(0.05, min(1.0, raw_strength))
-            if self.can_afford(ActionType.DOSE, strength):
-                self.cooldown_timer = self.dose_cooldown
-                return ActionType.DOSE, strength
-
-        # Check if we need to dose (population too high) based on observed population
-        # Use dosing margin from RL config as an absolute threshold above target
-        dosing_threshold = self.target_population + self.dosing_margin
-        if error is not None and observed_population > dosing_threshold and self.cooldown_timer == 0:
-            # Calculate dose strength proportionally to error
-            raw_strength = self.kp * error
-            strength = max(0.05, min(1.0, raw_strength))
-
-            # Check if we can afford this dose
-            if self.can_afford(ActionType.DOSE, strength):
-                self.cooldown_timer = self.dose_cooldown
-                return ActionType.DOSE, strength
-        
-        # Count periodically (budget-aware interval)
         if steps_since_count >= self.count_interval and self.can_afford(ActionType.COUNT):
             self.last_count_step = self.step_count
+            self.last_action = ActionType.COUNT
             return ActionType.COUNT, 0.0
-        
-        # Default to NOOP
-        return ActionType.NOOP, 0.0
+
+        # 2) Default NOOP unless we have a reason to do something else
+        action_type: ActionType = ActionType.NOOP
+        strength: float = 0.0
+
+        # 3) DOSE decision uses the most recent COUNT measurement
+        # (gated to avoid acting on instantaneous population without counting)
+        if self.last_count_population is not None:
+            error = self.last_count_population - self.target_population
+            threshold = self.target_population * self.tolerance
+            if error > threshold and self.cooldown_timer == 0:
+                raw_strength = self.kp * error
+                strength = max(0.2, min(1.0, raw_strength))
+                if self.can_afford(ActionType.DOSE, strength):
+                    self.selected_antibiotic = self._choose_antibiotic_from_traits()
+                    self.cooldown_timer = self.dose_cooldown
+                    self.last_action = ActionType.DOSE
+                    return ActionType.DOSE, strength
+
+        # 4) SEQUENCE periodically (budget-aware)
+        steps_since_sequence = self.step_count - self.last_sequence_step
+        if steps_since_sequence >= self.sequence_interval and self.can_afford(ActionType.SEQUENCE):
+            self.last_sequence_step = self.step_count
+            self.last_action = ActionType.SEQUENCE
+            return ActionType.SEQUENCE, 0.0
+
+        self.last_action = action_type
+        return action_type, strength

@@ -67,7 +67,7 @@ GROWTH_PARAMS = {
     "eta": 1.0,              # conversion efficiency
     "m0": 0.01,              # maintenance cost
     "c_prod": 0.3,           # expression cost scale
-    "k_i": 0.2,              # induction constant
+    "k_i": 0.4,              # induction constant
     "n_ind": 1,              # Hill coefficient
     "emax": 1.5,             # max kill rate
     "ec50": 0.3,             # kill rate half-max
@@ -165,7 +165,7 @@ BACTERIAL_TYPES = {
 # -----------------------
 ANTIBIOTIC_TYPES = {
     "penicillin": {
-        "enzyme_weight": 0.8,      # β-lactamase effectiveness
+        "enzyme_weight": 0.9,      # β-lactamase effectiveness
         "efflux_weight": 0.2,
         "membrane_weight": 0.3,
         "repair_weight": 0.4,
@@ -185,7 +185,7 @@ ANTIBIOTIC_TYPES = {
     "vancomycin": {
         "enzyme_weight": 0.2,
         "efflux_weight": 0.3,
-        "membrane_weight": 0.8,    # membrane changes very effective
+        "membrane_weight": 0.9,    # membrane changes very effective
         "repair_weight": 0.6,
         "toxicity_constant": 3.0,
         "color": "purple",
@@ -222,8 +222,8 @@ BIOFILM_PARAMS = {
     
     # Attachment probabilities (per timestep for planktonic cells)
     "attachment_base_prob": 0.02,    # Base probability without stress/QS
-    "attachment_stress_bonus": 0.08, # Added probability under antibiotic stress
-    "attachment_qs_bonus": 0.10,     # Added probability when QS is active
+    "attachment_stress_bonus": 0.18, # Added probability under antibiotic stress
+    "attachment_qs_bonus": 0.15,     # Added probability when QS is active
     
     # Timers and transitions
     "reversible_duration_min": 5,    # Min steps before irreversible attachment
@@ -236,9 +236,9 @@ BIOFILM_PARAMS = {
     "eps_production_qs_mult": 2.0,   # QS multiplier for production
     "eps_decay_rate": 0.02,          # λ: EPS degradation rate per step
     # RD-specific params used by BiofilmManager.update_eps_field
-    "eps_production_rate": 0.010,    # P: production per producing cell per step
+    "eps_production_rate": 0.020,    # P: production per producing cell per step
     "eps_deposit_sigma": 0.8,        # σ: deposit width (field pixels)
-    "eps_diffusion_coef": 0.2,      # D: diffusion coefficient (keep D*dt<=0.25)
+    "eps_diffusion_coef": 0.25,      # D: diffusion coefficient (keep D*dt<=0.25)
     "eps_cap": 1.0,                  # clamp EPS field upper bound
     
     # Maturation benefits
