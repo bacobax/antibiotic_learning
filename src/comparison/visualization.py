@@ -196,14 +196,20 @@ def plot_radar_chart(
         return None
     
     # Define metrics to display (all higher=better after normalization)
-    # Only show three metrics: Gaussian Score, Target Band %, Low Error
+    # Show metrics: Gaussian Score, Target Band %, Low Error, Steps, and Budget AUC
+    # Budget AUC is normalized by (tau * B0) per formula:
+    # AUC_norm = (1 / (tau * B0)) * sum_{t=0}^{tau-1} B_t
     metric_names = [
         'Gaussian Score',
         'Target Band %',
         'Low Error',
+        'Steps',
+        'Budget AUC',
     ]
     
     # Prepare data for each agent
+    # To normalize steps (unbounded) we compute the global max across all metrics
+    max_steps = max((m.steps for m in all_metrics), default=1)
     agent_data = []
     for metrics in all_metrics:
         # Gaussian kernel score (already 0-1, higher=better)
@@ -225,9 +231,27 @@ def plot_radar_chart(
         normalized_mae = metrics.mean_absolute_error / metrics.target_population if metrics.target_population > 0 else 1.0
         low_error = 1.0 / (1.0 + normalized_mae)  # Higher=better (lower error)
         
+        # Normalize steps (higher = better) relative to the max among all agents
+        steps_norm = metrics.steps / max_steps if max_steps > 0 else 0.0
+
+        # Budget AUC normalization per user formula
+        auc_norm = 0.0
+        if metrics.budget_history:
+            # tau is the total number of steps performed by the agent
+            tau = metrics.steps if metrics.steps > 0 else len(metrics.budget_history)
+            # Use initial budget if available, otherwise take first entry
+            B0 = metrics.initial_budget if metrics.initial_budget > 0 else metrics.budget_history[0]
+            if B0 > 0 and tau > 0:
+                # If history shorter than tau, assume budget stays at last known value
+                if len(metrics.budget_history) >= tau:
+                    sum_Bt = sum(metrics.budget_history[:tau])
+                else:
+                    sum_Bt = sum(metrics.budget_history) + metrics.budget_history[-1] * (tau - len(metrics.budget_history))
+                auc_norm = float(sum_Bt) / (tau * B0)
+
         agent_data.append({
             'name': metrics.agent_name,
-            'values': [gaussian_score, target_band, low_error]
+            'values': [gaussian_score, target_band, low_error, steps_norm, auc_norm]
         })
     
     # Number of metrics
