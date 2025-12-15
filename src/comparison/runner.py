@@ -116,6 +116,7 @@ def run_agent(
             
             # Apply action to model
             if action_type == ActionType.DOSE and dose_strength > 0:
+                print(f"applying dose: {dose_strength} at step {step}")
                 antibiotic = (
                     getattr(agent, "selected_antibiotic", None)
                     or model.current_antibiotic

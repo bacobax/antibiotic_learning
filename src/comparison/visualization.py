@@ -196,28 +196,39 @@ def plot_radar_chart(
         return None
     
     # Define metrics to display (all higher=better after normalization)
-    # Show metrics: Gaussian Score, Target Band %, Low Error, Steps, and Budget AUC
+    # Show metrics: Gaussian Score, Gaussian*Steps (weights steps by gauss score), Low Error, Steps, and Budget AUC
     # Budget AUC is normalized by (tau * B0) per formula:
     # AUC_norm = (1 / (tau * B0)) * sum_{t=0}^{tau-1} B_t
     metric_names = [
         'Gaussian Score',
-        'Target Band %',
+        'Gaussian*Steps',
         'Low Error',
         'Steps',
         'Budget AUC',
     ]
-    
+
     # Prepare data for each agent
     # To normalize steps (unbounded) we compute the global max across all metrics
     max_steps = max((m.steps for m in all_metrics), default=1)
+
+    # Precompute max of gaussian_score * steps to normalize the new measure
+
+
     agent_data = []
+    # Keep track of observed raw maxima for each metric so we can annotate axis with their highest values
+    observed_gaussian = []
+    observed_gauss_steps = []
+    observed_low_error = []
+    observed_steps = []
+    observed_auc = []
     for metrics in all_metrics:
         # Gaussian kernel score (already 0-1, higher=better)
         gaussian_score = max(0.0, min(1.0, metrics.gaussian_kernel_score))
-        
-        # Target band ratio (0-1, higher=better)
-        target_band = metrics.target_band_ratio
-        
+
+        # Gaussian*Steps: weight the number of steps by gaussian score, then normalize across agents
+        steps_norm = metrics.steps / max_steps if max_steps > 0 else 0.0
+        gauss_steps_norm = gaussian_score * steps_norm
+        gauss_steps_raw = gaussian_score * metrics.steps
         # Budget efficiency: proportion of budget remaining (0-1, higher=better)
         #budget_efficiency = metrics.final_budget / metrics.initial_budget if metrics.initial_budget > 0 else 0.0
         
@@ -251,8 +262,14 @@ def plot_radar_chart(
 
         agent_data.append({
             'name': metrics.agent_name,
-            'values': [gaussian_score, target_band, low_error, steps_norm, auc_norm]
+            'values': [gaussian_score, gauss_steps_norm, low_error, steps_norm, auc_norm]
         })
+        # record observed raw values for axis annotations
+        observed_gaussian.append(gaussian_score)
+        observed_gauss_steps.append(gauss_steps_raw)
+        observed_low_error.append(low_error)
+        observed_steps.append(metrics.steps)
+        observed_auc.append(auc_norm)
     
     # Number of metrics
     num_vars = len(metric_names)
@@ -263,8 +280,8 @@ def plot_radar_chart(
     # Complete the loop
     angles += angles[:1]
     
-    # Create figure
-    fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(projection='polar'))
+    # Create figure (slightly smaller so the chart doesn't overlap window labels/title)
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(projection='polar'))
     
     # Colors for different agents
     colors = plt.cm.tab10(np.linspace(0, 1, len(all_metrics)))
@@ -284,6 +301,8 @@ def plot_radar_chart(
     # Draw axis lines for each angle and label
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(metric_names, size=11)
+    # Move x tick labels slightly inward to avoid overlap with max-value annotations
+    ax.tick_params(axis='x', pad=-6)
     
     # Set y-axis limits
     ax.set_ylim(0, 1)
@@ -296,11 +315,41 @@ def plot_radar_chart(
     # Add legend
     ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1), fontsize=10)
     
-    # Add title
-    plt.title('Agent Performance Comparison\n(Higher = Better for all metrics)', 
-              size=14, weight='bold', pad=20)
-    
-    plt.tight_layout()
+    # Use suptitle to place the main title above the entire figure, outside the radar area
+    plt.suptitle('Agent Performance Comparison\n(Higher = Better for all metrics)',
+                 size=15, weight='bold', y=0.98)
+    # Remove the subplot title to avoid overlap
+    ax.set_title("")
+    # Adjust layout so the chart sits lower and doesn't overlap the suptitle
+    plt.tight_layout(rect=[0, 0, 1, 0.93])
+    # Annotate each axis with the highest observed raw value for that metric (placed just outside the rim)
+    # Prepare human-readable labels per metric
+    axis_max_labels = []
+    # Gaussian Score
+    max_g = max(observed_gaussian) if observed_gaussian else 0.0
+    axis_max_labels.append(f"max: {max_g:.2f}")
+    # Gaussian*Steps (raw: gaussian * steps)
+    max_gs = max(observed_gauss_steps) if observed_gauss_steps else 0.0
+    axis_max_labels.append(f"max: {int(max_gs)} steps")
+    # Low Error
+    max_le = max(observed_low_error) if observed_low_error else 0.0
+    axis_max_labels.append(f"max: {max_le:.2f}")
+    # Steps
+    max_s = max(observed_steps) if observed_steps else 0
+    axis_max_labels.append(f"max: {int(max_s)} steps")
+    # Budget AUC
+    max_auc = max(observed_auc) if observed_auc else 0.0
+    axis_max_labels.append(f"max: {max_auc:.2f}")
+
+    # Place annotations at each axis angle slightly outside the outer radius
+    for i, (angle, lbl) in enumerate(zip(angles[:-1], axis_max_labels)):
+        # For Budget AUC (axis 0) and Gaussian*Steps (axis 1), rotate and nudge further out
+        if i == 0:  # Budget AUC (leftmost)
+            ax.text(angle, 1.18, lbl, size=8, ha='right', va='center', color='gray', rotation=angle*180/np.pi-90, rotation_mode='anchor')
+        elif i == 1:  # Gaussian*Steps (top-right)
+            ax.text(angle, 1.16, lbl, size=8, ha='left', va='center', color='gray', rotation=angle*180/np.pi-90, rotation_mode='anchor')
+        else:
+            ax.text(angle, 1.12, lbl, size=8, ha='center', va='center', color='gray')
     
     if output_path:
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
