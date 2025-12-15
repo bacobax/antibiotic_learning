@@ -10,7 +10,7 @@ from tqdm import tqdm
 from .base_agent import BaseComparisonAgent, ActionType
 from .metrics import RunMetrics
 from simulation.model import BacteriaModel
-from simulation.simulation_config import ANTIBIOTIC_TYPES
+from simulation.simulation_config import ANTIBIOTIC_TYPES, TRAIT_KEYS
 from rl.config_loader import load_config
 from rl.agent import RLAgent
 from rl.training_utils import _create_environment
@@ -64,6 +64,27 @@ def run_agent(
         RunMetrics with collected data
     """
     metrics = RunMetrics(agent_name=agent.name)
+
+    def _sequence_traits_from_model() -> dict:
+        """Aggregate a simple sequencing readout from the current population.
+
+        We compute mean allocations across bacteria, then normalize to a
+        probability-like vector that sums to 1.0. This matches TRAIT_KEYS.
+        """
+        agents = list(getattr(model, "agent_set", []) or [])
+        if not agents:
+            return {k: 0.0 for k in TRAIT_KEYS}
+
+        raw = {
+            "enzyme_weight": float(np.mean([getattr(a, "enzyme", 0.0) for a in agents])),
+            "efflux_weight": float(np.mean([getattr(a, "efflux", 0.0) for a in agents])),
+            "membrane_weight": float(np.mean([getattr(a, "membrane", 0.0) for a in agents])),
+            "repair_weight": float(np.mean([getattr(a, "repair", 0.0) for a in agents])),
+        }
+        total = sum(max(0.0, v) for v in raw.values())
+        if total <= 1e-12:
+            return {k: 0.0 for k in TRAIT_KEYS}
+        return {k: float(raw.get(k, 0.0)) / total for k in TRAIT_KEYS}
     
     # Record initial state
     metrics.populations.append(len(model.agent_set))
@@ -95,9 +116,19 @@ def run_agent(
             
             # Apply action to model
             if action_type == ActionType.DOSE and dose_strength > 0:
-                antibiotic = model.current_antibiotic or list(ANTIBIOTIC_TYPES.keys())[0]
+                antibiotic = (
+                    getattr(agent, "selected_antibiotic", None)
+                    or model.current_antibiotic
+                    or list(ANTIBIOTIC_TYPES.keys())[0]
+                )
                 amount = dose_strength * agent.dose_scale
                 model.apply_antibiotic(antibiotic, amount)
+
+            elif action_type == ActionType.SEQUENCE:
+                # Produce sequencing data and give it to the agent (if supported)
+                update_fn = getattr(agent, "update_sequence_data", None)
+                if callable(update_fn):
+                    update_fn(_sequence_traits_from_model())
             
             # Step the model
             model.step()
