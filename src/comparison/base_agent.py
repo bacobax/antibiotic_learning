@@ -27,9 +27,9 @@ class BaseComparisonAgent(ABC):
         noop_cost: float = 0.0,
         count_cost: float = 0.5,
         sequence_cost: float = 2.5,
-        dose_cost: float = 2.0,
-        dose_cost_per_unit: float = 2.0,
-        dose_scale: float = 0.5,
+        dose_cost: float = 1.0,
+        dose_cost_per_unit: float = 3.0,
+        dose_scale: float = 1,
         **kwargs,  # Accept but ignore extra args like total_steps for backward compatibility
     ):
         self.name = name

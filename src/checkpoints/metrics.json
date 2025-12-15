@@ -1,0 +1,542 @@
+[
+  {
+    "update": 5500,
+    "metric": "mean_episode_reward",
+    "value": 924.3818359375
+  },
+  {
+    "update": 5500,
+    "metric": "std_episode_reward",
+    "value": 697.23095703125
+  },
+  {
+    "update": 5500,
+    "metric": "max_episode_reward",
+    "value": 1621.61279296875
+  },
+  {
+    "update": 5500,
+    "metric": "min_episode_reward",
+    "value": 227.15090942382812
+  },
+  {
+    "update": 5500,
+    "metric": "mean_episode_length",
+    "value": 480.5
+  },
+  {
+    "update": 5500,
+    "metric": "std_episode_length",
+    "value": 319.5
+  },
+  {
+    "update": 5500,
+    "metric": "min_episode_length",
+    "value": 161.0
+  },
+  {
+    "update": 5500,
+    "metric": "max_episode_length",
+    "value": 800.0
+  },
+  {
+    "update": 5500,
+    "metric": "num_episodes",
+    "value": 2.0
+  },
+  {
+    "update": 5500,
+    "metric": "mean_population_per_episode",
+    "value": 34.0
+  },
+  {
+    "update": 5500,
+    "metric": "final_population",
+    "value": 34.0
+  },
+  {
+    "update": 5500,
+    "metric": "dose_action_percentage",
+    "value": 1.5625
+  },
+  {
+    "update": 5500,
+    "metric": "count_action_percentage",
+    "value": 16.11328125
+  },
+  {
+    "update": 5500,
+    "metric": "sequencing_action_percentage",
+    "value": 1.26953125
+  },
+  {
+    "update": 5500,
+    "metric": "noop_action_percentage",
+    "value": 81.0546875
+  },
+  {
+    "update": 5500,
+    "metric": "mean_budget_spent",
+    "value": 62.515753746032715
+  },
+  {
+    "update": 5500,
+    "metric": "mean_budget_remaining",
+    "value": 37.484243631362915
+  },
+  {
+    "update": 5500,
+    "metric": "mean_budget_per_step",
+    "value": 0.14036395028233528
+  },
+  {
+    "update": 5500,
+    "metric": "rewards/pre",
+    "value": 250.91952393230494
+  },
+  {
+    "update": 5500,
+    "metric": "rewards/post_penalties",
+    "value": -586.0
+  },
+  {
+    "update": 5500,
+    "metric": "rewards/kernel_maintenance",
+    "value": 287.5223808821655
+  },
+  {
+    "update": 5500,
+    "metric": "rewards/survival_bonus",
+    "value": 1258.7775000000001
+  },
+  {
+    "update": 5500,
+    "metric": "rewards/prediction",
+    "value": 0.0
+  },
+  {
+    "update": 5500,
+    "metric": "rewards/cost_penalty",
+    "value": -250.06301879882812
+  },
+  {
+    "update": 5500,
+    "metric": "rewards/total",
+    "value": 924.3818359375
+  },
+  {
+    "update": 5500,
+    "metric": "prediction/error",
+    "value": 4.063779644519091
+  },
+  {
+    "update": 5500,
+    "metric": "loss_total",
+    "value": 586.8353986740112
+  },
+  {
+    "update": 5500,
+    "metric": "loss_actor",
+    "value": 0.1681273641064763
+  },
+  {
+    "update": 5500,
+    "metric": "loss_critic",
+    "value": 1173.3642999649048
+  },
+  {
+    "update": 5500,
+    "metric": "loss_pred",
+    "value": 0.0008194150456498998
+  },
+  {
+    "update": 5500,
+    "metric": "entropy",
+    "value": 0.523143866770466
+  },
+  {
+    "update": 5500,
+    "metric": "clip_fraction",
+    "value": 0.03310406264693787
+  },
+  {
+    "update": 5500,
+    "metric": "grad_norm",
+    "value": 9042.00514272054
+  },
+  {
+    "update": 5500,
+    "metric": "value_mean",
+    "value": 173.97012656529745
+  },
+  {
+    "update": 5500,
+    "metric": "advantage_mean",
+    "value": -0.14566306273142496
+  },
+  {
+    "update": 5500,
+    "metric": "num_updates",
+    "value": 60.0
+  },
+  {
+    "update": 5501,
+    "metric": "mean_episode_reward",
+    "value": 346.46112060546875
+  },
+  {
+    "update": 5501,
+    "metric": "std_episode_reward",
+    "value": 0.0
+  },
+  {
+    "update": 5501,
+    "metric": "max_episode_reward",
+    "value": 346.46112060546875
+  },
+  {
+    "update": 5501,
+    "metric": "min_episode_reward",
+    "value": 346.46112060546875
+  },
+  {
+    "update": 5501,
+    "metric": "mean_episode_length",
+    "value": 625.0
+  },
+  {
+    "update": 5501,
+    "metric": "std_episode_length",
+    "value": 0.0
+  },
+  {
+    "update": 5501,
+    "metric": "min_episode_length",
+    "value": 625.0
+  },
+  {
+    "update": 5501,
+    "metric": "max_episode_length",
+    "value": 625.0
+  },
+  {
+    "update": 5501,
+    "metric": "num_episodes",
+    "value": 3.0
+  },
+  {
+    "update": 5501,
+    "metric": "mean_population_per_episode",
+    "value": 152.0
+  },
+  {
+    "update": 5501,
+    "metric": "final_population",
+    "value": 152.0
+  },
+  {
+    "update": 5501,
+    "metric": "dose_action_percentage",
+    "value": 1.416015625
+  },
+  {
+    "update": 5501,
+    "metric": "count_action_percentage",
+    "value": 15.52734375
+  },
+  {
+    "update": 5501,
+    "metric": "sequencing_action_percentage",
+    "value": 2.099609375
+  },
+  {
+    "update": 5501,
+    "metric": "noop_action_percentage",
+    "value": 80.95703125
+  },
+  {
+    "update": 5501,
+    "metric": "mean_budget_spent",
+    "value": 100.0
+  },
+  {
+    "update": 5501,
+    "metric": "mean_budget_remaining",
+    "value": 0.0
+  },
+  {
+    "update": 5501,
+    "metric": "mean_budget_per_step",
+    "value": 0.1599999964237213
+  },
+  {
+    "update": 5501,
+    "metric": "rewards/pre",
+    "value": 396.6567014541511
+  },
+  {
+    "update": 5501,
+    "metric": "rewards/post_penalties",
+    "value": -1356.0
+  },
+  {
+    "update": 5501,
+    "metric": "rewards/kernel_maintenance",
+    "value": 109.37953658043696
+  },
+  {
+    "update": 5501,
+    "metric": "rewards/survival_bonus",
+    "value": 1596.425
+  },
+  {
+    "update": 5501,
+    "metric": "rewards/prediction",
+    "value": 0.0
+  },
+  {
+    "update": 5501,
+    "metric": "rewards/cost_penalty",
+    "value": -400.0
+  },
+  {
+    "update": 5501,
+    "metric": "rewards/total",
+    "value": 346.46112060546875
+  },
+  {
+    "update": 5501,
+    "metric": "prediction/error",
+    "value": 7.824029145439466
+  },
+  {
+    "update": 5501,
+    "metric": "loss_total",
+    "value": 1108.4555586242675
+  },
+  {
+    "update": 5501,
+    "metric": "loss_actor",
+    "value": -0.018090410009026527
+  },
+  {
+    "update": 5501,
+    "metric": "loss_critic",
+    "value": 2216.983957824707
+  },
+  {
+    "update": 5501,
+    "metric": "loss_pred",
+    "value": 0.0012406761081001606
+  },
+  {
+    "update": 5501,
+    "metric": "entropy",
+    "value": 0.6525599861145019
+  },
+  {
+    "update": 5501,
+    "metric": "clip_fraction",
+    "value": 0.061410715691745284
+  },
+  {
+    "update": 5501,
+    "metric": "grad_norm",
+    "value": 16399.409780273436
+  },
+  {
+    "update": 5501,
+    "metric": "value_mean",
+    "value": 228.82383178710938
+  },
+  {
+    "update": 5501,
+    "metric": "advantage_mean",
+    "value": 0.018560904264450073
+  },
+  {
+    "update": 5501,
+    "metric": "num_updates",
+    "value": 50.0
+  },
+  {
+    "update": 5502,
+    "metric": "mean_episode_reward",
+    "value": 1781.3804931640625
+  },
+  {
+    "update": 5502,
+    "metric": "std_episode_reward",
+    "value": 85.7711181640625
+  },
+  {
+    "update": 5502,
+    "metric": "max_episode_reward",
+    "value": 1867.151611328125
+  },
+  {
+    "update": 5502,
+    "metric": "min_episode_reward",
+    "value": 1695.609375
+  },
+  {
+    "update": 5502,
+    "metric": "mean_episode_length",
+    "value": 716.0
+  },
+  {
+    "update": 5502,
+    "metric": "std_episode_length",
+    "value": 62.0
+  },
+  {
+    "update": 5502,
+    "metric": "min_episode_length",
+    "value": 654.0
+  },
+  {
+    "update": 5502,
+    "metric": "max_episode_length",
+    "value": 778.0
+  },
+  {
+    "update": 5502,
+    "metric": "num_episodes",
+    "value": 5.0
+  },
+  {
+    "update": 5502,
+    "metric": "mean_population_per_episode",
+    "value": 17.0
+  },
+  {
+    "update": 5502,
+    "metric": "final_population",
+    "value": 17.0
+  },
+  {
+    "update": 5502,
+    "metric": "dose_action_percentage",
+    "value": 1.26953125
+  },
+  {
+    "update": 5502,
+    "metric": "count_action_percentage",
+    "value": 14.6484375
+  },
+  {
+    "update": 5502,
+    "metric": "sequencing_action_percentage",
+    "value": 2.506510416666667
+  },
+  {
+    "update": 5502,
+    "metric": "noop_action_percentage",
+    "value": 81.57552083333334
+  },
+  {
+    "update": 5502,
+    "metric": "mean_budget_spent",
+    "value": 99.78583526611328
+  },
+  {
+    "update": 5502,
+    "metric": "mean_budget_remaining",
+    "value": 0.2141704559326172
+  },
+  {
+    "update": 5502,
+    "metric": "mean_budget_per_step",
+    "value": 0.14043056964874268
+  },
+  {
+    "update": 5502,
+    "metric": "rewards/pre",
+    "value": 952.7560513566683
+  },
+  {
+    "update": 5502,
+    "metric": "rewards/post_penalties",
+    "value": -1024.0
+  },
+  {
+    "update": 5502,
+    "metric": "rewards/kernel_maintenance",
+    "value": 298.19163941050766
+  },
+  {
+    "update": 5502,
+    "metric": "rewards/survival_bonus",
+    "value": 1960.4250000000002
+  },
+  {
+    "update": 5502,
+    "metric": "rewards/prediction",
+    "value": 0.0
+  },
+  {
+    "update": 5502,
+    "metric": "rewards/cost_penalty",
+    "value": -399.1433410644531
+  },
+  {
+    "update": 5502,
+    "metric": "rewards/total",
+    "value": 1781.3804931640625
+  },
+  {
+    "update": 5502,
+    "metric": "prediction/error",
+    "value": 5.319596632147826
+  },
+  {
+    "update": 5502,
+    "metric": "loss_total",
+    "value": 286.711195731163
+  },
+  {
+    "update": 5502,
+    "metric": "loss_actor",
+    "value": 0.025469263022144636
+  },
+  {
+    "update": 5502,
+    "metric": "loss_critic",
+    "value": 573.3997322400411
+  },
+  {
+    "update": 5502,
+    "metric": "loss_pred",
+    "value": 0.0003917804926459212
+  },
+  {
+    "update": 5502,
+    "metric": "entropy",
+    "value": 0.48429437753067606
+  },
+  {
+    "update": 5502,
+    "metric": "clip_fraction",
+    "value": 0.026526699587702752
+  },
+  {
+    "update": 5502,
+    "metric": "grad_norm",
+    "value": 8240.937667592367
+  },
+  {
+    "update": 5502,
+    "metric": "value_mean",
+    "value": 135.33162684440612
+  },
+  {
+    "update": 5502,
+    "metric": "advantage_mean",
+    "value": -0.01825898140668869
+  },
+  {
+    "update": 5502,
+    "metric": "num_updates",
+    "value": 60.0
+  }
+]

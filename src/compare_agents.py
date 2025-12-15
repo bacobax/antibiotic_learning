@@ -243,7 +243,7 @@ def main():
         prog_agent = ProgrammaticAgent(
             target_population=args.target_population,
             initial_budget=args.initial_budget,
-            count_interval=5
+            count_interval=15
         )
         prog_metrics = run_agent(
             agent=prog_agent,
