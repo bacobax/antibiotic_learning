@@ -26,7 +26,7 @@ class ProgrammaticAgent(BaseComparisonAgent):
         self,
         target_population: int,
         initial_budget: float,
-        kp: float = 0.005,
+        kp: float = 0.05,
         tolerance: float = 0.15,
         dose_cooldown: int = 20,
         count_interval: int = 15,
